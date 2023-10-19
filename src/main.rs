@@ -6,10 +6,11 @@ mod dense;
 mod hierarchy;
 
 use crate::hierarchy::*;
+use bytesize::ByteSize;
 use clap::Parser;
 use fst_native::{FstHierarchyEntry, FstReader, FstScopeType, FstVarDirection, FstVarType};
 use std::collections::HashMap;
-use std::io::{BufRead, Read, Seek};
+use std::io::{BufRead, Seek};
 
 #[derive(Parser, Debug)]
 #[command(name = "loadfst")]
@@ -48,11 +49,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
 
     let cb = |entry: FstHierarchyEntry| {
         match entry {
-            FstHierarchyEntry::Scope {
-                tpe,
-                name,
-                ..
-            } => {
+            FstHierarchyEntry::Scope { tpe, name, .. } => {
                 h.add_scope(name, convert_scope_tpe(tpe));
             }
             FstHierarchyEntry::UpScope => h.pop_scope(),
@@ -64,7 +61,8 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 handle,
                 ..
             } => {
-                h.add_var(name,
+                h.add_var(
+                    name,
                     convert_var_tpe(tpe),
                     convert_var_direction(direction),
                     length,
@@ -86,10 +84,51 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
     h.finish()
 }
 
+fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
+    let total_num_elements = hierarchy.iter_vars().len() + hierarchy.iter_scopes().len();
+    let reduced_size = hierarchy
+        .iter_scopes()
+        .map(|s| s.name(hierarchy).bytes().len())
+        .sum::<usize>()
+        + hierarchy
+            .iter_vars()
+            .map(|v| v.name(hierarchy).bytes().len())
+            .sum::<usize>();
+    // to compute full names efficiently, we do need to save a 16-bit parent pointer which takes some space
+    let parent_overhead = std::mem::size_of::<u16>() * total_num_elements;
+    let full_size = hierarchy
+        .iter_scopes()
+        .map(|s| s.full_name(hierarchy).bytes().len())
+        .sum::<usize>()
+        + hierarchy
+            .iter_vars()
+            .map(|v| v.full_name(hierarchy).bytes().len())
+            .sum::<usize>();
+    let string_overhead = std::mem::size_of::<String>() * total_num_elements;
+
+    println!("Full vs. partial strings. (Ignoring interning)");
+    println!(
+        "Saving only the local names uses {}.",
+        ByteSize::b((reduced_size + string_overhead) as u64)
+    );
+    println!(
+        "Saving full names would use {}.",
+        ByteSize::b((full_size + string_overhead) as u64)
+    );
+    println!(
+        "We saved {}. (actual saving is larger because of interning)",
+        ByteSize::b((full_size - reduced_size) as u64)
+    )
+}
+
 fn main() {
     let args = Args::parse();
     let input = std::fs::File::open(args.filename).expect("failed to open input file!");
     let mut reader = fst_native::FstReader::open(std::io::BufReader::new(input)).unwrap();
     let hierarchy = read_hierarchy(&mut reader);
-    println!("The hierarchy takes up at least {} bytes of memory.", estimate_hierarchy_size(&hierarchy));
+    println!(
+        "The hierarchy takes up at least {} of memory.",
+        ByteSize::b(estimate_hierarchy_size(&hierarchy) as u64)
+    );
+    print_size_of_full_vs_reduced_names(&hierarchy);
 }

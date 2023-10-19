@@ -3,6 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::dense::DenseHashMap;
+use bytesize::ByteSize;
 use std::num::{NonZeroU16, NonZeroU32};
 use string_interner::Symbol;
 
@@ -98,6 +99,8 @@ pub struct Var {
     next: Option<HierarchyEntryId>,
 }
 
+const SCOPE_SEPARATOR: char = '.';
+
 impl Var {
     /// Local name of the variable.
     pub fn name<'a>(&self, hierarchy: &'a Hierarchy) -> &'a str {
@@ -106,8 +109,10 @@ impl Var {
 
     /// Full hierarchical name of the variable.
     pub fn full_name<'a>(&self, hierarchy: &Hierarchy) -> String {
-        todo!()
-        //hierarchy.get_str(self.name)
+        let mut out = hierarchy.get_scope(self.parent).full_name(hierarchy);
+        out.push(SCOPE_SEPARATOR);
+        out.push_str(self.name(hierarchy));
+        out
     }
 }
 
@@ -115,7 +120,7 @@ impl Var {
 #[derive(Clone, Copy)]
 enum HierarchyEntryId {
     Scope(HierarchyScopeId),
-    Var(HierarchyVarId)
+    Var(HierarchyVarId),
 }
 
 pub struct Scope {
@@ -126,6 +131,29 @@ pub struct Scope {
     next: Option<HierarchyEntryId>,
 }
 
+impl Scope {
+    /// Local name of the scope.
+    pub fn name<'a>(&self, hierarchy: &'a Hierarchy) -> &'a str {
+        hierarchy.get_str(self.name)
+    }
+
+    /// Full hierarchical name of the scope.
+    pub fn full_name<'a>(&self, hierarchy: &Hierarchy) -> String {
+        let mut parents = Vec::new();
+        let mut parent = self.parent;
+        while let Some(id) = parent {
+            parents.push(id);
+            parent = hierarchy.get_scope(id).parent;
+        }
+        let mut out: String = String::with_capacity((parents.len() + 1) * 5);
+        for parent_id in parents.iter().rev() {
+            out.push_str(hierarchy.get_scope(*parent_id).name(hierarchy));
+            out.push(SCOPE_SEPARATOR)
+        }
+        out.push_str(self.name(hierarchy));
+        out
+    }
+}
 
 pub struct Hierarchy {
     vars: Vec<Var>,
@@ -136,21 +164,13 @@ pub struct Hierarchy {
 
 // public implementation
 impl Hierarchy {
-    pub fn iter_vars(&self) {
-
+    // TODO: add custom iterator that guarantees a traversal in topological order
+    pub fn iter_vars(&self) -> std::slice::Iter<'_, Var> {
+        self.vars.iter()
     }
 
-}
-
-pub struct VarIterator<'a> {
-    vars: &'a [Var],
-}
-
-impl<'a> Iterator for VarIterator<'a> {
-    type Item = (&'a Var);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+    pub fn iter_scopes(&self) -> std::slice::Iter<'_, Scope> {
+        self.scopes.iter()
     }
 }
 
@@ -159,8 +179,9 @@ impl Hierarchy {
     fn get_str(&self, id: HierarchyStringId) -> &str {
         &self.strings[id.index()]
     }
-    fn get_parent(&self, id: HierarchyEntryId) {
-        todo!()
+
+    fn get_scope(&self, id: HierarchyScopeId) -> &Scope {
+        &self.scopes[id.index()]
     }
 }
 
@@ -168,11 +189,16 @@ impl Hierarchy {
 pub fn estimate_hierarchy_size(hierarchy: &Hierarchy) -> usize {
     let var_size = hierarchy.vars.capacity() * std::mem::size_of::<Var>();
     let scope_size = hierarchy.scopes.capacity() * std::mem::size_of::<Scope>();
-    let string_size = hierarchy.strings.capacity() * std::mem::size_of::<String>() + hierarchy.strings.iter().map(|s| s.as_bytes().len()).sum::<usize>();
-    let handle_lookup_size = hierarchy.handle_to_var.capacity() * std::mem::size_of::<HierarchyVarId>();
+    let string_size = hierarchy.strings.capacity() * std::mem::size_of::<String>()
+        + hierarchy
+            .strings
+            .iter()
+            .map(|s| s.as_bytes().len())
+            .sum::<usize>();
+    let handle_lookup_size =
+        hierarchy.handle_to_var.capacity() * std::mem::size_of::<HierarchyVarId>();
     var_size + scope_size + string_size + handle_lookup_size + std::mem::size_of::<Hierarchy>()
 }
-
 
 struct ScopeStackEntry {
     scope_id: usize,
@@ -231,8 +257,8 @@ impl HierarchyBuilder {
     pub fn print_statistics(&self) {
         println!("Duplicate strings: {}", self.duplicate_string_count);
         println!(
-            "Bytes saved by interning strings: {}",
-            self.duplicate_string_size
+            "Memory saved by interning strings: {}",
+            ByteSize::b(self.duplicate_string_size as u64),
         );
     }
 
@@ -292,20 +318,23 @@ impl HierarchyBuilder {
 
         // now we can build the node data structure and store it
         let node = Scope {
-                parent,
-                child: None,
-                next: None,
-                name: self.add_string(name),
-                tpe,
-            };
+            parent,
+            child: None,
+            next: None,
+            name: self.add_string(name),
+            tpe,
+        };
         self.scopes.push(node);
     }
 
-    pub fn add_var(&mut self, name: String,
-                   tpe: VarType,
-                   direction: VarDirection,
-                   length: u32,
-                   handle: SignalHandle) {
+    pub fn add_var(
+        &mut self,
+        name: String,
+        tpe: VarType,
+        direction: VarDirection,
+        length: u32,
+        handle: SignalHandle,
+    ) {
         let node_id = self.vars.len();
         let var_id = HierarchyVarId::from_index(node_id).unwrap();
         let wrapped_id = HierarchyEntryId::Var(var_id);
@@ -316,12 +345,12 @@ impl HierarchyBuilder {
 
         // now we can build the node data structure and store it
         let node = Var {
-                parent: parent.unwrap(),
-                name: self.add_string(name),
-                tpe,
-                direction,
-                length,
-                handle,
+            parent: parent.unwrap(),
+            name: self.add_string(name),
+            tpe,
+            direction,
+            length,
+            handle,
             next: None,
         };
         self.vars.push(node);
@@ -331,7 +360,6 @@ impl HierarchyBuilder {
         self.scope_stack.pop().unwrap();
     }
 }
-
 
 #[cfg(test)]
 mod tests {
