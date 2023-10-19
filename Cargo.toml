@@ -10,4 +10,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+clap = { version = "4.4.6", features = ["derive"] }
 fst-native = "0.6.0"
+string-interner = { version = "0.14.0", features = ["std", "inline-more", "backends"] }
