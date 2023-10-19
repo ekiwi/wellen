@@ -1,6 +1,8 @@
 // Copyright 2023 The Regents of the University of California
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
+//
+// Space efficient format for a wavedump hierarchy.
 
 use crate::dense::DenseHashMap;
 use bytesize::ByteSize;
@@ -89,11 +91,26 @@ pub enum VarDirection {
 /// Signal identifier.
 pub type SignalHandle = u32;
 
+#[derive(Debug, Clone, Copy)]
+pub enum SignalLength {
+    Variable,
+    Fixed(NonZeroU32),
+}
+
+impl SignalLength {
+    pub fn from_uint(len: u32) -> Self {
+        match NonZeroU32::new(len) {
+            None => SignalLength::Variable,
+            Some(value) => SignalLength::Fixed(value),
+        }
+    }
+}
+
 pub struct Var {
     name: HierarchyStringId,
     tpe: VarType,
     direction: VarDirection,
-    length: u32,
+    length: SignalLength,
     handle: SignalHandle,
     parent: HierarchyScopeId,
     next: Option<HierarchyEntryId>,
@@ -103,6 +120,7 @@ const SCOPE_SEPARATOR: char = '.';
 
 impl Var {
     /// Local name of the variable.
+    #[inline]
     pub fn name<'a>(&self, hierarchy: &'a Hierarchy) -> &'a str {
         hierarchy.get_str(self.name)
     }
@@ -113,6 +131,16 @@ impl Var {
         out.push(SCOPE_SEPARATOR);
         out.push_str(self.name(hierarchy));
         out
+    }
+
+    #[inline]
+    pub fn handle(&self) -> SignalHandle {
+        self.handle
+    }
+
+    #[inline]
+    pub fn length(&self) -> SignalLength {
+        self.length
     }
 }
 
@@ -349,7 +377,7 @@ impl HierarchyBuilder {
             name: self.add_string(name),
             tpe,
             direction,
-            length,
+            length: SignalLength::from_uint(length),
             handle,
             next: None,
         };

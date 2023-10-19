@@ -252,6 +252,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "leb128"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "884e2677b40cc8c339eaefcb701c32ef1fd2493d71118dc0ca4b6a736c93bd67"
+
+[[package]]
 name = "libc"
 version = "0.2.149"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -507,6 +513,8 @@ dependencies = [
  "bytesize",
  "clap",
  "fst-native",
+ "leb128",
+ "lz4_flex",
  "smallvec",
  "string-interner",
 ]

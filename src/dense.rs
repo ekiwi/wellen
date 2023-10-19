@@ -45,6 +45,9 @@ where
     pub fn get(&self, key: usize) -> Option<&V> {
         self.entries.get(key)
     }
+    pub fn get_mut(&mut self, key: usize) -> Option<&mut V> {
+        self.entries.get_mut(key)
+    }
     pub fn into_vec(self) -> Vec<V> {
         self.entries
     }

@@ -4,11 +4,16 @@
 
 mod dense;
 mod hierarchy;
+mod values;
 
 use crate::hierarchy::*;
+use crate::values::*;
 use bytesize::ByteSize;
 use clap::Parser;
-use fst_native::{FstHierarchyEntry, FstReader, FstScopeType, FstVarDirection, FstVarType};
+use fst_native::{
+    FstFilter, FstHierarchyEntry, FstReader, FstScopeType, FstSignalHandle, FstSignalValue,
+    FstVarDirection, FstVarType,
+};
 use std::collections::HashMap;
 use std::io::{BufRead, Seek};
 
@@ -121,6 +126,30 @@ fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
     )
 }
 
+fn read_values<F: BufRead + Seek>(reader: &mut FstReader<F>, hierarchy: &Hierarchy) -> Values {
+    let mut v = ValueBuilder::default();
+    for var in hierarchy.iter_vars() {
+        v.add_signal(var.handle(), var.length())
+    }
+
+    let cb = |time: u64, handle: FstSignalHandle, value: FstSignalValue| match value {
+        FstSignalValue::String(value) => {
+            v.value_and_time(handle.get_index() as SignalHandle, time, value.as_bytes());
+        }
+        FstSignalValue::Real(value) => {
+            v.value_and_time(
+                handle.get_index() as SignalHandle,
+                time,
+                &value.to_be_bytes(),
+            );
+        }
+    };
+    let filter = FstFilter::all();
+    reader.read_signals(&filter, cb).unwrap();
+    v.print_statistics();
+    v.finish()
+}
+
 fn main() {
     let args = Args::parse();
     let input = std::fs::File::open(args.filename).expect("failed to open input file!");
@@ -131,4 +160,5 @@ fn main() {
         ByteSize::b(estimate_hierarchy_size(&hierarchy) as u64)
     );
     print_size_of_full_vs_reduced_names(&hierarchy);
+    read_values(&mut reader, &hierarchy);
 }
