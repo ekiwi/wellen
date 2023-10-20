@@ -3,6 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 mod dense;
+mod fst;
 mod hierarchy;
 mod values;
 
@@ -10,11 +11,7 @@ use crate::hierarchy::*;
 use crate::values::*;
 use bytesize::ByteSize;
 use clap::Parser;
-use fst_native::{
-    FstFilter, FstHierarchyEntry, FstReader, FstScopeType, FstSignalHandle, FstSignalValue,
-    FstVarDirection, FstVarType,
-};
-use std::collections::HashMap;
+
 use std::io::{BufRead, Seek};
 
 #[derive(Parser, Debug)]
@@ -25,68 +22,6 @@ use std::io::{BufRead, Seek};
 struct Args {
     #[arg(value_name = "FSTFILE", index = 1)]
     filename: String,
-}
-
-fn convert_scope_tpe(tpe: FstScopeType) -> ScopeType {
-    match tpe {
-        FstScopeType::Module => ScopeType::Module,
-        _ => ScopeType::Todo,
-    }
-}
-
-fn convert_var_tpe(tpe: FstVarType) -> VarType {
-    match tpe {
-        FstVarType::Wire => VarType::Wire,
-        _ => VarType::Todo,
-    }
-}
-
-fn convert_var_direction(tpe: FstVarDirection) -> VarDirection {
-    match tpe {
-        FstVarDirection::Input => VarDirection::Input,
-        _ => VarDirection::Todo,
-    }
-}
-
-fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
-    let mut h = HierarchyBuilder::default();
-    let mut path_names = HashMap::new();
-
-    let cb = |entry: FstHierarchyEntry| {
-        match entry {
-            FstHierarchyEntry::Scope { tpe, name, .. } => {
-                h.add_scope(name, convert_scope_tpe(tpe));
-            }
-            FstHierarchyEntry::UpScope => h.pop_scope(),
-            FstHierarchyEntry::Var {
-                tpe,
-                direction,
-                name,
-                length,
-                handle,
-                ..
-            } => {
-                h.add_var(
-                    name,
-                    convert_var_tpe(tpe),
-                    convert_var_direction(direction),
-                    length,
-                    handle.get_index() as u32,
-                );
-            }
-            FstHierarchyEntry::PathName { id, name } => {
-                path_names.insert(id, name);
-            }
-            FstHierarchyEntry::SourceStem { .. } => todo!(),
-            FstHierarchyEntry::Comment { .. } => todo!(),
-            FstHierarchyEntry::EnumTable { .. } => todo!(),
-            FstHierarchyEntry::EnumTableRef { .. } => todo!(),
-            FstHierarchyEntry::AttributeEnd => todo!(),
-        };
-    };
-    reader.read_hierarchy(cb).unwrap();
-    h.print_statistics();
-    h.finish()
 }
 
 fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
@@ -126,39 +61,17 @@ fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
     )
 }
 
-fn read_values<F: BufRead + Seek>(reader: &mut FstReader<F>, hierarchy: &Hierarchy) -> Values {
-    let mut v = ValueBuilder::default();
-    for var in hierarchy.iter_vars() {
-        v.add_signal(var.handle(), var.length())
-    }
-
-    let cb = |time: u64, handle: FstSignalHandle, value: FstSignalValue| match value {
-        FstSignalValue::String(value) => {
-            v.value_and_time(handle.get_index() as SignalHandle, time, value.as_bytes());
-        }
-        FstSignalValue::Real(value) => {
-            v.value_and_time(
-                handle.get_index() as SignalHandle,
-                time,
-                &value.to_be_bytes(),
-            );
-        }
-    };
-    let filter = FstFilter::all();
-    reader.read_signals(&filter, cb).unwrap();
-    v.print_statistics();
-    v.finish()
-}
-
 fn main() {
     let args = Args::parse();
-    let input = std::fs::File::open(args.filename).expect("failed to open input file!");
-    let mut reader = fst_native::FstReader::open(std::io::BufReader::new(input)).unwrap();
-    let hierarchy = read_hierarchy(&mut reader);
+    let ext = args.filename.split('.').last().unwrap();
+    let (hierarchy, values) = match ext {
+        "fst" => fst::read(&args.filename),
+        other => panic!("Unsupported file extension: {other}"),
+    };
+
     println!(
         "The hierarchy takes up at least {} of memory.",
         ByteSize::b(estimate_hierarchy_size(&hierarchy) as u64)
     );
     print_size_of_full_vs_reduced_names(&hierarchy);
-    read_values(&mut reader, &hierarchy);
 }
