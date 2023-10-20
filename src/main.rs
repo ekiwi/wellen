@@ -6,6 +6,7 @@ mod dense;
 mod fst;
 mod hierarchy;
 mod values;
+mod vcd;
 
 use crate::hierarchy::*;
 use crate::values::*;
@@ -66,6 +67,7 @@ fn main() {
     let ext = args.filename.split('.').last().unwrap();
     let (hierarchy, values) = match ext {
         "fst" => fst::read(&args.filename),
+        "vcd" => vcd::read(&args.filename),
         other => panic!("Unsupported file extension: {other}"),
     };
 
