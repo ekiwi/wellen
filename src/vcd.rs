@@ -32,13 +32,25 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> Hierarchy {
             u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
             id_to_int(id),
         ),
-        HeaderCmd::VectorVar(tpe, size, id, name, _) => h.add_var(
-            std::str::from_utf8(name).unwrap().to_string(),
-            convert_var_tpe(tpe),
-            VarDirection::Todo,
-            u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
-            id_to_int(id),
-        ),
+        HeaderCmd::VectorVar(tpe, size, id, name, _) => {
+            let length = match u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10) {
+                Ok(len) => len,
+                Err(_) => {
+                    panic!(
+                        "Failed to parse length: {} for {}",
+                        String::from_utf8_lossy(size),
+                        String::from_utf8_lossy(name)
+                    );
+                }
+            };
+            h.add_var(
+                std::str::from_utf8(name).unwrap().to_string(),
+                convert_var_tpe(tpe),
+                VarDirection::Todo,
+                length,
+                id_to_int(id),
+            );
+        }
     };
 
     read_header(input, foo).unwrap();
@@ -114,29 +126,31 @@ fn read_header(
 
         // decode
         if buf.starts_with(b"$scope") {
-            let parts: Vec<&[u8]> = buf.as_slice().split(|c| *c == b' ').collect();
+            let parts: Vec<&[u8]> = line_to_tokens(&buf);
             assert_eq!(parts.last().unwrap(), b"$end");
             (callback)(HeaderCmd::Scope(parts[1], parts[2]));
         } else if buf.starts_with(b"$var") {
-            let parts: Vec<&[u8]> = buf.as_slice().split(|c| *c == b' ').collect();
+            let parts: Vec<&[u8]> = line_to_tokens(&buf);
             assert_eq!(parts.last().unwrap(), b"$end");
             match parts.len() - 2 {
                 4 => (callback)(HeaderCmd::ScalarVar(parts[1], parts[2], parts[3], parts[4])),
-                5 => (callback)(HeaderCmd::VectorVar(
-                    parts[1], parts[2], parts[3], parts[4], parts[4],
-                )),
+                5 => {
+                    (callback)(HeaderCmd::VectorVar(
+                        parts[1], parts[2], parts[3], parts[4], parts[4],
+                    ));
+                }
                 _ => panic!(
                     "Unexpected var declaration: {}",
                     std::str::from_utf8(&buf).unwrap()
                 ),
             }
         } else if buf.starts_with(b"$upscope") {
-            let parts: Vec<&[u8]> = buf.as_slice().split(|c| *c == b' ').collect();
+            let parts: Vec<&[u8]> = line_to_tokens(&buf);
             assert_eq!(parts.last().unwrap(), b"$end");
             assert_eq!(parts.len(), 2);
             (callback)(HeaderCmd::UpScope);
         } else if buf.starts_with(b"$enddefinitions") {
-            let parts: Vec<&[u8]> = buf.as_slice().split(|c| *c == b' ').collect();
+            let parts: Vec<&[u8]> = line_to_tokens(&buf);
             assert_eq!(parts.last().unwrap(), b"$end");
             // header is done
             return Ok(());
@@ -158,6 +172,13 @@ fn read_header(
             panic!("Unexpected line: {}", std::str::from_utf8(&buf).unwrap());
         }
     }
+}
+
+#[inline]
+fn line_to_tokens(line: &[u8]) -> Vec<&[u8]> {
+    line.split(|c| *c == b' ')
+        .filter(|e| !e.is_empty())
+        .collect()
 }
 
 #[inline]
