@@ -4,83 +4,190 @@
 
 use crate::hierarchy::*;
 use crate::values::*;
-use std::io::BufRead;
-use vcd::Command;
+use std::io::{BufRead, Seek};
 
 pub fn read(filename: &str) -> (Hierarchy, Values) {
     let input = std::fs::File::open(filename).expect("failed to open input file!");
-    let mut parser = vcd::Parser::new(std::io::BufReader::new(input));
-    let hierarchy = read_hierarchy(&mut parser);
-    let values = read_values(&mut parser, &hierarchy);
+    let mut input = std::io::BufReader::new(input);
+    let hierarchy = read_hierarchy(&mut input);
+    let values = read_values(&mut input, &hierarchy);
     (hierarchy, values)
 }
 
-fn read_hierarchy<R: BufRead>(parser: &mut vcd::Parser<R>) -> Hierarchy {
-    let header = parser.parse_header().unwrap();
+fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> Hierarchy {
     let mut h = HierarchyBuilder::default();
-    for item in header.items {
-        add_item(item, &mut h);
-    }
+
+    let foo = |cmd: HeaderCmd| match cmd {
+        HeaderCmd::Scope(tpe, name) => {
+            h.add_scope(
+                std::str::from_utf8(name).unwrap().to_string(),
+                convert_scope_tpe(tpe),
+            );
+        }
+        HeaderCmd::UpScope => h.pop_scope(),
+        HeaderCmd::ScalarVar(tpe, size, id, name) => h.add_var(
+            std::str::from_utf8(name).unwrap().to_string(),
+            convert_var_tpe(tpe),
+            VarDirection::Todo,
+            u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
+            id_to_int(id),
+        ),
+        HeaderCmd::VectorVar(tpe, size, id, name, _) => h.add_var(
+            std::str::from_utf8(name).unwrap().to_string(),
+            convert_var_tpe(tpe),
+            VarDirection::Todo,
+            u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
+            id_to_int(id),
+        ),
+    };
+
+    read_header(input, foo).unwrap();
     h.print_statistics();
     h.finish()
 }
 
-fn convert_scope_tpe(tpe: vcd::ScopeType) -> ScopeType {
+fn convert_scope_tpe(tpe: &[u8]) -> ScopeType {
     match tpe {
-        vcd::ScopeType::Module => ScopeType::Module,
+        b"module" => ScopeType::Module,
         _ => ScopeType::Todo,
     }
 }
 
-fn convert_var_tpe(tpe: vcd::VarType) -> VarType {
+fn convert_var_tpe(tpe: &[u8]) -> VarType {
     match tpe {
-        vcd::VarType::Wire => VarType::Wire,
+        b"wire" => VarType::Wire,
         _ => VarType::Todo,
     }
 }
 
-fn add_item(item: vcd::ScopeItem, h: &mut HierarchyBuilder) {
-    match item {
-        vcd::ScopeItem::Scope(scope) => {
-            h.add_scope(scope.identifier, convert_scope_tpe(scope.scope_type));
-            for item in scope.items {
-                add_item(item, h);
-            }
-            h.pop_scope();
-        }
-        vcd::ScopeItem::Var(var) => {
-            h.add_var(
-                var.reference,
-                convert_var_tpe(var.var_type),
-                VarDirection::Todo,
-                var.size,
-                0, // problem: we cannot get to the actual ID because it is private!
-            );
-        }
-        vcd::ScopeItem::Comment(_) => {} // ignore comments
-        _ => {}
-    }
-}
-
-fn read_values<R: BufRead>(parser: &mut vcd::Parser<R>, hierarchy: &Hierarchy) -> Values {
+fn read_values<R: BufRead>(input: &mut R, hierarchy: &Hierarchy) -> Values {
     let mut v = ValueBuilder::default();
     for var in hierarchy.iter_vars() {
         v.add_signal(var.handle(), var.length())
     }
 
-    for command_result in parser {
-        let command = command_result.unwrap();
-        use vcd::Command::*;
-        match command {
-            ChangeScalar(i, v) => {
-                todo!()
-            }
-
-            _ => {}
+    let foo = |cmd: BodyCmd| match cmd {
+        BodyCmd::Time(value) => {
+            let int_value = u64::from_str_radix(std::str::from_utf8(value).unwrap(), 10).unwrap();
+            v.time_change(int_value);
         }
-    }
+        BodyCmd::Value(value, id) => {
+            v.value_change(id_to_int(id), value);
+        }
+    };
+
+    read_body(input, foo, None).unwrap();
+
     v.print_statistics();
     v.finish()
+}
+
+/// Each printable character is a digit in base (126 - 32) = 94.
+/// The most significant digit is on the right!
+#[inline]
+fn id_to_int(id: &[u8]) -> SignalHandle {
+    assert!(!id.is_empty());
+    let mut value: u64 = 0;
+    for bb in id.iter().rev() {
+        let char_val = (*bb - 33) as u64;
+        value = (value * 94) + char_val;
+    }
+    value as u32
+}
+
+/// very hacky read header implementation, will fail on a lot of valid headers
+fn read_header(
+    input: &mut (impl BufRead + Seek),
+    mut callback: impl FnMut(HeaderCmd),
+) -> std::io::Result<()> {
+    let mut buf: Vec<u8> = Vec::with_capacity(128);
+    loop {
+        buf.clear();
+        let read = input.read_until(b'\n', &mut buf)?;
+        if read == 0 {
+            return Ok(());
+        }
+        truncate(&mut buf);
+        if buf.is_empty() {
+            continue;
+        }
+
+        // decode
+        if buf.starts_with(b"$scope") {
+            let parts: Vec<&[u8]> = buf.as_slice().split(|c| *c == b' ').collect();
+            assert_eq!(parts.last().unwrap(), b"$end");
+            (callback)(HeaderCmd::Scope(parts[1], parts[2]));
+        } else if buf.starts_with(b"$var") {
+            let parts: Vec<&[u8]> = buf.as_slice().split(|c| *c == b' ').collect();
+            assert_eq!(parts.last().unwrap(), b"$end");
+            match parts.len() - 2 {
+                4 => (callback)(HeaderCmd::ScalarVar(parts[1], parts[2], parts[3], parts[4])),
+                5 => (callback)(HeaderCmd::VectorVar(
+                    parts[1], parts[2], parts[3], parts[4], parts[4],
+                )),
+                _ => panic!(
+                    "Unexpected var declaration: {}",
+                    std::str::from_utf8(&buf).unwrap()
+                ),
+            }
+        } else if buf.starts_with(b"$upscope") {
+            let parts: Vec<&[u8]> = buf.as_slice().split(|c| *c == b' ').collect();
+            assert_eq!(parts.last().unwrap(), b"$end");
+            assert_eq!(parts.len(), 2);
+            (callback)(HeaderCmd::UpScope);
+        } else if buf.starts_with(b"$enddefinitions") {
+            let parts: Vec<&[u8]> = buf.as_slice().split(|c| *c == b' ').collect();
+            assert_eq!(parts.last().unwrap(), b"$end");
+            // header is done
+            return Ok(());
+        } else if buf.starts_with(b"$date")
+            || buf.starts_with(b"$version")
+            || buf.starts_with(b"$comment")
+            || buf.starts_with(b"$timescale")
+        {
+            // ignored commands, just find the $end
+            while !contains_end(&buf) {
+                buf.clear();
+                let read = input.read_until(b'\n', &mut buf)?;
+                if read == 0 {
+                    return Ok(());
+                }
+                truncate(&mut buf);
+            }
+        } else {
+            panic!("Unexpected line: {}", std::str::from_utf8(&buf).unwrap());
+        }
+    }
+}
+
+#[inline]
+fn truncate(buf: &mut Vec<u8>) {
+    while !buf.is_empty() {
+        match buf.first().unwrap() {
+            b' ' | b'\n' | b'\r' | b'\t' => buf.remove(0),
+            _ => break,
+        };
+    }
+
+    while !buf.is_empty() {
+        match buf.last().unwrap() {
+            b' ' | b'\n' | b'\r' | b'\t' => buf.pop(),
+            _ => break,
+        };
+    }
+}
+
+#[inline]
+fn contains_end(line: &[u8]) -> bool {
+    let str_view = std::str::from_utf8(line).unwrap();
+    str_view.contains("$end")
+}
+
+enum HeaderCmd<'a> {
+    Scope(&'a [u8], &'a [u8]), // tpe, name
+    UpScope,
+    ScalarVar(&'a [u8], &'a [u8], &'a [u8], &'a [u8]), // tpe, size, id, name
+    VectorVar(&'a [u8], &'a [u8], &'a [u8], &'a [u8], &'a [u8]), // tpe, size, id, name, vector def
 }
 
 fn read_body(
@@ -92,10 +199,7 @@ fn read_body(
     loop {
         // fill buffer
         let buf = input.fill_buf()?;
-        let buf_len = buf.len();
         if buf.is_empty() {
-            // if we read to the end of the file, see if there is still a token that can be finished
-
             return Ok(());
         }
 
@@ -172,7 +276,10 @@ fn try_finish_token<'a>(
                             Some(BodyCmd::Value(&token[0..1], &token[1..]))
                         }
                         _ => {
-                            *prev_token = Some(token);
+                            if token != b"$dumpvars" {
+                                // ignore dumpvars command
+                                *prev_token = Some(token);
+                            }
                             None
                         }
                     }
@@ -183,7 +290,11 @@ fn try_finish_token<'a>(
                             BodyCmd::Value(&first[0..], token)
                         }
                         _ => {
-                            panic!("Unexpected tokens: {first:?} {token:?}");
+                            panic!(
+                                "Unexpected tokens: {} {}",
+                                String::from_utf8_lossy(first),
+                                String::from_utf8_lossy(token)
+                            );
                         }
                     };
                     *prev_token = None;
