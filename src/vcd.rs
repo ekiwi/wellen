@@ -266,32 +266,6 @@ fn read_values<R: Read>(input: &mut R, hierarchy: &Hierarchy) -> Values {
     v.finish()
 }
 
-/// A custom implementation of a buffered reader which refills its buffer,
-/// even if not all bytes have been consumed. This makes our VCD parsing algorithm
-/// easier to implement.
-struct CustomBufRead<R: Read> {
-    input: R,
-    bytes_consumed: usize,
-    buf_len: usize,
-    buf: Vec<u8>,
-}
-
-const DEFAULT_BUFFER_SIZE: usize = 8 * 1024;
-impl<R: Read> CustomBufRead<R> {
-    fn new(input: R) -> Self {
-        CustomBufRead {
-            input,
-            bytes_consumed: 0,
-            buf_len: 0,
-            buf: vec![0u8; DEFAULT_BUFFER_SIZE],
-        }
-    }
-
-    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {}
-
-    fn consume(&mut self, bytes: usize) {}
-}
-
 fn read_body(
     input: &mut impl Read,
     mut callback: impl FnMut(usize, BodyCmd),
