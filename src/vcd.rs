@@ -280,12 +280,17 @@ fn read_body(
 
         // move remaining bytes to the front
         remaining_bytes = buf_len - bytes_consumed;
-        if remaining_bytes > 0 {
-            println!(
-                "remaining_bytes = {remaining_bytes}, consumed={bytes_consumed}, buf_len={buf_len}"
-            );
-            let (dest, src) = buf.split_at_mut(bytes_consumed);
-            dest[0..remaining_bytes].copy_from_slice(&src[0..remaining_bytes]);
+        if remaining_bytes > 0 && bytes_consumed > 0 {
+            // copy remaining bytes to the left
+            let overlaps = bytes_consumed < remaining_bytes;
+            if overlaps {
+                for ii in 0..remaining_bytes {
+                    buf[ii] = buf[ii + bytes_consumed];
+                }
+            } else {
+                let (dest, src) = buf.split_at_mut(bytes_consumed);
+                dest[0..remaining_bytes].copy_from_slice(&src[0..remaining_bytes]);
+            }
         }
     }
 }
