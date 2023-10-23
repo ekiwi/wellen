@@ -4,6 +4,7 @@
 
 use crate::hierarchy::*;
 use crate::values::*;
+use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Read, Seek};
 
 pub fn read(filename: &str) -> (Hierarchy, Values) {
@@ -219,6 +220,7 @@ fn read_body(
     let mut total_read_len = 0;
     let mut buf = vec![0u8; 8 * 1024];
     let mut remaining_bytes = 0usize;
+    let mut lines_read = 0usize;
     loop {
         // fill buffer
         let buf_read_len = input.read(&mut &mut buf[remaining_bytes..])?;
@@ -231,18 +233,37 @@ fn read_body(
         let mut token_start: Option<usize> = None;
         let mut prev_token: Option<&[u8]> = None;
         let mut bytes_consumed = 0usize;
+        let mut pending_lines = 0usize;
         for (pos, b) in buf.iter().take(buf_len).enumerate() {
             match b {
                 b' ' | b'\n' | b'\r' | b'\t' => {
                     if token_start.is_none() {
                         // if we aren't tracking anything, we can just consume the whitespace
                         bytes_consumed = pos + 1;
+                        if *b == b'\n' {
+                            lines_read += 1;
+                        }
                     } else {
-                        match try_finish_token(&buf, pos, &mut token_start, &mut prev_token) {
-                            None => {}
+                        match try_finish_token(
+                            &buf,
+                            pos,
+                            lines_read,
+                            &mut token_start,
+                            &mut prev_token,
+                        ) {
+                            None => {
+                                if *b == b'\n' {
+                                    pending_lines += 1;
+                                }
+                            }
                             Some(cmd) => {
                                 (callback)(cmd);
                                 bytes_consumed = pos + 1;
+                                lines_read += pending_lines;
+                                pending_lines = 0;
+                                if *b == b'\n' {
+                                    lines_read += 1;
+                                }
                             }
                         }
                     }
@@ -265,17 +286,15 @@ fn read_body(
 
         // if we did not consume any bytes, we might be at the end of the stream which ends in
         // a token
-        if bytes_consumed == 0 {
-            match try_finish_token(&buf, buf_len, &mut token_start, &mut prev_token) {
+        if bytes_consumed == 0 && buf_read_len == 0 {
+            match try_finish_token(&buf, buf_len, lines_read, &mut token_start, &mut prev_token) {
                 None => {}
                 Some(cmd) => {
                     (callback)(cmd);
                     bytes_consumed = buf_len;
                 }
             }
-            if buf_read_len == 0 {
-                return Ok(()); // in case we did not make progress
-            }
+            return Ok(()); // in case we did not make progress
         }
 
         // move remaining bytes to the front
@@ -299,6 +318,7 @@ fn read_body(
 fn try_finish_token<'a>(
     buf: &'a [u8],
     pos: usize,
+    lines_read: usize,
     token_start: &mut Option<usize>,
     prev_token: &mut Option<&'a [u8]>,
 ) -> Option<BodyCmd<'a>> {
@@ -337,7 +357,7 @@ fn try_finish_token<'a>(
                         }
                         _ => {
                             panic!(
-                                "Unexpected tokens: {} {}",
+                                "Unexpected tokens: `{}` and `{}` ({lines_read} lines after header)",
                                 String::from_utf8_lossy(first),
                                 String::from_utf8_lossy(token)
                             );
@@ -356,6 +376,24 @@ fn try_finish_token<'a>(
 enum BodyCmd<'a> {
     Time(&'a [u8]),
     Value(&'a [u8], &'a [u8]),
+}
+
+impl<'a> Debug for BodyCmd<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BodyCmd::Time(value) => {
+                write!(f, "Time({})", String::from_utf8_lossy(value))
+            }
+            BodyCmd::Value(value, id) => {
+                write!(
+                    f,
+                    "Value({}, {})",
+                    String::from_utf8_lossy(id),
+                    String::from_utf8_lossy(value)
+                )
+            }
+        }
+    }
 }
 
 #[cfg(test)]
