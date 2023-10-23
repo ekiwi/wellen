@@ -4,7 +4,7 @@
 
 use crate::hierarchy::*;
 use crate::values::*;
-use std::io::{BufRead, Seek};
+use std::io::{BufRead, Read, Seek};
 
 pub fn read(filename: &str) -> (Hierarchy, Values) {
     let input = std::fs::File::open(filename).expect("failed to open input file!");
@@ -212,15 +212,18 @@ enum HeaderCmd<'a> {
 }
 
 fn read_body(
-    input: &mut impl BufRead,
+    input: &mut impl Read,
     mut callback: impl FnMut(BodyCmd),
     read_len: Option<usize>,
 ) -> std::io::Result<()> {
     let mut total_read_len = 0;
+    let mut buf = vec![0u8; 8 * 1024];
+    let mut remaining_bytes = 0usize;
     loop {
         // fill buffer
-        let buf = input.fill_buf()?;
-        if buf.is_empty() {
+        let buf_read_len = input.read(&mut &mut buf[remaining_bytes..])?;
+        let buf_len = buf_read_len + remaining_bytes;
+        if buf_len == 0 {
             return Ok(());
         }
 
@@ -228,14 +231,14 @@ fn read_body(
         let mut token_start: Option<usize> = None;
         let mut prev_token: Option<&[u8]> = None;
         let mut bytes_consumed = 0usize;
-        for (pos, b) in buf.iter().enumerate() {
+        for (pos, b) in buf.iter().take(buf_len).enumerate() {
             match b {
                 b' ' | b'\n' | b'\r' | b'\t' => {
                     if token_start.is_none() {
                         // if we aren't tracking anything, we can just consume the whitespace
                         bytes_consumed = pos + 1;
                     } else {
-                        match try_finish_token(buf, pos, &mut token_start, &mut prev_token) {
+                        match try_finish_token(&buf, pos, &mut token_start, &mut prev_token) {
                             None => {}
                             Some(cmd) => {
                                 (callback)(cmd);
@@ -263,17 +266,27 @@ fn read_body(
         // if we did not consume any bytes, we might be at the end of the stream which ends in
         // a token
         if bytes_consumed == 0 {
-            match try_finish_token(buf, buf.len(), &mut token_start, &mut prev_token) {
+            match try_finish_token(&buf, buf_len, &mut token_start, &mut prev_token) {
                 None => {}
                 Some(cmd) => {
                     (callback)(cmd);
-                    bytes_consumed = buf.len();
+                    bytes_consumed = buf_len;
                 }
+            }
+            if buf_read_len == 0 {
+                return Ok(()); // in case we did not make progress
             }
         }
 
-        // notify the input of how many byte we consumed
-        input.consume(bytes_consumed);
+        // move remaining bytes to the front
+        remaining_bytes = buf_len - bytes_consumed;
+        if remaining_bytes > 0 {
+            println!(
+                "remaining_bytes = {remaining_bytes}, consumed={bytes_consumed}, buf_len={buf_len}"
+            );
+            let (dest, src) = buf.split_at_mut(bytes_consumed);
+            dest[0..remaining_bytes].copy_from_slice(&src[0..remaining_bytes]);
+        }
     }
 }
 
@@ -288,8 +301,15 @@ fn try_finish_token<'a>(
         None => None,
         Some(start) => {
             let token = &buf[start..pos];
+            if token.is_empty() {
+                return None;
+            }
             let ret = match *prev_token {
                 None => {
+                    if token.len() == 1 {
+                        // too short
+                        return None;
+                    }
                     // 1-token commands are binary changes or time commands
                     match token[0] {
                         b'#' => Some(BodyCmd::Time(&token[1..])),
@@ -373,6 +393,10 @@ b00000 f2!
 b10100 g2!
 b00000 h2!
 b00000 i2!
+x(i"
+x'i"
+x&i"
+x%i"
 0j2!"#;
         let expected = vec![
             "I,! = 1",
@@ -386,6 +410,10 @@ b00000 i2!
             "g2! = b10100",
             "h2! = b00000",
             "i2! = b00000",
+            "(i\" = x",
+            "'i\" = x",
+            "&i\" = x",
+            "%i\" = x",
             "j2! = 0",
         ];
         let res = read_body_to_vec(&mut input.as_bytes());
