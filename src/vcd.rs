@@ -4,18 +4,23 @@
 
 use crate::hierarchy::*;
 use crate::values::*;
+use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
-use std::io::{BufRead, Read, Seek};
+use std::io::{BufRead, Read, Seek, SeekFrom};
 
 pub fn read(filename: &str) -> (Hierarchy, Values) {
-    let input = std::fs::File::open(filename).expect("failed to open input file!");
-    let mut input = std::io::BufReader::new(input);
-    let hierarchy = read_hierarchy(&mut input);
-    let values = read_values(&mut input, &hierarchy);
+    let (file_len, (hierarchy_len, hierarchy)) = {
+        let input_file = std::fs::File::open(filename).expect("failed to open input file!");
+        let file_len = input_file.metadata().unwrap().len();
+        let mut input = std::io::BufReader::new(input_file);
+        (file_len, read_hierarchy(&mut input))
+    };
+    let values = read_values_multi_threaded(filename, file_len, hierarchy_len, &hierarchy);
     (hierarchy, values)
 }
 
-fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> Hierarchy {
+fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (u64, Hierarchy) {
+    let start = input.stream_position().unwrap();
     let mut h = HierarchyBuilder::default();
 
     let foo = |cmd: HeaderCmd| match cmd {
@@ -55,8 +60,10 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> Hierarchy {
     };
 
     read_header(input, foo).unwrap();
+    let end = input.stream_position().unwrap();
     h.print_statistics();
-    h.finish()
+    let hierarchy = h.finish();
+    (end - start, hierarchy)
 }
 
 fn convert_scope_tpe(tpe: &[u8]) -> ScopeType {
@@ -71,28 +78,6 @@ fn convert_var_tpe(tpe: &[u8]) -> VarType {
         b"wire" => VarType::Wire,
         _ => VarType::Todo,
     }
-}
-
-fn read_values<R: BufRead>(input: &mut R, hierarchy: &Hierarchy) -> Values {
-    let mut v = ValueBuilder::default();
-    for var in hierarchy.iter_vars() {
-        v.add_signal(var.handle(), var.length())
-    }
-
-    let foo = |cmd: BodyCmd| match cmd {
-        BodyCmd::Time(value) => {
-            let int_value = u64::from_str_radix(std::str::from_utf8(value).unwrap(), 10).unwrap();
-            v.time_change(int_value);
-        }
-        BodyCmd::Value(value, id) => {
-            v.value_change(id_to_int(id), value);
-        }
-    };
-
-    read_body(input, foo, None).unwrap();
-
-    v.print_statistics();
-    v.finish()
 }
 
 /// Each printable character is a digit in base (126 - 32) = 94.
@@ -110,7 +95,7 @@ fn id_to_int(id: &[u8]) -> SignalHandle {
 
 /// very hacky read header implementation, will fail on a lot of valid headers
 fn read_header(
-    input: &mut (impl BufRead + Seek),
+    input: &mut impl BufRead,
     mut callback: impl FnMut(HeaderCmd),
 ) -> std::io::Result<()> {
     let mut buf: Vec<u8> = Vec::with_capacity(128);
@@ -212,9 +197,104 @@ enum HeaderCmd<'a> {
     VectorVar(&'a [u8], &'a [u8], &'a [u8], &'a [u8], &'a [u8]), // tpe, size, id, name, vector def
 }
 
+/// The minimum number of bytes we want to read per thread.
+const MIN_CHUNK_SIZE: u64 = 8 * 1024;
+
+#[inline]
+fn int_div_ceil(a: u64, b: u64) -> u64 {
+    (a + b - 1) / b
+}
+
+/// Returns starting byte and read length for every thread. Note that read-length is just an
+/// approximation and the thread might have to read beyond or might also run out of data before
+/// reaching read length.
+#[inline]
+fn determine_thread_chunks(body_len: u64) -> Vec<(u64, u64)> {
+    let max_threads = rayon::current_num_threads() as u64;
+    let number_of_threads_for_min_chunk_size = int_div_ceil(body_len, MIN_CHUNK_SIZE);
+    let num_threads = std::cmp::min(max_threads, number_of_threads_for_min_chunk_size);
+    let chunk_size = int_div_ceil(body_len, num_threads);
+    (0..num_threads)
+        .map(|ii| (ii * chunk_size, chunk_size))
+        .collect()
+}
+
+/// Reads the body of a VCD with multiple threads
+fn read_values_multi_threaded(
+    filename: &str,
+    total_len: u64,
+    header_len: u64,
+    hierarchy: &Hierarchy,
+) -> Values {
+    assert!(total_len >= header_len);
+    let chunks = determine_thread_chunks(total_len - header_len);
+    println!("{chunks:?}");
+    let blocks: Vec<Values> = chunks
+        .par_iter()
+        .map(|(start, len)| {
+            let mut input = std::fs::File::open(filename).expect("failed to open input file!");
+            input
+                .seek(SeekFrom::Start((header_len + start) as u64))
+                .unwrap();
+            read_values(&mut input, hierarchy)
+        })
+        .collect();
+
+    println!("connect blocks");
+    blocks.into_iter().next().unwrap()
+}
+
+fn read_values<R: Read>(input: &mut R, hierarchy: &Hierarchy) -> Values {
+    let mut v = ValueBuilder::default();
+    for var in hierarchy.iter_vars() {
+        v.add_signal(var.handle(), var.length())
+    }
+
+    let foo = |pos: usize, cmd: BodyCmd| match cmd {
+        BodyCmd::Time(value) => {
+            let int_value = u64::from_str_radix(std::str::from_utf8(value).unwrap(), 10).unwrap();
+            v.time_change(int_value);
+        }
+        BodyCmd::Value(value, id) => {
+            v.value_change(id_to_int(id), value);
+        }
+    };
+
+    read_body(input, foo, None).unwrap();
+
+    v.print_statistics();
+    v.finish()
+}
+
+/// A custom implementation of a buffered reader which refills its buffer,
+/// even if not all bytes have been consumed. This makes our VCD parsing algorithm
+/// easier to implement.
+struct CustomBufRead<R: Read> {
+    input: R,
+    bytes_consumed: usize,
+    buf_len: usize,
+    buf: Vec<u8>,
+}
+
+const DEFAULT_BUFFER_SIZE: usize = 8 * 1024;
+impl<R: Read> CustomBufRead<R> {
+    fn new(input: R) -> Self {
+        CustomBufRead {
+            input,
+            bytes_consumed: 0,
+            buf_len: 0,
+            buf: vec![0u8; DEFAULT_BUFFER_SIZE],
+        }
+    }
+
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {}
+
+    fn consume(&mut self, bytes: usize) {}
+}
+
 fn read_body(
     input: &mut impl Read,
-    mut callback: impl FnMut(BodyCmd),
+    mut callback: impl FnMut(usize, BodyCmd),
     read_len: Option<usize>,
 ) -> std::io::Result<()> {
     let mut total_read_len = 0;
@@ -257,7 +337,7 @@ fn read_body(
                                 }
                             }
                             Some(cmd) => {
-                                (callback)(cmd);
+                                (callback)(pos, cmd);
                                 bytes_consumed = pos + 1;
                                 lines_read += pending_lines;
                                 pending_lines = 0;
@@ -290,7 +370,7 @@ fn read_body(
             match try_finish_token(&buf, buf_len, lines_read, &mut token_start, &mut prev_token) {
                 None => {}
                 Some(cmd) => {
-                    (callback)(cmd);
+                    (callback)(buf_len, cmd);
                     bytes_consumed = buf_len;
                 }
             }

@@ -7,6 +7,7 @@ mod fst;
 mod hierarchy;
 mod values;
 mod vcd;
+mod wavemem;
 
 use crate::hierarchy::*;
 use crate::values::*;

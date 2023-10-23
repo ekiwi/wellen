@@ -15,5 +15,6 @@ clap = { version = "4.4.6", features = ["derive"] }
 fst-native = "0.6.0"
 leb128 = "0.2.5"
 lz4_flex = "0.11.1"
+rayon = "1.8.0"
 smallvec = "1.11.1"
 string-interner = { version = "0.14.0", features = ["std", "inline-more", "backends"] }
