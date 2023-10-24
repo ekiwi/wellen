@@ -28,6 +28,12 @@ impl<V> DenseHashMap<V>
 where
     V: Default + Clone,
 {
+    pub fn with_capacity(capacity: usize) -> Self {
+        DenseHashMap {
+            entries: Vec::with_capacity(capacity),
+        }
+    }
+
     pub fn insert(&mut self, key: usize, value: V) {
         match key.cmp(&self.entries.len()) {
             Ordering::Less => {
@@ -48,7 +54,16 @@ where
     pub fn get_mut(&mut self, key: usize) -> Option<&mut V> {
         self.entries.get_mut(key)
     }
+    pub fn get_or_else_create_mut(&mut self, key: usize) -> &mut V {
+        if self.entries.len() <= key {
+            self.entries.resize(key + 1, V::default());
+        }
+        &mut self.entries[key]
+    }
     pub fn into_vec(self) -> Vec<V> {
         self.entries
+    }
+    pub fn len(&self) -> usize {
+        self.entries.len()
     }
 }

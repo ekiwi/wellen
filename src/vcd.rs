@@ -4,17 +4,35 @@
 
 use crate::hierarchy::*;
 use crate::signals::SignalSource;
+use bytesize::ByteSize;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Read, Seek, SeekFrom, Write};
 
 pub fn read(filename: &str) -> (Hierarchy, Box<dyn SignalSource>) {
+    read_internal(filename, true)
+}
+
+pub fn read_single_thread(filename: &str) -> (Hierarchy, Box<dyn SignalSource>) {
+    read_internal(filename, false)
+}
+
+fn read_internal(filename: &str, multi_threaded: bool) -> (Hierarchy, Box<dyn SignalSource>) {
     // load file into memory (lazily)
     let input_file = std::fs::File::open(filename).expect("failed to open input file!");
     let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
+    let input_size = mmap.len();
     let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]));
-
-    let wave_mem = read_values_multi_threaded(&mmap[header_len..], &hierarchy);
+    let wave_mem = read_values(&mmap[header_len..], multi_threaded);
+    println!(
+        "The full VCD data takes up  {} bytes in memory.",
+        ByteSize::b(wave_mem.size_in_memory() as u64)
+    );
+    println!(
+        "The size of the VCD file is {} bytes on disk.",
+        ByteSize::b((input_size - header_len) as u64)
+    );
+    wave_mem.print_statistics();
     (hierarchy, wave_mem)
 }
 
@@ -221,26 +239,35 @@ fn determine_thread_chunks(body_len: usize) -> Vec<(usize, usize)> {
 }
 
 /// Reads the body of a VCD with multiple threads
-fn read_values_multi_threaded(input: &[u8], _hierarchy: &Hierarchy) -> Box<dyn SignalSource> {
-    let chunks = determine_thread_chunks(input.len());
-    let encoders: Vec<crate::wavemem::Encoder> = chunks
-        .par_iter()
-        .map(|(start, len)| {
-            let is_first = *start == 0;
-            read_values(&input[*start..], *len - 1, is_first)
-        })
-        .collect();
+fn read_values(input: &[u8], multi_threaded: bool) -> Box<crate::wavemem::Reader> {
+    if multi_threaded {
+        let chunks = determine_thread_chunks(input.len());
+        let encoders: Vec<crate::wavemem::Encoder> = chunks
+            .par_iter()
+            .map(|(start, len)| {
+                let is_first = *start == 0;
+                read_single_stream_of_values(&input[*start..], *len - 1, is_first)
+            })
+            .collect();
 
-    // combine encoders
-    let mut encoder_iter = encoders.into_iter();
-    let mut encoder = encoder_iter.next().unwrap();
-    for other in encoder_iter {
-        encoder.append(other);
+        // combine encoders
+        let mut encoder_iter = encoders.into_iter();
+        let mut encoder = encoder_iter.next().unwrap();
+        for other in encoder_iter {
+            encoder.append(other);
+        }
+        Box::new(encoder.finish())
+    } else {
+        let encoder = read_single_stream_of_values(input, input.len() - 1, true);
+        Box::new(encoder.finish())
     }
-    Box::new(encoder.finish())
 }
 
-fn read_values(input: &[u8], stop_pos: usize, is_first: bool) -> crate::wavemem::Encoder {
+fn read_single_stream_of_values(
+    input: &[u8],
+    stop_pos: usize,
+    is_first: bool,
+) -> crate::wavemem::Encoder {
     let mut encoder = crate::wavemem::Encoder::default();
 
     let input2 = if is_first {
@@ -341,8 +368,8 @@ impl<'a> BodyReader<'a> {
                                 Some(BodyCmd::Value(&token[0..1], &token[1..]))
                             }
                             _ => {
-                                if token != b"$dumpvars" {
-                                    // ignore dumpvars command
+                                if token != b"$dumpvars" && token != b"$end" {
+                                    // ignore dumpvars and end command
                                     *prev_token = Some(token);
                                 }
                                 None

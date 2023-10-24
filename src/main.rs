@@ -69,7 +69,7 @@ fn main() {
     let ext = args.filename.split('.').last().unwrap();
     let (hierarchy, values) = match ext {
         "fst" => fst::read(&args.filename),
-        "vcd" => vcd::read(&args.filename),
+        "vcd" => vcd::read_single_thread(&args.filename),
         other => panic!("Unsupported file extension: {other}"),
     };
 
