@@ -5,6 +5,7 @@
 mod dense;
 mod fst;
 mod hierarchy;
+mod signals;
 mod values;
 mod vcd;
 mod wavemem;

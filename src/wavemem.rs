@@ -4,8 +4,36 @@
 //
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
+use crate::hierarchy::SignalIdx;
+use crate::signals::{Signal, WaveDatabase};
+use crate::values::Time;
+
 /// Holds queryable waveform data. Use the `Encoder` to generate.
-pub struct Reader {}
+pub struct Reader {
+    blocks: Vec<Block>,
+}
+
+impl WaveDatabase for Reader {
+    fn load_signals(&mut self, ids: &[SignalIdx]) {
+        todo!()
+    }
+
+    fn get_signal(&self, idx: SignalIdx) -> &Signal {
+        todo!()
+    }
+
+    fn get_time_table(&self) -> Vec<Time> {
+        todo!()
+    }
+}
+
+/// A block that contains all value changes in a certain time segment.
+/// Note that while in FST blocks can be skipped, here we only use blocks
+/// in order to combine data from different threads and to compress partial data.
+struct Block {
+    start_time: Time,
+    time_table: Vec<Time>,
+}
 
 /// Encodes value and time changes into a compressed in-memory representation.
 pub struct Encoder {}
@@ -25,6 +53,11 @@ impl Encoder {
     pub fn vcd_value_change(&mut self, id: u64, value: &[u8]) {}
 
     pub fn finish(self) -> Reader {
+        todo!()
+    }
+
+    // appends the contents of the other encoder to this one
+    pub fn append(&mut self, other: Encoder) {
         todo!()
     }
 }

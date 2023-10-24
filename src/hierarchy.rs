@@ -89,7 +89,7 @@ pub enum VarDirection {
 }
 
 /// Signal identifier.
-pub type SignalHandle = u32;
+pub type SignalIdx = u32;
 
 #[derive(Debug, Clone, Copy)]
 pub enum SignalLength {
@@ -111,7 +111,7 @@ pub struct Var {
     tpe: VarType,
     direction: VarDirection,
     length: SignalLength,
-    handle: SignalHandle,
+    handle: SignalIdx,
     parent: HierarchyScopeId,
     next: Option<HierarchyEntryId>,
 }
@@ -134,7 +134,7 @@ impl Var {
     }
 
     #[inline]
-    pub fn handle(&self) -> SignalHandle {
+    pub fn handle(&self) -> SignalIdx {
         self.handle
     }
 
@@ -361,7 +361,7 @@ impl HierarchyBuilder {
         tpe: VarType,
         direction: VarDirection,
         length: u32,
-        handle: SignalHandle,
+        handle: SignalIdx,
     ) {
         let node_id = self.vars.len();
         let var_id = HierarchyVarId::from_index(node_id).unwrap();
@@ -405,7 +405,7 @@ mod tests {
                 + 1 // tpe
                 + 1 // direction
                 + 4 // length
-                + std::mem::size_of::<SignalHandle>() // handle
+                + std::mem::size_of::<SignalIdx>() // handle
                 + std::mem::size_of::<HierarchyScopeId>() // parent
                 + std::mem::size_of::<HierarchyEntryId>() // next
         );

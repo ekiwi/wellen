@@ -5,7 +5,7 @@
 // Space efficient but also fast format for keeping value changes in memory or on disk.
 
 use crate::dense::DenseHashMap;
-use crate::hierarchy::{SignalHandle, SignalLength};
+use crate::hierarchy::{SignalIdx, SignalLength};
 use bytesize::ByteSize;
 use std::io::Write;
 use std::num::NonZeroU32;
@@ -73,14 +73,14 @@ impl Default for ValueBuilder<std::io::Cursor<Vec<u8>>> {
 pub type Time = u64;
 
 impl<W: Write> ValueBuilder<W> {
-    pub fn add_signal(&mut self, handle: SignalHandle, length: SignalLength) {
+    pub fn add_signal(&mut self, handle: SignalIdx, length: SignalLength) {
         let signal = SignalInfo {
             length,
             prev_value_change: ValueChangePos(0),
         };
         self.signals.insert(handle as usize, Some(signal));
     }
-    pub fn value_change(&mut self, handle: SignalHandle, value: &[u8]) {
+    pub fn value_change(&mut self, handle: SignalIdx, value: &[u8]) {
         if let Some(info) = self.signals.get_mut(handle as usize).unwrap() {
             let vc =
                 self.value_changes
@@ -95,7 +95,7 @@ impl<W: Write> ValueBuilder<W> {
             self.time_table.push(time);
         }
     }
-    pub fn value_and_time(&mut self, handle: SignalHandle, time: Time, value: &[u8]) {
+    pub fn value_and_time(&mut self, handle: SignalIdx, time: Time, value: &[u8]) {
         assert!(time >= self.current_time);
         if time > self.current_time {
             self.time_change(time);

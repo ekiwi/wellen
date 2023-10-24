@@ -3,17 +3,42 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::*;
+use crate::signals::{Signal, WaveDatabase};
 use crate::values::*;
 use fst_native::*;
 use std::collections::HashMap;
 use std::io::{BufRead, Seek};
 
-pub fn read(filename: &str) -> (Hierarchy, Values) {
+pub fn read(filename: &str) -> (Hierarchy, Box<dyn WaveDatabase>) {
     let input = std::fs::File::open(filename).expect("failed to open input file!");
     let mut reader = fst_native::FstReader::open(std::io::BufReader::new(input)).unwrap();
     let hierarchy = read_hierarchy(&mut reader);
-    let values = read_values(&mut reader, &hierarchy);
-    (hierarchy, values)
+    let db = Box::new(FstWaveDatabase::new(reader));
+    (hierarchy, db)
+}
+
+struct FstWaveDatabase<R: BufRead + Seek> {
+    reader: FstReader<R>,
+}
+
+impl<R: BufRead + Seek> FstWaveDatabase<R> {
+    fn new(reader: FstReader<R>) -> Self {
+        FstWaveDatabase { reader }
+    }
+}
+
+impl<R: BufRead + Seek> WaveDatabase for FstWaveDatabase<R> {
+    fn load_signals(&mut self, ids: &[SignalIdx]) {
+        todo!()
+    }
+
+    fn get_signal(&self, idx: SignalIdx) -> &Signal {
+        todo!()
+    }
+
+    fn get_time_table(&self) -> Vec<Time> {
+        todo!()
+    }
 }
 
 fn convert_scope_tpe(tpe: FstScopeType) -> ScopeType {
@@ -86,14 +111,10 @@ fn read_values<F: BufRead + Seek>(reader: &mut FstReader<F>, hierarchy: &Hierarc
 
     let cb = |time: u64, handle: FstSignalHandle, value: FstSignalValue| match value {
         FstSignalValue::String(value) => {
-            v.value_and_time(handle.get_index() as SignalHandle, time, value.as_bytes());
+            v.value_and_time(handle.get_index() as SignalIdx, time, value.as_bytes());
         }
         FstSignalValue::Real(value) => {
-            v.value_and_time(
-                handle.get_index() as SignalHandle,
-                time,
-                &value.to_be_bytes(),
-            );
+            v.value_and_time(handle.get_index() as SignalIdx, time, &value.to_be_bytes());
         }
     };
     let filter = FstFilter::all();

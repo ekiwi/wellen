@@ -3,19 +3,19 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::*;
-use crate::values::*;
+use crate::signals::WaveDatabase;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Read, Seek, SeekFrom, Write};
 
-pub fn read(filename: &str) -> (Hierarchy, Values) {
+pub fn read(filename: &str) -> (Hierarchy, Box<dyn WaveDatabase>) {
     // load file into memory (lazily)
     let input_file = std::fs::File::open(filename).expect("failed to open input file!");
     let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
     let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]));
 
-    let values = read_values_multi_threaded(&mmap[header_len..], &hierarchy);
-    (hierarchy, values)
+    let wave_mem = read_values_multi_threaded(&mmap[header_len..], &hierarchy);
+    (hierarchy, wave_mem)
 }
 
 fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
@@ -35,7 +35,7 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
             convert_var_tpe(tpe),
             VarDirection::Todo,
             u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
-            id_to_int(id),
+            id_to_int(id) as u32,
         ),
         HeaderCmd::VectorVar(tpe, size, id, name, _) => {
             let length = match u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10) {
@@ -53,7 +53,7 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
                 convert_var_tpe(tpe),
                 VarDirection::Todo,
                 length,
-                id_to_int(id),
+                id_to_int(id) as u32,
             );
         }
     };
@@ -82,14 +82,14 @@ fn convert_var_tpe(tpe: &[u8]) -> VarType {
 /// Each printable character is a digit in base (126 - 32) = 94.
 /// The most significant digit is on the right!
 #[inline]
-fn id_to_int(id: &[u8]) -> SignalHandle {
+fn id_to_int(id: &[u8]) -> u64 {
     assert!(!id.is_empty());
     let mut value: u64 = 0;
     for bb in id.iter().rev() {
         let char_val = (*bb - 33) as u64;
         value = (value * 94) + char_val;
     }
-    value as u32
+    value
 }
 
 /// very hacky read header implementation, will fail on a lot of valid headers
@@ -214,31 +214,34 @@ fn determine_thread_chunks(body_len: usize) -> Vec<(usize, usize)> {
     let number_of_threads_for_min_chunk_size = int_div_ceil(body_len, MIN_CHUNK_SIZE);
     let num_threads = std::cmp::min(max_threads, number_of_threads_for_min_chunk_size);
     let chunk_size = int_div_ceil(body_len, num_threads);
+    // TODO: for large file it might make sense to have more chunks than threads
     (0..num_threads)
         .map(|ii| (ii * chunk_size, chunk_size))
         .collect()
 }
 
 /// Reads the body of a VCD with multiple threads
-fn read_values_multi_threaded(input: &[u8], hierarchy: &Hierarchy) -> Values {
+fn read_values_multi_threaded(input: &[u8], _hierarchy: &Hierarchy) -> Box<dyn WaveDatabase> {
     let chunks = determine_thread_chunks(input.len());
-    let blocks: Vec<Values> = chunks
+    let encoders: Vec<crate::wavemem::Encoder> = chunks
         .par_iter()
         .map(|(start, len)| {
             let is_first = *start == 0;
-            read_values(&input[*start..], *len - 1, is_first, hierarchy)
+            read_values(&input[*start..], *len - 1, is_first)
         })
         .collect();
 
-    println!("connect blocks");
-    blocks.into_iter().next().unwrap()
+    // combine encoders
+    let mut encoder_iter = encoders.into_iter();
+    let mut encoder = encoder_iter.next().unwrap();
+    for other in encoder_iter {
+        encoder.append(other);
+    }
+    Box::new(encoder.finish())
 }
 
-fn read_values(input: &[u8], stop_pos: usize, is_first: bool, hierarchy: &Hierarchy) -> Values {
-    let mut v = ValueBuilder::default();
-    for var in hierarchy.iter_vars() {
-        v.add_signal(var.handle(), var.length())
-    }
+fn read_values(input: &[u8], stop_pos: usize, is_first: bool) -> crate::wavemem::Encoder {
+    let mut encoder = crate::wavemem::Encoder::default();
 
     let input2 = if is_first {
         input
@@ -259,7 +262,7 @@ fn read_values(input: &[u8], stop_pos: usize, is_first: bool, hierarchy: &Hierar
                     found_first_time_step = true;
                     let int_value =
                         u64::from_str_radix(std::str::from_utf8(value).unwrap(), 10).unwrap();
-                    v.time_change(int_value);
+                    encoder.time_change(int_value);
                 }
                 BodyCmd::Value(value, id) => {
                     if is_first {
@@ -269,7 +272,7 @@ fn read_values(input: &[u8], stop_pos: usize, is_first: bool, hierarchy: &Hierar
                         );
                     }
                     if found_first_time_step {
-                        v.value_change(id_to_int(id), value);
+                        encoder.vcd_value_change(id_to_int(id), value);
                     }
                 }
             };
@@ -278,8 +281,7 @@ fn read_values(input: &[u8], stop_pos: usize, is_first: bool, hierarchy: &Hierar
         }
     }
 
-    v.print_statistics();
-    v.finish()
+    encoder
 }
 
 #[inline]
