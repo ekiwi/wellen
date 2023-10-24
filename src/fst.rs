@@ -3,13 +3,13 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::*;
-use crate::signals::{Signal, WaveDatabase};
+use crate::signals::{Signal, SignalSource};
 use crate::values::*;
 use fst_native::*;
 use std::collections::HashMap;
 use std::io::{BufRead, Seek};
 
-pub fn read(filename: &str) -> (Hierarchy, Box<dyn WaveDatabase>) {
+pub fn read(filename: &str) -> (Hierarchy, Box<dyn SignalSource>) {
     let input = std::fs::File::open(filename).expect("failed to open input file!");
     let mut reader = fst_native::FstReader::open(std::io::BufReader::new(input)).unwrap();
     let hierarchy = read_hierarchy(&mut reader);
@@ -27,17 +27,23 @@ impl<R: BufRead + Seek> FstWaveDatabase<R> {
     }
 }
 
-impl<R: BufRead + Seek> WaveDatabase for FstWaveDatabase<R> {
-    fn load_signals(&mut self, ids: &[SignalIdx]) {
-        todo!()
-    }
+impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
+    fn load_signals(&mut self, ids: &[SignalIdx]) -> Vec<Signal> {
+        let fst_ids = ids
+            .iter()
+            .map(|ii| FstSignalHandle::from_index(*ii as usize))
+            .collect::<Vec<_>>();
+        let filter = FstFilter::filter_signals(fst_ids);
+        let mut signals = Vec::with_capacity(ids.len());
+        let foo =
+            |time: u64, handle: FstSignalHandle, value: FstSignalValue| todo!("implement callback");
 
-    fn get_signal(&self, idx: SignalIdx) -> &Signal {
-        todo!()
+        self.reader.read_signals(&filter, foo).unwrap();
+        signals
     }
 
     fn get_time_table(&self) -> Vec<Time> {
-        todo!()
+        todo!("add time table reading to FST lib")
     }
 }
 

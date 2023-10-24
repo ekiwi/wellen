@@ -30,13 +30,10 @@ enum SignalChangeData {
     VariableLength(Vec<String>),
 }
 
-pub trait WaveDatabase {
-    /// Loads new signals into the database.
+pub trait SignalSource {
+    /// Loads new signals.
     /// Many implementations take advantage of loading multiple signals at a time.
-    fn load_signals(&mut self, ids: &[SignalIdx]);
-
-    /// Access a signal.
-    fn get_signal(&self, idx: SignalIdx) -> &Signal;
-    /// Access the global time table which stores the time at each value change.
+    fn load_signals(&mut self, ids: &[SignalIdx]) -> Vec<Signal>;
+    /// Returns the global time table which stores the time at each value change.
     fn get_time_table(&self) -> Vec<Time>;
 }

@@ -5,7 +5,7 @@
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
 use crate::hierarchy::SignalIdx;
-use crate::signals::{Signal, WaveDatabase};
+use crate::signals::{Signal, SignalSource};
 use crate::values::Time;
 
 /// Holds queryable waveform data. Use the `Encoder` to generate.
@@ -13,12 +13,8 @@ pub struct Reader {
     blocks: Vec<Block>,
 }
 
-impl WaveDatabase for Reader {
-    fn load_signals(&mut self, ids: &[SignalIdx]) {
-        todo!()
-    }
-
-    fn get_signal(&self, idx: SignalIdx) -> &Signal {
+impl SignalSource for Reader {
+    fn load_signals(&mut self, ids: &[SignalIdx]) -> Vec<Signal> {
         todo!()
     }
 

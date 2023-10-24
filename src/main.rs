@@ -78,4 +78,6 @@ fn main() {
         ByteSize::b(estimate_hierarchy_size(&hierarchy) as u64)
     );
     print_size_of_full_vs_reduced_names(&hierarchy);
+
+    // read random
 }

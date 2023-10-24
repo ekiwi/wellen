@@ -3,12 +3,12 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::*;
-use crate::signals::WaveDatabase;
+use crate::signals::SignalSource;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Read, Seek, SeekFrom, Write};
 
-pub fn read(filename: &str) -> (Hierarchy, Box<dyn WaveDatabase>) {
+pub fn read(filename: &str) -> (Hierarchy, Box<dyn SignalSource>) {
     // load file into memory (lazily)
     let input_file = std::fs::File::open(filename).expect("failed to open input file!");
     let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
@@ -221,7 +221,7 @@ fn determine_thread_chunks(body_len: usize) -> Vec<(usize, usize)> {
 }
 
 /// Reads the body of a VCD with multiple threads
-fn read_values_multi_threaded(input: &[u8], _hierarchy: &Hierarchy) -> Box<dyn WaveDatabase> {
+fn read_values_multi_threaded(input: &[u8], _hierarchy: &Hierarchy) -> Box<dyn SignalSource> {
     let chunks = determine_thread_chunks(input.len());
     let encoders: Vec<crate::wavemem::Encoder> = chunks
         .par_iter()
