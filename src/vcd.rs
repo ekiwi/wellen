@@ -6,20 +6,19 @@ use crate::hierarchy::*;
 use crate::values::*;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
-use std::io::{BufRead, Read, Seek, SeekFrom};
+use std::io::{BufRead, Read, Seek, SeekFrom, Write};
 
 pub fn read(filename: &str) -> (Hierarchy, Values) {
-    let (file_len, (hierarchy_len, hierarchy)) = {
-        let input_file = std::fs::File::open(filename).expect("failed to open input file!");
-        let file_len = input_file.metadata().unwrap().len();
-        let mut input = std::io::BufReader::new(input_file);
-        (file_len, read_hierarchy(&mut input))
-    };
-    let values = read_values_multi_threaded(filename, file_len, hierarchy_len, &hierarchy);
+    // load file into memory (lazily)
+    let input_file = std::fs::File::open(filename).expect("failed to open input file!");
+    let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
+    let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]));
+
+    let values = read_values_multi_threaded(&mmap[header_len..], &hierarchy);
     (hierarchy, values)
 }
 
-fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (u64, Hierarchy) {
+fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
     let start = input.stream_position().unwrap();
     let mut h = HierarchyBuilder::default();
 
@@ -63,7 +62,7 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (u64, Hierarchy) {
     let end = input.stream_position().unwrap();
     h.print_statistics();
     let hierarchy = h.finish();
-    (end - start, hierarchy)
+    ((end - start) as usize, hierarchy)
 }
 
 fn convert_scope_tpe(tpe: &[u8]) -> ScopeType {
@@ -179,6 +178,7 @@ fn truncate(buf: &mut Vec<u8>) {
     while !buf.is_empty() {
         match buf.last().unwrap() {
             b' ' | b'\n' | b'\r' | b'\t' => buf.pop(),
+            b' ' | b'\n' | b'\r' | b'\t' => buf.pop(),
             _ => break,
         };
     }
@@ -198,10 +198,10 @@ enum HeaderCmd<'a> {
 }
 
 /// The minimum number of bytes we want to read per thread.
-const MIN_CHUNK_SIZE: u64 = 8 * 1024;
+const MIN_CHUNK_SIZE: usize = 8 * 1024;
 
 #[inline]
-fn int_div_ceil(a: u64, b: u64) -> u64 {
+fn int_div_ceil(a: usize, b: usize) -> usize {
     (a + b - 1) / b
 }
 
@@ -209,8 +209,8 @@ fn int_div_ceil(a: u64, b: u64) -> u64 {
 /// approximation and the thread might have to read beyond or might also run out of data before
 /// reaching read length.
 #[inline]
-fn determine_thread_chunks(body_len: u64) -> Vec<(u64, u64)> {
-    let max_threads = rayon::current_num_threads() as u64;
+fn determine_thread_chunks(body_len: usize) -> Vec<(usize, usize)> {
+    let max_threads = rayon::current_num_threads();
     let number_of_threads_for_min_chunk_size = int_div_ceil(body_len, MIN_CHUNK_SIZE);
     let num_threads = std::cmp::min(max_threads, number_of_threads_for_min_chunk_size);
     let chunk_size = int_div_ceil(body_len, num_threads);
@@ -220,23 +220,13 @@ fn determine_thread_chunks(body_len: u64) -> Vec<(u64, u64)> {
 }
 
 /// Reads the body of a VCD with multiple threads
-fn read_values_multi_threaded(
-    filename: &str,
-    total_len: u64,
-    header_len: u64,
-    hierarchy: &Hierarchy,
-) -> Values {
-    assert!(total_len >= header_len);
-    let chunks = determine_thread_chunks(total_len - header_len);
-    println!("{chunks:?}");
+fn read_values_multi_threaded(input: &[u8], hierarchy: &Hierarchy) -> Values {
+    let chunks = determine_thread_chunks(input.len());
     let blocks: Vec<Values> = chunks
         .par_iter()
         .map(|(start, len)| {
-            let mut input = std::fs::File::open(filename).expect("failed to open input file!");
-            input
-                .seek(SeekFrom::Start((header_len + start) as u64))
-                .unwrap();
-            read_values(&mut input, hierarchy)
+            let is_first = *start == 0;
+            read_values(&input[*start..], *len - 1, is_first, hierarchy)
         })
         .collect();
 
@@ -244,80 +234,178 @@ fn read_values_multi_threaded(
     blocks.into_iter().next().unwrap()
 }
 
-fn read_values<R: Read>(input: &mut R, hierarchy: &Hierarchy) -> Values {
+fn read_values(input: &[u8], stop_pos: usize, is_first: bool, hierarchy: &Hierarchy) -> Values {
     let mut v = ValueBuilder::default();
     for var in hierarchy.iter_vars() {
         v.add_signal(var.handle(), var.length())
     }
 
-    let foo = |pos: usize, cmd: BodyCmd| match cmd {
-        BodyCmd::Time(value) => {
-            let int_value = u64::from_str_radix(std::str::from_utf8(value).unwrap(), 10).unwrap();
-            v.time_change(int_value);
-        }
-        BodyCmd::Value(value, id) => {
-            v.value_change(id_to_int(id), value);
-        }
+    let input2 = if is_first {
+        input
+    } else {
+        advance_to_first_newline(input)
     };
-
-    read_body(input, foo, None).unwrap();
+    let mut reader = BodyReader::new(input2);
+    let mut found_first_time_step = false;
+    loop {
+        if let Some((pos, cmd)) = reader.next() {
+            if pos > stop_pos {
+                if let BodyCmd::Time(_) = cmd {
+                    break; // stop before the next time value when we go beyond the stop position
+                }
+            }
+            match cmd {
+                BodyCmd::Time(value) => {
+                    found_first_time_step = true;
+                    let int_value =
+                        u64::from_str_radix(std::str::from_utf8(value).unwrap(), 10).unwrap();
+                    v.time_change(int_value);
+                }
+                BodyCmd::Value(value, id) => {
+                    if is_first {
+                        assert!(
+                            found_first_time_step,
+                            "in the first thread we always want to encounter a timestamp first"
+                        );
+                    }
+                    if found_first_time_step {
+                        v.value_change(id_to_int(id), value);
+                    }
+                }
+            };
+        } else {
+            break; // done, no more values to read
+        }
+    }
 
     v.print_statistics();
     v.finish()
 }
 
-fn read_body(
-    input: &mut impl Read,
-    mut callback: impl FnMut(usize, BodyCmd),
-    read_len: Option<usize>,
-) -> std::io::Result<()> {
-    let mut total_read_len = 0;
-    let mut buf = vec![0u8; 8 * 1024];
-    let mut remaining_bytes = 0usize;
-    let mut lines_read = 0usize;
-    loop {
-        // fill buffer
-        let buf_read_len = input.read(&mut &mut buf[remaining_bytes..])?;
-        let buf_len = buf_read_len + remaining_bytes;
-        if buf_len == 0 {
-            return Ok(());
+#[inline]
+fn advance_to_first_newline(input: &[u8]) -> &[u8] {
+    for (pos, byte) in input.iter().enumerate() {
+        match *byte {
+            b'\n' => {
+                return &input[pos..];
+            }
+            _ => {}
         }
+    }
+    &[] // no whitespaces found
+}
 
-        // search for tokens
+struct BodyReader<'a> {
+    input: &'a [u8],
+    // state
+    pos: usize,
+    // statistics
+    lines_read: usize,
+}
+
+impl<'a> BodyReader<'a> {
+    fn new(input: &'a [u8]) -> Self {
+        BodyReader {
+            input,
+            pos: 0,
+            lines_read: 0,
+        }
+    }
+
+    #[inline]
+    fn try_finish_token(
+        &mut self,
+        pos: usize,
+        token_start: &mut Option<usize>,
+        prev_token: &mut Option<&'a [u8]>,
+    ) -> Option<BodyCmd<'a>> {
+        match *token_start {
+            None => None,
+            Some(start) => {
+                let token = &self.input[start..pos];
+                if token.is_empty() {
+                    return None;
+                }
+                let ret = match *prev_token {
+                    None => {
+                        if token.len() == 1 {
+                            // too short
+                            return None;
+                        }
+                        // 1-token commands are binary changes or time commands
+                        match token[0] {
+                            b'#' => Some(BodyCmd::Time(&token[1..])),
+                            b'0' | b'1' | b'z' | b'Z' | b'x' | b'X' => {
+                                Some(BodyCmd::Value(&token[0..1], &token[1..]))
+                            }
+                            _ => {
+                                if token != b"$dumpvars" {
+                                    // ignore dumpvars command
+                                    *prev_token = Some(token);
+                                }
+                                None
+                            }
+                        }
+                    }
+                    Some(first) => {
+                        let cmd = match first[0] {
+                            b'b' | b'B' | b'r' | b'R' | b's' | b'S' => {
+                                BodyCmd::Value(&first[0..], token)
+                            }
+                            _ => {
+                                panic!(
+                                    "Unexpected tokens: `{}` and `{}` ({} lines after header)",
+                                    String::from_utf8_lossy(first),
+                                    String::from_utf8_lossy(token),
+                                    self.lines_read
+                                );
+                            }
+                        };
+                        *prev_token = None;
+                        Some(cmd)
+                    }
+                };
+                *token_start = None;
+                ret
+            }
+        }
+    }
+}
+
+impl<'a> Iterator for BodyReader<'a> {
+    type Item = (usize, BodyCmd<'a>);
+
+    #[inline]
+    fn next(&mut self) -> Option<(usize, BodyCmd<'a>)> {
+        if self.pos >= self.input.len() {
+            return None; // done!
+        }
         let mut token_start: Option<usize> = None;
-        let mut prev_token: Option<&[u8]> = None;
-        let mut bytes_consumed = 0usize;
-        let mut pending_lines = 0usize;
-        for (pos, b) in buf.iter().take(buf_len).enumerate() {
+        let mut prev_token: Option<&'a [u8]> = None;
+        let mut pending_lines = 0;
+        for (offset, b) in self.input[self.pos..].iter().enumerate() {
+            let pos = self.pos + offset;
             match b {
                 b' ' | b'\n' | b'\r' | b'\t' => {
                     if token_start.is_none() {
-                        // if we aren't tracking anything, we can just consume the whitespace
-                        bytes_consumed = pos + 1;
                         if *b == b'\n' {
-                            lines_read += 1;
+                            self.lines_read += 1;
                         }
                     } else {
-                        match try_finish_token(
-                            &buf,
-                            pos,
-                            lines_read,
-                            &mut token_start,
-                            &mut prev_token,
-                        ) {
+                        match self.try_finish_token(pos, &mut token_start, &mut prev_token) {
                             None => {
                                 if *b == b'\n' {
                                     pending_lines += 1;
                                 }
                             }
                             Some(cmd) => {
-                                (callback)(pos, cmd);
-                                bytes_consumed = pos + 1;
-                                lines_read += pending_lines;
-                                pending_lines = 0;
+                                // save state
+                                self.pos = pos;
+                                self.lines_read += pending_lines;
                                 if *b == b'\n' {
-                                    lines_read += 1;
+                                    self.lines_read += 1;
                                 }
+                                return Some((pos, cmd));
                             }
                         }
                     }
@@ -329,101 +417,18 @@ fn read_body(
                     Some(_) => {}
                 },
             }
-            total_read_len += 1;
-            match read_len {
-                Some(value) if total_read_len >= value => {
-                    return Ok(());
-                }
-                _ => {}
+        }
+        // update final position
+        self.pos = self.input.len();
+        // check to see if there is a final token at the end
+        match self.try_finish_token(self.pos, &mut token_start, &mut prev_token) {
+            None => {}
+            Some(cmd) => {
+                return Some((self.pos, cmd));
             }
         }
-
-        // if we did not consume any bytes, we might be at the end of the stream which ends in
-        // a token
-        if bytes_consumed == 0 && buf_read_len == 0 {
-            match try_finish_token(&buf, buf_len, lines_read, &mut token_start, &mut prev_token) {
-                None => {}
-                Some(cmd) => {
-                    (callback)(buf_len, cmd);
-                    bytes_consumed = buf_len;
-                }
-            }
-            return Ok(()); // in case we did not make progress
-        }
-
-        // move remaining bytes to the front
-        remaining_bytes = buf_len - bytes_consumed;
-        if remaining_bytes > 0 && bytes_consumed > 0 {
-            // copy remaining bytes to the left
-            let overlaps = bytes_consumed < remaining_bytes;
-            if overlaps {
-                for ii in 0..remaining_bytes {
-                    buf[ii] = buf[ii + bytes_consumed];
-                }
-            } else {
-                let (dest, src) = buf.split_at_mut(bytes_consumed);
-                dest[0..remaining_bytes].copy_from_slice(&src[0..remaining_bytes]);
-            }
-        }
-    }
-}
-
-#[inline]
-fn try_finish_token<'a>(
-    buf: &'a [u8],
-    pos: usize,
-    lines_read: usize,
-    token_start: &mut Option<usize>,
-    prev_token: &mut Option<&'a [u8]>,
-) -> Option<BodyCmd<'a>> {
-    match *token_start {
-        None => None,
-        Some(start) => {
-            let token = &buf[start..pos];
-            if token.is_empty() {
-                return None;
-            }
-            let ret = match *prev_token {
-                None => {
-                    if token.len() == 1 {
-                        // too short
-                        return None;
-                    }
-                    // 1-token commands are binary changes or time commands
-                    match token[0] {
-                        b'#' => Some(BodyCmd::Time(&token[1..])),
-                        b'0' | b'1' | b'z' | b'Z' | b'x' | b'X' => {
-                            Some(BodyCmd::Value(&token[0..1], &token[1..]))
-                        }
-                        _ => {
-                            if token != b"$dumpvars" {
-                                // ignore dumpvars command
-                                *prev_token = Some(token);
-                            }
-                            None
-                        }
-                    }
-                }
-                Some(first) => {
-                    let cmd = match first[0] {
-                        b'b' | b'B' | b'r' | b'R' | b's' | b'S' => {
-                            BodyCmd::Value(&first[0..], token)
-                        }
-                        _ => {
-                            panic!(
-                                "Unexpected tokens: `{}` and `{}` ({lines_read} lines after header)",
-                                String::from_utf8_lossy(first),
-                                String::from_utf8_lossy(token)
-                            );
-                        }
-                    };
-                    *prev_token = None;
-                    Some(cmd)
-                }
-            };
-            *token_start = None;
-            ret
-        }
+        // now we are done
+        None
     }
 }
 
@@ -454,9 +459,10 @@ impl<'a> Debug for BodyCmd<'a> {
 mod tests {
     use super::*;
 
-    fn read_body_to_vec(input: &mut impl BufRead) -> Vec<String> {
+    fn read_body_to_vec(input: &[u8]) -> Vec<String> {
         let mut out = Vec::new();
-        let foo = |cmd: BodyCmd| {
+        let mut reader = BodyReader::new(input);
+        for (pos, cmd) in reader {
             let desc = match cmd {
                 BodyCmd::Time(value) => {
                     format!("Time({})", std::str::from_utf8(value).unwrap())
@@ -470,9 +476,7 @@ mod tests {
                 }
             };
             out.push(desc);
-        };
-
-        read_body(input, foo, None).unwrap();
+        }
         out
     }
 
