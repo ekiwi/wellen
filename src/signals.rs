@@ -4,13 +4,16 @@
 
 use crate::hierarchy::SignalIdx;
 use crate::values::Time;
+use crate::vcd::int_div_ceil;
 
 /// Specifies the encoding of a signal.
 enum SignalEncoding {
     /// Each bit is encoded as a single bit.
-    Binary,
+    Binary(u32),
     /// Each bit is encoded as two bits.
-    FourValue,
+    FourValue(u32),
+    /// Fixed length ASCII string.
+    FixedLength,
     /// Each value is encoded as an 8-byte f64 in little endian.
     Float,
 }
@@ -21,10 +24,13 @@ pub struct Signal {
     data: SignalChangeData,
 }
 
+/// Holds all loaded signals and facilitates access to them.
+pub struct SignalDatabase {}
+
 enum SignalChangeData {
     FixedLength {
         encoding: SignalEncoding,
-        width: usize,
+        width: u32, // bytes per entry
         bytes: Vec<u8>,
     },
     VariableLength(Vec<String>),
@@ -36,4 +42,24 @@ pub trait SignalSource {
     fn load_signals(&mut self, ids: &[SignalIdx]) -> Vec<Signal>;
     /// Returns the global time table which stores the time at each value change.
     fn get_time_table(&self) -> Vec<Time>;
+}
+
+#[inline]
+fn byte_and_bit_index(ii: usize, max_byte_ii: usize, bits_per_byte: usize) -> (usize, usize) {
+    (max_byte_ii - ii / bits_per_byte, ii % bits_per_byte)
+}
+
+fn binary_to_four_value(bits: usize, value: &[u8]) -> Vec<u8> {
+    let mut out = vec![0u8; int_div_ceil(bits, 4)];
+    let max_value_ii = value.len() - 1;
+    let max_out_ii = out.len() - 1;
+    for ii in 0..bits {
+        let (in_byte_index, in_bit_index) = byte_and_bit_index(ii, max_value_ii, 8);
+        let is_active = (value[in_byte_index] >> in_bit_index) & 1 == 1;
+        let (out_byte_index, out_bit_index) = byte_and_bit_index(ii, max_out_ii, 4);
+        if is_active {
+            out[out_byte_index] |= (1 << out_bit_index);
+        }
+    }
+    out
 }

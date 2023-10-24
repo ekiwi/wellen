@@ -88,7 +88,7 @@ pub enum VarDirection {
     Todo, // placeholder tpe
 }
 
-/// Signal identifier.
+/// Signal identifier in the waveform (VCD, FST, etc.) file.
 pub type SignalIdx = u32;
 
 #[derive(Debug, Clone, Copy)]

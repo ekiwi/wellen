@@ -31,6 +31,10 @@ struct Block {
     time_table: Vec<Time>,
 }
 
+impl Block {
+    fn load_signals(&self, ids: u32) {}
+}
+
 /// Encodes value and time changes into a compressed in-memory representation.
 pub struct Encoder {}
 

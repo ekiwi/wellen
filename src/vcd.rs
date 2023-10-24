@@ -201,7 +201,7 @@ enum HeaderCmd<'a> {
 const MIN_CHUNK_SIZE: usize = 8 * 1024;
 
 #[inline]
-fn int_div_ceil(a: usize, b: usize) -> usize {
+pub(crate) fn int_div_ceil(a: usize, b: usize) -> usize {
     (a + b - 1) / b
 }
 

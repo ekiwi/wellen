@@ -237,9 +237,9 @@ dependencies = [
 
 [[package]]
 name = "fst-native"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8820dcfdb39a3ac4564d7786bed7720fccb88ec9c9cdf4914579c6ffb05550d"
+checksum = "00b5d008a7f462d716fa784a4914a34e9a54f80e98c3c11c340d892a69a4d868"
 dependencies = [
  "bitvec",
  "flate2",
