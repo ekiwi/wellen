@@ -4,13 +4,12 @@
 //
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
-use crate::dense::DenseHashMap;
 use crate::hierarchy::{Hierarchy, SignalIdx, SignalLength};
 use crate::signals::{Signal, SignalSource};
 use crate::values::Time;
 use crate::vcd::int_div_ceil;
 use bytesize::ByteSize;
-use std::str::FromStr;
+use std::num::NonZeroU32;
 
 /// Holds queryable waveform data. Use the `Encoder` to generate.
 pub struct Reader {
@@ -19,11 +18,26 @@ pub struct Reader {
 
 impl SignalSource for Reader {
     fn load_signals(&mut self, ids: &[SignalIdx]) -> Vec<Signal> {
-        todo!()
+        let mut signals = Vec::with_capacity(ids.len());
+        for id in ids.iter() {
+            let sig = self.load_signal(*id);
+            signals.push(sig);
+        }
+        signals
     }
 
     fn get_time_table(&self) -> Vec<Time> {
-        todo!()
+        // create a combined time table from all blocks
+        let len = self
+            .blocks
+            .iter()
+            .map(|b| b.time_table.len())
+            .sum::<usize>();
+        let mut table = Vec::with_capacity(len);
+        for block in self.blocks.iter() {
+            table.extend_from_slice(&block.time_table);
+        }
+        table
     }
 }
 
@@ -78,6 +92,20 @@ impl Reader {
             ByteSize::b(total_time_table_size as u64)
         );
     }
+
+    fn load_signal(&self, id: SignalIdx) -> Signal {
+        let mut time_indices: Vec<u32> = Vec::new();
+        let mut time_idx_offset = 0;
+        for block in self.blocks.iter() {
+            if let Some(offset) = block.offsets[id as usize] {
+                todo!()
+            }
+
+            time_idx_offset += block.time_table.len();
+        }
+
+        todo!()
+    }
 }
 
 /// A block that contains all value changes in a certain time segment.
@@ -87,7 +115,7 @@ struct Block {
     start_time: Time,
     time_table: Vec<Time>,
     /// Offsets of (potentially compressed) signal data.
-    offsets: Vec<SignalDataOffset>,
+    offsets: Vec<Option<SignalDataOffset>>,
     /// Data for all signals in block
     data: Vec<u8>,
 }
@@ -107,17 +135,18 @@ impl Block {
 }
 
 /// 31-bit byte offset + info about compression
-struct SignalDataOffset(u32);
+#[derive(Debug, Clone, Copy)]
+struct SignalDataOffset(NonZeroU32);
 impl SignalDataOffset {
     fn new(index: usize, is_compressed: bool) -> Self {
         let data = (index << 1) as u32 + is_compressed as u32;
-        SignalDataOffset(data)
+        SignalDataOffset(NonZeroU32::new(data + 1).unwrap())
     }
     fn is_compressed(&self) -> bool {
-        self.0 & 1 == 1
+        (self.0.get() - 1) & 1 == 1
     }
     fn get_index(&self) -> usize {
-        (self.0 >> 1) as usize
+        ((self.0.get() - 1) >> 1) as usize
     }
 }
 
@@ -202,15 +231,14 @@ impl Encoder {
 
     fn finish_block(&mut self) {
         let signal_count = self.signals.len();
-        let mut offsets: Vec<SignalDataOffset> = Vec::with_capacity(signal_count);
+        let mut offsets = Vec::with_capacity(signal_count);
         let mut data: Vec<u8> = Vec::with_capacity(128);
         for signal in self.signals.iter_mut() {
             if let Some((mut signal_data, is_compressed)) = signal.finish() {
-                offsets.push(SignalDataOffset::new(data.len(), is_compressed));
+                offsets.push(Some(SignalDataOffset::new(data.len(), is_compressed)));
                 data.append(&mut signal_data);
             } else {
-                let prev_index = offsets.last().map(|o| o.get_index()).unwrap_or(0);
-                offsets.push(SignalDataOffset::new(prev_index, false));
+                offsets.push(None);
             }
         }
         let start_time = *self.time_table.first().unwrap();
@@ -313,6 +341,9 @@ impl SignalEncoder {
 
     /// returns a compressed signal representation
     fn finish(&mut self) -> Option<(Vec<u8>, bool)> {
+        // reset time index for the next block
+        self.prev_time_idx = 0;
+
         // no updates
         if self.data.is_empty() {
             return None;
@@ -407,6 +438,3 @@ fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<()> {
     data.push(working_byte);
     Some(())
 }
-
-#[inline]
-fn try_decode_two_state(value: &[u8]) {}
