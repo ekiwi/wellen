@@ -232,7 +232,6 @@ impl Encoder {
 #[derive(Debug, Clone)]
 struct SignalEncoder {
     data: Vec<u8>,
-    is_four_state: bool,
     len: SignalLength,
     prev_time_idx: u16,
 }
@@ -241,7 +240,6 @@ impl SignalEncoder {
     fn new(len: SignalLength) -> Self {
         SignalEncoder {
             data: Vec::default(),
-            is_four_state: false,
             len,
             prev_time_idx: 0,
         }
@@ -260,9 +258,7 @@ impl SignalEncoder {
             SignalLength::Fixed(len) => {
                 if len.get() == 1 {
                     let digit = if value.len() == 1 { value[0] } else { value[1] };
-                    let two_state =
-                        try_write_1_bit_4_state(time_idx_delta, digit, &mut self.data).unwrap();
-                    self.is_four_state = self.is_four_state | !two_state;
+                    try_write_1_bit_4_state(time_idx_delta, digit, &mut self.data).unwrap();
                 } else {
                     let value_bits: &[u8] = match value[0] {
                         b'b' | b'B' => &value[1..],
@@ -275,13 +271,13 @@ impl SignalEncoder {
                     };
                     leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
                     let bits = len.get() as usize;
-                    let two_state: bool = if value_bits.len() == bits {
+                    if value_bits.len() == bits {
                         try_write_4_state(value_bits, &mut self.data).unwrap_or_else(|| {
                             panic!(
                                 "Failed to parse four state value: {}",
                                 String::from_utf8_lossy(value)
                             )
-                        })
+                        });
                     } else {
                         let expanded = expand_special_vector_cases(value_bits, bits)
                             .unwrap_or_else(|| {
@@ -296,10 +292,8 @@ impl SignalEncoder {
                                 "Failed to parse four state value: {}",
                                 String::from_utf8_lossy(value)
                             )
-                        })
+                        });
                     };
-
-                    self.is_four_state = self.is_four_state | !two_state;
                 }
             }
             SignalLength::Variable => {
@@ -366,53 +360,6 @@ fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
 }
 
 #[inline]
-fn two_state_to_num(value: u8) -> Option<u8> {
-    match value {
-        b'0' | b'1' => Some(value - b'0'),
-        _ => None,
-    }
-}
-
-#[inline]
-fn try_write_1_bit_2_state(time_index: u16, value: u8, data: &mut Vec<u8>) -> Option<()> {
-    if let Some(bit_value) = two_state_to_num(value) {
-        let write_value = ((time_index as u64) << 1) + bit_value as u64;
-        leb128::write::unsigned(data, write_value).unwrap();
-        Some(())
-    } else {
-        None
-    }
-}
-
-#[inline]
-fn try_write_2_state(value: &[u8], data: &mut Vec<u8>) -> Option<()> {
-    let bits = value.len();
-    let bit_values = value.iter().map(|b| two_state_to_num(*b));
-    let mut working_byte = 0u8;
-    for (ii, digit_option) in bit_values.enumerate() {
-        let bit_id = bits - ii - 1;
-        if let Some(value) = digit_option {
-            // is there old data to push?
-            if bit_id == 7 && ii > 0 {
-                data.push(working_byte);
-                working_byte = 0;
-            }
-            working_byte = (working_byte << 1) + value;
-        } else {
-            // remove added data
-            let total_bytes = int_div_ceil(bits, 8);
-            let bytes_pushed = total_bytes - 1 - int_div_ceil(bit_id, 8);
-            for _ in 0..bytes_pushed {
-                data.pop();
-            }
-            return None;
-        }
-    }
-    data.push(working_byte);
-    Some(())
-}
-
-#[inline]
 fn four_state_to_num(value: u8) -> Option<u8> {
     match value {
         b'0' | b'1' => Some(value - b'0'),
@@ -434,11 +381,10 @@ fn try_write_1_bit_4_state(time_index: u16, value: u8, data: &mut Vec<u8>) -> Op
 }
 
 #[inline]
-fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<bool> {
+fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<()> {
     let bits = value.len() * 2;
     let bit_values = value.iter().map(|b| four_state_to_num(*b));
     let mut working_byte = 0u8;
-    let mut all_two_state = true;
     for (ii, digit_option) in bit_values.enumerate() {
         let bit_id = bits - (ii * 2) - 1;
         if let Some(value) = digit_option {
@@ -448,7 +394,6 @@ fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<bool> {
                 working_byte = 0;
             }
             working_byte = (working_byte << 2) + value;
-            all_two_state = all_two_state && value <= 1;
         } else {
             // remove added data
             let total_bytes = int_div_ceil(bits, 8);
@@ -460,7 +405,7 @@ fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<bool> {
         }
     }
     data.push(working_byte);
-    Some(all_two_state)
+    Some(())
 }
 
 #[inline]
