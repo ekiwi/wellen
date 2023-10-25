@@ -23,7 +23,7 @@ fn read_internal(filename: &str, multi_threaded: bool) -> (Hierarchy, Box<dyn Si
     let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
     let input_size = mmap.len();
     let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]));
-    let wave_mem = read_values(&mmap[header_len..], multi_threaded);
+    let wave_mem = read_values(&mmap[header_len..], multi_threaded, &hierarchy);
     println!(
         "The full VCD data takes up  {} bytes in memory.",
         ByteSize::b(wave_mem.size_in_memory() as u64)
@@ -239,14 +239,18 @@ fn determine_thread_chunks(body_len: usize) -> Vec<(usize, usize)> {
 }
 
 /// Reads the body of a VCD with multiple threads
-fn read_values(input: &[u8], multi_threaded: bool) -> Box<crate::wavemem::Reader> {
+fn read_values(
+    input: &[u8],
+    multi_threaded: bool,
+    hierarchy: &Hierarchy,
+) -> Box<crate::wavemem::Reader> {
     if multi_threaded {
         let chunks = determine_thread_chunks(input.len());
         let encoders: Vec<crate::wavemem::Encoder> = chunks
             .par_iter()
             .map(|(start, len)| {
                 let is_first = *start == 0;
-                read_single_stream_of_values(&input[*start..], *len - 1, is_first)
+                read_single_stream_of_values(&input[*start..], *len - 1, is_first, hierarchy)
             })
             .collect();
 
@@ -258,17 +262,18 @@ fn read_values(input: &[u8], multi_threaded: bool) -> Box<crate::wavemem::Reader
         }
         Box::new(encoder.finish())
     } else {
-        let encoder = read_single_stream_of_values(input, input.len() - 1, true);
+        let encoder = read_single_stream_of_values(input, input.len() - 1, true, hierarchy);
         Box::new(encoder.finish())
     }
 }
 
-fn read_single_stream_of_values(
+fn read_single_stream_of_values<'a>(
     input: &[u8],
     stop_pos: usize,
     is_first: bool,
+    hierarchy: &Hierarchy,
 ) -> crate::wavemem::Encoder {
-    let mut encoder = crate::wavemem::Encoder::default();
+    let mut encoder = crate::wavemem::Encoder::new(hierarchy);
 
     let input2 = if is_first {
         input

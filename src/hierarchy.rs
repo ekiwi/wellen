@@ -73,16 +73,19 @@ impl HierarchyStringId {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum ScopeType {
     Module,
     Todo, // placeholder tpe
 }
 
+#[derive(Debug, Clone)]
 pub enum VarType {
     Wire,
     Todo, // placeholder tpe
 }
 
+#[derive(Debug, Clone)]
 pub enum VarDirection {
     Input,
     Todo, // placeholder tpe
@@ -97,6 +100,12 @@ pub enum SignalLength {
     Fixed(NonZeroU32),
 }
 
+impl Default for SignalLength {
+    fn default() -> Self {
+        SignalLength::Variable
+    }
+}
+
 impl SignalLength {
     pub fn from_uint(len: u32) -> Self {
         match NonZeroU32::new(len) {
@@ -106,6 +115,7 @@ impl SignalLength {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Var {
     name: HierarchyStringId,
     tpe: VarType,
@@ -145,7 +155,7 @@ impl Var {
 }
 
 // TODO: rename to HierarchyNodeId
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum HierarchyEntryId {
     Scope(HierarchyScopeId),
     Var(HierarchyVarId),
@@ -187,7 +197,7 @@ pub struct Hierarchy {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
     strings: Vec<String>,
-    handle_to_var: Vec<HierarchyVarId>,
+    handle_to_var: Vec<Option<HierarchyVarId>>,
 }
 
 // public implementation
@@ -200,6 +210,25 @@ impl Hierarchy {
     pub fn iter_scopes(&self) -> std::slice::Iter<'_, Scope> {
         self.scopes.iter()
     }
+
+    pub fn num_vars(&self) -> usize {
+        self.vars.len()
+    }
+
+    pub fn num_unique_signals(&self) -> usize {
+        self.handle_to_var.len()
+    }
+
+    /// Returns one variable per unique signal in the order of signal handles.
+    pub fn get_unique_signals_vars(&self) -> Vec<Var> {
+        let mut out = Vec::with_capacity(self.handle_to_var.len());
+        for maybe_var_id in self.handle_to_var.iter() {
+            if let Some(var_id) = maybe_var_id {
+                out.push((*self.get_var(*var_id)).clone());
+            }
+        }
+        out
+    }
 }
 
 // private implementation
@@ -210,6 +239,10 @@ impl Hierarchy {
 
     fn get_scope(&self, id: HierarchyScopeId) -> &Scope {
         &self.scopes[id.index()]
+    }
+
+    fn get_var(&self, id: HierarchyVarId) -> &Var {
+        &self.vars[id.index()]
     }
 }
 
@@ -252,7 +285,7 @@ pub struct HierarchyBuilder {
     scopes: Vec<Scope>,
     scope_stack: Vec<ScopeStackEntry>,
     strings: StringInterner,
-    handle_to_node: DenseHashMap<HierarchyVarId>,
+    handle_to_node: DenseHashMap<Option<HierarchyVarId>>,
     // some statistics
     duplicate_string_count: usize,
     duplicate_string_size: usize,
@@ -369,7 +402,7 @@ impl HierarchyBuilder {
         let parent = self.add_to_hierarchy_tree(wrapped_id);
 
         // add lookup
-        self.handle_to_node.insert(handle as usize, var_id);
+        self.handle_to_node.insert(handle as usize, Some(var_id));
 
         // now we can build the node data structure and store it
         let node = Var {

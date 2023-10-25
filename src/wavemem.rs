@@ -5,9 +5,11 @@
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
 use crate::dense::DenseHashMap;
-use crate::hierarchy::SignalIdx;
+use crate::hierarchy::{Hierarchy, SignalIdx, SignalLength};
 use crate::signals::{Signal, SignalSource};
 use crate::values::Time;
+use crate::vcd::int_div_ceil;
+use bytesize::ByteSize;
 use std::str::FromStr;
 
 /// Holds queryable waveform data. Use the `Encoder` to generate.
@@ -48,6 +50,33 @@ impl Reader {
             "[wavemem] the maximum time table size is {}.",
             max_time_table_size
         );
+        let total_data_size = self
+            .blocks
+            .iter()
+            .map(|b| b.data.len() * std::mem::size_of::<u8>())
+            .sum::<usize>();
+        let total_offset_size = self
+            .blocks
+            .iter()
+            .map(|b| b.offsets.len() * std::mem::size_of::<SignalDataOffset>())
+            .sum::<usize>();
+        let total_time_table_size = self
+            .blocks
+            .iter()
+            .map(|b| b.time_table.len() * std::mem::size_of::<Time>())
+            .sum::<usize>();
+        println!(
+            "[wavemem] data across all blocks takes up {}.",
+            ByteSize::b(total_data_size as u64)
+        );
+        println!(
+            "[wavemem] offsets across all blocks take up {}.",
+            ByteSize::b(total_offset_size as u64)
+        );
+        println!(
+            "[wavemem] time table data across all blocks takes up {}.",
+            ByteSize::b(total_time_table_size as u64)
+        );
     }
 }
 
@@ -66,9 +95,9 @@ struct Block {
 impl Block {
     fn size_in_memory(&self) -> usize {
         let base = std::mem::size_of::<Self>();
-        let time = self.time_table.capacity() * std::mem::size_of::<Time>();
-        let offsets = self.offsets.capacity() * std::mem::size_of::<SignalDataOffset>();
-        let data = self.data.capacity() * std::mem::size_of::<u8>();
+        let time = self.time_table.len() * std::mem::size_of::<Time>();
+        let offsets = self.offsets.len() * std::mem::size_of::<SignalDataOffset>();
+        let data = self.data.len() * std::mem::size_of::<u8>();
         base + time + offsets + data
     }
 
@@ -97,25 +126,28 @@ pub struct Encoder {
     /// Time table under construction
     time_table: Vec<Time>,
     /// Signals under construction
-    signals: DenseHashMap<SignalEncoder>,
+    signals: Vec<SignalEncoder>,
     /// Finished blocks
     blocks: Vec<Block>,
-}
-
-impl Default for Encoder {
-    fn default() -> Self {
-        Encoder {
-            time_table: Vec::default(),
-            signals: DenseHashMap::default(),
-            blocks: Vec::default(),
-        }
-    }
 }
 
 /// Indexes the time table inside a block.
 type BlockTimeIdx = u16;
 
 impl Encoder {
+    pub fn new(hierarchy: &Hierarchy) -> Self {
+        let mut signals = Vec::with_capacity(hierarchy.num_unique_signals());
+        for var in hierarchy.get_unique_signals_vars() {
+            signals.push(SignalEncoder::new(var.length()));
+        }
+
+        Encoder {
+            time_table: Vec::default(),
+            signals,
+            blocks: Vec::default(),
+        }
+    }
+
     pub fn time_change(&mut self, time: u64) {
         // if we run out of time indices => start a new block
         if self.time_table.len() >= BlockTimeIdx::MAX as usize {
@@ -135,9 +167,7 @@ impl Encoder {
             "We need a call to time_change first!"
         );
         let time_idx = (self.time_table.len() - 1) as u16;
-        self.signals
-            .get_or_else_create_mut(id as usize)
-            .add_vcd_change(time_idx, value);
+        self.signals[id as usize].add_vcd_change(time_idx, value);
     }
 
     pub fn finish(mut self) -> Reader {
@@ -170,9 +200,7 @@ impl Encoder {
         let signal_count = self.signals.len();
         let mut offsets: Vec<SignalDataOffset> = Vec::with_capacity(signal_count);
         let mut data: Vec<u8> = Vec::with_capacity(128);
-        let mut signals =
-            std::mem::replace(&mut self.signals, DenseHashMap::with_capacity(signal_count));
-        for signal in signals.into_vec().into_iter() {
+        for signal in self.signals.iter_mut() {
             if let Some((mut signal_data, is_compressed)) = signal.finish() {
                 offsets.push(SignalDataOffset::new(data.len(), is_compressed));
                 data.append(&mut signal_data);
@@ -200,28 +228,16 @@ impl Encoder {
 #[derive(Debug, Clone)]
 struct SignalEncoder {
     data: Vec<u8>,
-    tpe: SignalType,
+    is_four_state: bool,
+    len: SignalLength,
 }
 
-#[derive(Debug, Clone)]
-enum SignalType {
-    Unknown,
-    /// this is how we start of
-    Real,
-    /// encoded in VCD with `r`
-    String,
-    /// encoded in VCD with `s`
-    Bits(u32),
-    /// binary number of size N
-    FourState(u32),
-    // TODO: 9-state for VHDL
-}
-
-impl Default for SignalEncoder {
-    fn default() -> Self {
+impl SignalEncoder {
+    fn new(len: SignalLength) -> Self {
         SignalEncoder {
             data: Vec::default(),
-            tpe: SignalType::Unknown,
+            is_four_state: false,
+            len,
         }
     }
 }
@@ -233,28 +249,78 @@ const SKIP_COMPRESSION: bool = true;
 
 impl SignalEncoder {
     fn add_vcd_change(&mut self, time_index: u16, value: &[u8]) {
-        // save time index: (TODO: var length)
-        self.data.extend_from_slice(&u16::to_be_bytes(time_index));
-        // save data depending on signal type
-        let (new_tpe, decoded) = decode_vcd_signal(value, &self.tpe);
-        self.tpe = new_tpe;
-        self.data.extend_from_slice(decoded);
+        match self.len {
+            SignalLength::Fixed(len) => {
+                if len.get() == 1 {
+                    let digit = if value.len() == 1 { value[0] } else { value[1] };
+                    let two_state =
+                        try_write_1_bit_4_state(time_index, digit, &mut self.data).unwrap();
+                    self.is_four_state = self.is_four_state | !two_state;
+                } else {
+                    assert!(
+                        matches!(value[0], b'b' | b'B'),
+                        "expected a bit vector, not {}",
+                        String::from_utf8_lossy(value)
+                    );
+                    leb128::write::unsigned(&mut self.data, time_index as u64).unwrap();
+                    let bits = len.get() as usize;
+                    let two_state: bool = if value.len() == bits + 1 {
+                        try_write_4_state(&value[1..], &mut self.data).unwrap_or_else(|| {
+                            panic!(
+                                "Failed to parse four state value: {}",
+                                String::from_utf8_lossy(value)
+                            )
+                        })
+                    } else {
+                        let expanded = expand_special_vector_cases(&value[1..], bits)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "Failed to parse four state value: {}",
+                                    String::from_utf8_lossy(value)
+                                )
+                            });
+                        try_write_4_state(&expanded, &mut self.data).unwrap_or_else(|| {
+                            panic!(
+                                "Failed to parse four state value: {}",
+                                String::from_utf8_lossy(value)
+                            )
+                        })
+                    };
+
+                    self.is_four_state = self.is_four_state | !two_state;
+                }
+            }
+            SignalLength::Variable => {
+                assert!(
+                    matches!(value[0], b's' | b'S'),
+                    "expected a string, not {}",
+                    String::from_utf8_lossy(value)
+                );
+                // string: var-length time index + var-len length + content
+                leb128::write::unsigned(&mut self.data, time_index as u64).unwrap();
+                leb128::write::unsigned(&mut self.data, value.len() as u64).unwrap();
+                self.data.extend_from_slice(value);
+            }
+        }
     }
 
     /// returns a compressed signal representation
-    fn finish(self) -> Option<(Vec<u8>, bool)> {
+    fn finish(&mut self) -> Option<(Vec<u8>, bool)> {
         // no updates
         if self.data.is_empty() {
             return None;
         }
+        // replace data, the actual meta data stays the same
+        let data = std::mem::replace(&mut self.data, Vec::new());
+
         // is there so little data that compression does not make sense?
-        if self.data.len() < MIN_SIZE_TO_COMPRESS || SKIP_COMPRESSION {
-            return Some((self.data, false));
+        if data.len() < MIN_SIZE_TO_COMPRESS || SKIP_COMPRESSION {
+            return Some((data, false));
         }
         // attempt a compression
-        let compressed = lz4_flex::compress(&self.data);
-        if compressed.len() >= self.data.len() {
-            Some((self.data, false))
+        let compressed = lz4_flex::compress(&data);
+        if compressed.len() >= data.len() {
+            Some((data, false))
         } else {
             Some((compressed, true))
         }
@@ -262,26 +328,127 @@ impl SignalEncoder {
 }
 
 #[inline]
-fn decode_vcd_signal<'a>(value: &'a [u8], expected_tpe: &SignalType) -> (SignalType, &'a [u8]) {
-    match expected_tpe {
-        SignalType::Unknown => {
-            todo!()
-        }
-        SignalType::Real => {
-            let b0 = value[0];
-            let is_real = b0 == b'r' || b0 == b'R';
-            assert!(is_real, "Expected a real value!");
-            let value = f64::from_str(&String::from_utf8_lossy(value));
-            todo!()
-        }
-        SignalType::String => {
-            todo!()
-        }
-        SignalType::Bits(_) => {
-            todo!()
-        }
-        SignalType::FourState(_) => {
-            todo!()
-        }
+fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
+    // if the value is actually longer than expected, there is nothing we can do
+    if value.len() >= len {
+        return None;
+    }
+
+    // sometimes an all z or all x vector is written with only a single digit
+    if value.len() == 1 && matches!(value[0], b'x' | b'X' | b'z' | b'Z') {
+        let mut repeated = Vec::with_capacity(len);
+        repeated.resize(len, value[0]);
+        return Some(repeated);
+    }
+
+    // check if we might want to zero extend the value
+    if matches!(value[0], b'1' | b'0') {
+        let mut zero_extended = Vec::with_capacity(len);
+        zero_extended.resize(len - value.len(), b'0');
+        zero_extended.extend_from_slice(value);
+        return Some(zero_extended);
+    }
+
+    None // failed
+}
+
+#[inline]
+fn two_state_to_num(value: u8) -> Option<u8> {
+    match value {
+        b'0' | b'1' => Some(value - b'0'),
+        _ => None,
     }
 }
+
+#[inline]
+fn try_write_1_bit_2_state(time_index: u16, value: u8, data: &mut Vec<u8>) -> Option<()> {
+    if let Some(bit_value) = two_state_to_num(value) {
+        let write_value = ((time_index as u64) << 1) + bit_value as u64;
+        leb128::write::unsigned(data, write_value).unwrap();
+        Some(())
+    } else {
+        None
+    }
+}
+
+#[inline]
+fn try_write_2_state(value: &[u8], data: &mut Vec<u8>) -> Option<()> {
+    let bits = value.len();
+    let bit_values = value.iter().map(|b| two_state_to_num(*b));
+    let mut working_byte = 0u8;
+    for (ii, digit_option) in bit_values.enumerate() {
+        let bit_id = bits - ii - 1;
+        if let Some(value) = digit_option {
+            // is there old data to push?
+            if bit_id == 7 && ii > 0 {
+                data.push(working_byte);
+                working_byte = 0;
+            }
+            working_byte = (working_byte << 1) + value;
+        } else {
+            // remove added data
+            let total_bytes = int_div_ceil(bits, 8);
+            let bytes_pushed = total_bytes - 1 - int_div_ceil(bit_id, 8);
+            for _ in 0..bytes_pushed {
+                data.pop();
+            }
+            return None;
+        }
+    }
+    data.push(working_byte);
+    Some(())
+}
+
+#[inline]
+fn four_state_to_num(value: u8) -> Option<u8> {
+    match value {
+        b'0' | b'1' => Some(value - b'0'),
+        b'x' | b'X' => Some(2),
+        b'z' | b'Z' => Some(3),
+        _ => None,
+    }
+}
+
+#[inline]
+fn try_write_1_bit_4_state(time_index: u16, value: u8, data: &mut Vec<u8>) -> Option<bool> {
+    if let Some(bit_value) = four_state_to_num(value) {
+        let write_value = ((time_index as u64) << 2) + bit_value as u64;
+        leb128::write::unsigned(data, write_value).unwrap();
+        Some(bit_value <= 1)
+    } else {
+        None
+    }
+}
+
+#[inline]
+fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<bool> {
+    let bits = value.len() * 2;
+    let bit_values = value.iter().map(|b| four_state_to_num(*b));
+    let mut working_byte = 0u8;
+    let mut all_two_state = true;
+    for (ii, digit_option) in bit_values.enumerate() {
+        let bit_id = bits - (ii * 2) - 1;
+        if let Some(value) = digit_option {
+            // is there old data to push?
+            if bit_id == 6 && ii > 0 {
+                data.push(working_byte);
+                working_byte = 0;
+            }
+            working_byte = (working_byte << 2) + value;
+            all_two_state = all_two_state && value <= 1;
+        } else {
+            // remove added data
+            let total_bytes = int_div_ceil(bits, 8);
+            let bytes_pushed = total_bytes - 1 - (bit_id / 8);
+            for _ in 0..bytes_pushed {
+                data.pop();
+            }
+            return None;
+        }
+    }
+    data.push(working_byte);
+    Some(all_two_state)
+}
+
+#[inline]
+fn try_decode_two_state(value: &[u8]) {}

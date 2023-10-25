@@ -58,7 +58,7 @@ fn binary_to_four_value(bits: usize, value: &[u8]) -> Vec<u8> {
         let is_active = (value[in_byte_index] >> in_bit_index) & 1 == 1;
         let (out_byte_index, out_bit_index) = byte_and_bit_index(ii, max_out_ii, 4);
         if is_active {
-            out[out_byte_index] |= (1 << out_bit_index);
+            out[out_byte_index] |= 1 << out_bit_index;
         }
     }
     out
