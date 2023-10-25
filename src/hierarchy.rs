@@ -220,11 +220,14 @@ impl Hierarchy {
     }
 
     /// Returns one variable per unique signal in the order of signal handles.
-    pub fn get_unique_signals_vars(&self) -> Vec<Var> {
+    /// The value will be None if there is no var pointing to the given handle.
+    pub fn get_unique_signals_vars(&self) -> Vec<Option<Var>> {
         let mut out = Vec::with_capacity(self.handle_to_var.len());
         for maybe_var_id in self.handle_to_var.iter() {
             if let Some(var_id) = maybe_var_id {
-                out.push((*self.get_var(*var_id)).clone());
+                out.push(Some((*self.get_var(*var_id)).clone()));
+            } else {
+                out.push(None)
             }
         }
         out

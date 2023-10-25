@@ -53,7 +53,7 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
             convert_var_tpe(tpe),
             VarDirection::Todo,
             u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
-            id_to_int(id) as u32,
+            id_to_int(id).unwrap() as u32,
         ),
         HeaderCmd::VectorVar(tpe, size, id, name, _) => {
             let length = match u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10) {
@@ -71,7 +71,7 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
                 convert_var_tpe(tpe),
                 VarDirection::Todo,
                 length,
-                id_to_int(id) as u32,
+                id_to_int(id).unwrap() as u32,
             );
         }
     };
@@ -97,17 +97,31 @@ fn convert_var_tpe(tpe: &[u8]) -> VarType {
     }
 }
 
-/// Each printable character is a digit in base (126 - 32) = 94.
-/// The most significant digit is on the right!
+const ID_CHAR_MIN: u8 = b'!';
+const ID_CHAR_MAX: u8 = b'~';
+const NUM_ID_CHARS: u64 = (ID_CHAR_MAX - ID_CHAR_MIN + 1) as u64;
+
+/// Copied from https://github.com/kevinmehall/rust-vcd, licensed under MIT
 #[inline]
-fn id_to_int(id: &[u8]) -> u64 {
-    assert!(!id.is_empty());
-    let mut value: u64 = 0;
-    for bb in id.iter().rev() {
-        let char_val = (*bb - 33) as u64;
-        value = (value * 94) + char_val;
+fn id_to_int(id: &[u8]) -> Option<u64> {
+    if id.is_empty() {
+        return None;
     }
-    value
+    let mut result = 0u64;
+    for &i in id.iter().rev() {
+        if !(ID_CHAR_MIN..=ID_CHAR_MAX).contains(&i) {
+            return None;
+        }
+        let c = ((i - ID_CHAR_MIN) as u64) + 1;
+        result = match result
+            .checked_mul(NUM_ID_CHARS)
+            .and_then(|x| x.checked_add(c))
+        {
+            None => return None,
+            Some(value) => value,
+        };
+    }
+    Some(result - 1)
 }
 
 /// very hacky read header implementation, will fail on a lot of valid headers
@@ -304,7 +318,7 @@ fn read_single_stream_of_values<'a>(
                         );
                     }
                     if found_first_time_step {
-                        encoder.vcd_value_change(id_to_int(id), value);
+                        encoder.vcd_value_change(id_to_int(id).unwrap(), value);
                     }
                 }
             };

@@ -138,7 +138,11 @@ impl Encoder {
     pub fn new(hierarchy: &Hierarchy) -> Self {
         let mut signals = Vec::with_capacity(hierarchy.num_unique_signals());
         for var in hierarchy.get_unique_signals_vars() {
-            signals.push(SignalEncoder::new(var.length()));
+            let len = match var {
+                None => SignalLength::Variable, // we do not know!
+                Some(var) => var.length(),
+            };
+            signals.push(SignalEncoder::new(len));
         }
 
         Encoder {
@@ -257,26 +261,31 @@ impl SignalEncoder {
                         try_write_1_bit_4_state(time_index, digit, &mut self.data).unwrap();
                     self.is_four_state = self.is_four_state | !two_state;
                 } else {
-                    assert!(
-                        matches!(value[0], b'b' | b'B'),
-                        "expected a bit vector, not {}",
-                        String::from_utf8_lossy(value)
-                    );
+                    let value_bits: &[u8] = match value[0] {
+                        b'b' | b'B' => &value[1..],
+                        b'1' | b'0' => value,
+                        _ => panic!(
+                            "expected a bit vector, not {} for signal of size {}",
+                            String::from_utf8_lossy(value),
+                            len.get()
+                        ),
+                    };
                     leb128::write::unsigned(&mut self.data, time_index as u64).unwrap();
                     let bits = len.get() as usize;
-                    let two_state: bool = if value.len() == bits + 1 {
-                        try_write_4_state(&value[1..], &mut self.data).unwrap_or_else(|| {
+                    let two_state: bool = if value_bits.len() == bits {
+                        try_write_4_state(value_bits, &mut self.data).unwrap_or_else(|| {
                             panic!(
                                 "Failed to parse four state value: {}",
                                 String::from_utf8_lossy(value)
                             )
                         })
                     } else {
-                        let expanded = expand_special_vector_cases(&value[1..], bits)
+                        let expanded = expand_special_vector_cases(value_bits, bits)
                             .unwrap_or_else(|| {
                                 panic!(
-                                    "Failed to parse four state value: {}",
-                                    String::from_utf8_lossy(value)
+                                    "Failed to parse four state value: {} for signal of size {}",
+                                    String::from_utf8_lossy(value),
+                                    bits
                                 )
                             });
                         try_write_4_state(&expanded, &mut self.data).unwrap_or_else(|| {
