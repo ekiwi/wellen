@@ -234,6 +234,7 @@ struct SignalEncoder {
     data: Vec<u8>,
     is_four_state: bool,
     len: SignalLength,
+    prev_time_idx: u16,
 }
 
 impl SignalEncoder {
@@ -242,6 +243,7 @@ impl SignalEncoder {
             data: Vec::default(),
             is_four_state: false,
             len,
+            prev_time_idx: 0,
         }
     }
 }
@@ -253,12 +255,13 @@ const SKIP_COMPRESSION: bool = true;
 
 impl SignalEncoder {
     fn add_vcd_change(&mut self, time_index: u16, value: &[u8]) {
+        let time_idx_delta = time_index - self.prev_time_idx;
         match self.len {
             SignalLength::Fixed(len) => {
                 if len.get() == 1 {
                     let digit = if value.len() == 1 { value[0] } else { value[1] };
                     let two_state =
-                        try_write_1_bit_4_state(time_index, digit, &mut self.data).unwrap();
+                        try_write_1_bit_4_state(time_idx_delta, digit, &mut self.data).unwrap();
                     self.is_four_state = self.is_four_state | !two_state;
                 } else {
                     let value_bits: &[u8] = match value[0] {
@@ -270,7 +273,7 @@ impl SignalEncoder {
                             len.get()
                         ),
                     };
-                    leb128::write::unsigned(&mut self.data, time_index as u64).unwrap();
+                    leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
                     let bits = len.get() as usize;
                     let two_state: bool = if value_bits.len() == bits {
                         try_write_4_state(value_bits, &mut self.data).unwrap_or_else(|| {
@@ -306,11 +309,12 @@ impl SignalEncoder {
                     String::from_utf8_lossy(value)
                 );
                 // string: var-length time index + var-len length + content
-                leb128::write::unsigned(&mut self.data, time_index as u64).unwrap();
+                leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
                 leb128::write::unsigned(&mut self.data, value.len() as u64).unwrap();
                 self.data.extend_from_slice(value);
             }
         }
+        self.prev_time_idx = time_index;
     }
 
     /// returns a compressed signal representation
