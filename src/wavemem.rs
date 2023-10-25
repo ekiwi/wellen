@@ -251,7 +251,7 @@ impl SignalEncoder {
 /// Minimum number of bytes for a signal to warrant an attempt at LZ4 compression.
 const MIN_SIZE_TO_COMPRESS: usize = 32;
 /// Flag to turn off compression.
-const SKIP_COMPRESSION: bool = true;
+const SKIP_COMPRESSION: bool = false;
 
 impl SignalEncoder {
     fn add_vcd_change(&mut self, time_index: u16, value: &[u8]) {
