@@ -98,6 +98,8 @@ impl Reader {
         let mut time_idx_offset = 0;
         for block in self.blocks.iter() {
             if let Some(offset) = block.offsets[id as usize] {
+                let start_ii = offset.get_index();
+                let is_compressed = decode_signal_stream_meta_data(block.data[start_ii]);
                 todo!()
             }
 
@@ -138,15 +140,11 @@ impl Block {
 #[derive(Debug, Clone, Copy)]
 struct SignalDataOffset(NonZeroU32);
 impl SignalDataOffset {
-    fn new(index: usize, is_compressed: bool) -> Self {
-        let data = (index << 1) as u32 + is_compressed as u32;
-        SignalDataOffset(NonZeroU32::new(data + 1).unwrap())
-    }
-    fn is_compressed(&self) -> bool {
-        (self.0.get() - 1) & 1 == 1
+    fn new(index: usize) -> Self {
+        SignalDataOffset(NonZeroU32::new((index as u32) + 1).unwrap())
     }
     fn get_index(&self) -> usize {
-        ((self.0.get() - 1) >> 1) as usize
+        (self.0.get() - 1) as usize
     }
 }
 
@@ -235,7 +233,8 @@ impl Encoder {
         let mut data: Vec<u8> = Vec::with_capacity(128);
         for signal in self.signals.iter_mut() {
             if let Some((mut signal_data, is_compressed)) = signal.finish() {
-                offsets.push(Some(SignalDataOffset::new(data.len(), is_compressed)));
+                offsets.push(Some(SignalDataOffset::new(data.len())));
+                data.push(encode_signal_stream_meta_data(is_compressed));
                 data.append(&mut signal_data);
             } else {
                 offsets.push(None);
@@ -254,6 +253,21 @@ impl Encoder {
         };
         self.blocks.push(block);
     }
+}
+
+#[inline]
+fn encode_signal_stream_meta_data(is_compressed: bool) -> u8 {
+    if is_compressed {
+        1
+    } else {
+        0
+    }
+}
+
+#[inline]
+fn decode_signal_stream_meta_data(data: u8) -> bool {
+    let is_compressed = data & 1 == 1;
+    is_compressed
 }
 
 /// Encodes changes for a single signal.
