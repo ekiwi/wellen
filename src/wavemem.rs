@@ -5,10 +5,12 @@
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
 use crate::hierarchy::{Hierarchy, SignalIdx, SignalLength};
-use crate::signals::{Signal, SignalSource};
+use crate::signals::{Signal, SignalEncoding, SignalSource};
 use crate::values::Time;
 use crate::vcd::int_div_ceil;
 use bytesize::ByteSize;
+use leb128::read::Error;
+use std::io::Read;
 use std::num::NonZeroU32;
 
 /// Holds queryable waveform data. Use the `Encoder` to generate.
@@ -17,10 +19,10 @@ pub struct Reader {
 }
 
 impl SignalSource for Reader {
-    fn load_signals(&mut self, ids: &[SignalIdx]) -> Vec<Signal> {
+    fn load_signals(&mut self, ids: &[(SignalIdx, SignalLength)]) -> Vec<Signal> {
         let mut signals = Vec::with_capacity(ids.len());
-        for id in ids.iter() {
-            let sig = self.load_signal(*id);
+        for (id, len) in ids.iter() {
+            let sig = self.load_signal(*id, *len);
             signals.push(sig);
         }
         signals
@@ -93,21 +95,72 @@ impl Reader {
         );
     }
 
-    fn load_signal(&self, id: SignalIdx) -> Signal {
+    fn load_signal(&self, id: SignalIdx, len: SignalLength) -> Signal {
         let mut time_indices: Vec<u32> = Vec::new();
         let mut time_idx_offset = 0;
         for block in self.blocks.iter() {
-            if let Some(offset) = block.offsets[id as usize] {
-                let start_ii = offset.get_index();
+            if let Some((start_ii, data_len)) = block.get_offset_and_length(id) {
+                let end_ii = start_ii + data_len;
                 let is_compressed = decode_signal_stream_meta_data(block.data[start_ii]);
+                let data_block = &block.data[start_ii + 1..end_ii];
+                match len {
+                    SignalLength::Variable => {
+                        let (strings, offsets) = if is_compressed {
+                            let data = lz4_flex::decompress(data_block, data_len).unwrap();
+                            load_signal_strings(&mut data.as_slice(), time_idx_offset)
+                        } else {
+                            load_signal_strings(&mut data_block.clone(), time_idx_offset)
+                        };
+                    }
+                    SignalLength::Fixed(_) => {}
+                }
+
                 todo!()
             }
 
-            time_idx_offset += block.time_table.len();
+            time_idx_offset += block.time_table.len() as u32;
         }
 
         todo!()
     }
+}
+
+#[inline]
+fn load_fixed_len_signal(
+    data: &mut impl Read,
+    time_idx_offset: u32,
+    signal_len: u32,
+    is_two_state: bool,
+) -> (Vec<u8>, Vec<u32>) {
+    let mut out = Vec::new();
+    let mut time_indices = Vec::new();
+    let mut last_time_idx = time_idx_offset;
+
+    (out, time_indices)
+}
+
+#[inline]
+fn load_signal_strings(data: &mut impl Read, time_idx_offset: u32) -> (Vec<String>, Vec<u32>) {
+    let mut out = Vec::new();
+    let mut time_indices = Vec::new();
+    let mut last_time_idx = time_idx_offset;
+
+    loop {
+        // read time index
+        let time_idx_delta = match leb128::read::unsigned(data) {
+            Ok(value) => value as u32,
+            Err(_) => break, // presumably there is no more data to be read
+        };
+        last_time_idx += time_idx_delta;
+        time_indices.push(last_time_idx);
+        // read variable length string
+        let len = leb128::read::unsigned(data).unwrap() as usize;
+        let mut buf = vec![0u8; len];
+        data.read_exact(&mut buf).unwrap();
+        let str_value = String::from_utf8_lossy(&buf).to_string();
+        out.push(str_value);
+    }
+    (out, time_indices)
 }
 
 /// A block that contains all value changes in a certain time segment.
@@ -134,9 +187,25 @@ impl Block {
     fn end_time(&self) -> Time {
         *self.time_table.last().unwrap()
     }
+
+    fn get_offset_and_length(&self, id: SignalIdx) -> Option<(usize, usize)> {
+        let offset = match self.offsets[id as usize] {
+            None => return None,
+            Some(offset) => offset.get_index(),
+        };
+        // find the next offset or take the data len
+        let next_offset = self
+            .offsets
+            .iter()
+            .skip(id as usize)
+            .find(|o| o.is_some())
+            .map(|o| o.unwrap().get_index())
+            .unwrap_or(self.data.len());
+        Some((offset, next_offset - offset))
+    }
 }
 
-/// 31-bit byte offset + info about compression
+/// Position of first byte of a signal in the block data.
 #[derive(Debug, Clone, Copy)]
 struct SignalDataOffset(NonZeroU32);
 impl SignalDataOffset {

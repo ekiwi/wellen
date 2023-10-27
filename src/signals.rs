@@ -2,12 +2,13 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use crate::hierarchy::SignalIdx;
+use crate::hierarchy::{SignalIdx, SignalLength};
 use crate::values::Time;
 use crate::vcd::int_div_ceil;
 
 /// Specifies the encoding of a signal.
-enum SignalEncoding {
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum SignalEncoding {
     /// Each bit is encoded as a single bit.
     Binary(u32),
     /// Each bit is encoded as two bits.
@@ -16,6 +17,8 @@ enum SignalEncoding {
     FixedLength,
     /// Each value is encoded as an 8-byte f64 in little endian.
     Float,
+    /// Variable length string.
+    VariableLength,
 }
 
 pub struct Signal {
@@ -39,7 +42,7 @@ enum SignalChangeData {
 pub trait SignalSource {
     /// Loads new signals.
     /// Many implementations take advantage of loading multiple signals at a time.
-    fn load_signals(&mut self, ids: &[SignalIdx]) -> Vec<Signal>;
+    fn load_signals(&mut self, ids: &[(SignalIdx, SignalLength)]) -> Vec<Signal>;
     /// Returns the global time table which stores the time at each value change.
     fn get_time_table(&self) -> Vec<Time>;
 }
