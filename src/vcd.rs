@@ -7,7 +7,7 @@ use crate::signals::SignalSource;
 use bytesize::ByteSize;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
-use std::io::{BufRead, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, Seek};
 
 pub fn read(filename: &str) -> (Hierarchy, Box<dyn SignalSource>) {
     read_internal(filename, true)
@@ -209,7 +209,6 @@ fn truncate(buf: &mut Vec<u8>) {
 
     while !buf.is_empty() {
         match buf.last().unwrap() {
-            b' ' | b'\n' | b'\r' | b'\t' => buf.pop(),
             b' ' | b'\n' | b'\r' | b'\t' => buf.pop(),
             _ => break,
         };
@@ -509,8 +508,8 @@ mod tests {
 
     fn read_body_to_vec(input: &[u8]) -> Vec<String> {
         let mut out = Vec::new();
-        let mut reader = BodyReader::new(input);
-        for (pos, cmd) in reader {
+        let reader = BodyReader::new(input);
+        for (_, cmd) in reader {
             let desc = match cmd {
                 BodyCmd::Time(value) => {
                     format!("Time({})", std::str::from_utf8(value).unwrap())

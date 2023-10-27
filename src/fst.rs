@@ -3,8 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::*;
-use crate::signals::{Signal, SignalSource};
-use crate::values::*;
+use crate::signals::{Signal, SignalSource, Time};
 use fst_native::*;
 use std::collections::HashMap;
 use std::io::{BufRead, Seek};
@@ -122,24 +121,4 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
     reader.read_hierarchy(cb).unwrap();
     h.print_statistics();
     h.finish()
-}
-
-fn read_values<F: BufRead + Seek>(reader: &mut FstReader<F>, hierarchy: &Hierarchy) -> Values {
-    let mut v = ValueBuilder::default();
-    for var in hierarchy.iter_vars() {
-        v.add_signal(var.handle(), var.length())
-    }
-
-    let cb = |time: u64, handle: FstSignalHandle, value: FstSignalValue| match value {
-        FstSignalValue::String(value) => {
-            v.value_and_time(handle.get_index() as SignalIdx, time, value.as_bytes());
-        }
-        FstSignalValue::Real(value) => {
-            v.value_and_time(handle.get_index() as SignalIdx, time, &value.to_be_bytes());
-        }
-    };
-    let filter = FstFilter::all();
-    reader.read_signals(&filter, cb).unwrap();
-    v.print_statistics();
-    v.finish()
 }

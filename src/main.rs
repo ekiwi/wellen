@@ -6,16 +6,13 @@ mod dense;
 mod fst;
 mod hierarchy;
 mod signals;
-mod values;
 mod vcd;
 mod wavemem;
 
 use crate::hierarchy::*;
-use crate::values::*;
 use bytesize::ByteSize;
 use clap::Parser;
 
-use std::io::{BufRead, Seek};
 
 #[derive(Parser, Debug)]
 #[command(name = "loadfst")]

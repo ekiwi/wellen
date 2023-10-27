@@ -3,8 +3,9 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::{SignalIdx, SignalLength};
-use crate::values::Time;
 use crate::vcd::int_div_ceil;
+
+pub type Time = u64;
 
 /// Specifies the encoding of a signal.
 #[derive(Debug, Clone, Copy)]
@@ -25,6 +26,20 @@ pub struct Signal {
     idx: SignalIdx,
     time_indices: Vec<u32>,
     data: SignalChangeData,
+}
+
+impl Signal {
+    pub(crate) fn new_fixed_len(idx: SignalIdx, time_indices: Vec<u32>, encoding: SignalEncoding, width: u32, bytes: Vec<u8>) -> Self {
+        assert_eq!(time_indices.len(), bytes.len() / width as usize);
+        let data = SignalChangeData::FixedLength { encoding, width, bytes };
+        Signal { idx, time_indices, data }
+    }
+
+    pub(crate) fn new_var_len(idx: SignalIdx, time_indices: Vec<u32>, strings: Vec<String>) -> Self {
+        assert_eq!(time_indices.len(), strings.len());
+        let data = SignalChangeData::VariableLength(strings);
+        Signal { idx, time_indices, data }
+    }
 }
 
 /// Holds all loaded signals and facilitates access to them.

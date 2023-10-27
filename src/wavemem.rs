@@ -5,11 +5,9 @@
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
 use crate::hierarchy::{Hierarchy, SignalIdx, SignalLength};
-use crate::signals::{Signal, SignalEncoding, SignalSource};
-use crate::values::Time;
+use crate::signals::{Signal, SignalEncoding, SignalSource, Time};
 use crate::vcd::int_div_ceil;
 use bytesize::ByteSize;
-use leb128::read::Error;
 use std::io::Read;
 use std::num::NonZeroU32;
 
@@ -97,7 +95,10 @@ impl Reader {
 
     fn load_signal(&self, id: SignalIdx, len: SignalLength) -> Signal {
         let mut time_indices: Vec<u32> = Vec::new();
+        let mut data_bytes: Vec<u8> = Vec::new();
+        let mut strings: Vec<String> = Vec::new();
         let mut time_idx_offset = 0;
+        let is_two_state = false; // TODO: find out!
         for block in self.blocks.iter() {
             if let Some((start_ii, data_len)) = block.get_offset_and_length(id) {
                 let end_ii = start_ii + data_len;
@@ -105,23 +106,45 @@ impl Reader {
                 let data_block = &block.data[start_ii + 1..end_ii];
                 match len {
                     SignalLength::Variable => {
-                        let (strings, offsets) = if is_compressed {
+                        let (mut new_strings, mut new_time_indices) = if is_compressed {
                             let data = lz4_flex::decompress(data_block, data_len).unwrap();
                             load_signal_strings(&mut data.as_slice(), time_idx_offset)
                         } else {
                             load_signal_strings(&mut data_block.clone(), time_idx_offset)
                         };
+                        time_indices.append(&mut new_time_indices);
+                        strings.append(&mut new_strings);
                     }
-                    SignalLength::Fixed(_) => {}
+                    SignalLength::Fixed(signal_len) => {
+                        let (mut new_data, mut new_time_indices) = if is_compressed {
+                            let data = lz4_flex::decompress(data_block, data_len).unwrap();
+                            load_fixed_len_signal(&mut data.as_slice(), time_idx_offset, signal_len.get(), is_two_state)
+                        } else {
+                            load_fixed_len_signal(&mut data_block.clone(), time_idx_offset,signal_len.get(), is_two_state)
+                        };
+                        time_indices.append(&mut new_time_indices);
+                        data_bytes.append(&mut new_data);
+                    }
                 }
-
-                todo!()
             }
-
             time_idx_offset += block.time_table.len() as u32;
         }
 
-        todo!()
+        match len {
+            SignalLength::Variable => {
+                assert!(data_bytes.is_empty());
+                Signal::new_var_len(id, time_indices, strings)
+            }
+            SignalLength::Fixed(len) => {
+                assert!(strings.is_empty());
+                let (encoding, bytes_per_entry) = if is_two_state {
+                    (SignalEncoding::Binary(len.get()), int_div_ceil(len.get() as usize, 8) as u32)
+                } else {
+                    (SignalEncoding::FourValue(len.get()), int_div_ceil(len.get() as usize, 4) as u32)
+                };
+                Signal::new_fixed_len(id, time_indices, encoding, bytes_per_entry, data_bytes)
+            }
+        }
     }
 }
 
