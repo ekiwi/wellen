@@ -13,7 +13,6 @@ use crate::hierarchy::*;
 use bytesize::ByteSize;
 use clap::Parser;
 
-
 #[derive(Parser, Debug)]
 #[command(name = "loadfst")]
 #[command(author = "Kevin Laeufer <laeufer@berkeley.edu>")]
@@ -64,7 +63,7 @@ fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
 fn main() {
     let args = Args::parse();
     let ext = args.filename.split('.').last().unwrap();
-    let (hierarchy, values) = match ext {
+    let (hierarchy, mut values) = match ext {
         "fst" => fst::read(&args.filename),
         "vcd" => vcd::read(&args.filename),
         other => panic!("Unsupported file extension: {other}"),
@@ -74,7 +73,16 @@ fn main() {
         "The hierarchy takes up at least {} of memory.",
         ByteSize::b(estimate_hierarchy_size(&hierarchy) as u64)
     );
-    print_size_of_full_vs_reduced_names(&hierarchy);
+    // print_size_of_full_vs_reduced_names(&hierarchy);
 
-    // read random
+    // load every signal individually
+    for var in hierarchy.get_unique_signals_vars().iter().flatten() {
+        let ids = [(var.handle(), var.length()); 1];
+        let signal = &values.load_signals(&ids)[0];
+        println!(
+            "{} takes {} in memory",
+            var.full_name(&hierarchy),
+            ByteSize::b(signal.size_in_memory() as u64)
+        );
+    }
 }

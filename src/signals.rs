@@ -29,16 +29,51 @@ pub struct Signal {
 }
 
 impl Signal {
-    pub(crate) fn new_fixed_len(idx: SignalIdx, time_indices: Vec<u32>, encoding: SignalEncoding, width: u32, bytes: Vec<u8>) -> Self {
+    pub(crate) fn new_fixed_len(
+        idx: SignalIdx,
+        time_indices: Vec<u32>,
+        encoding: SignalEncoding,
+        width: u32,
+        bytes: Vec<u8>,
+    ) -> Self {
         assert_eq!(time_indices.len(), bytes.len() / width as usize);
-        let data = SignalChangeData::FixedLength { encoding, width, bytes };
-        Signal { idx, time_indices, data }
+        let data = SignalChangeData::FixedLength {
+            encoding,
+            width,
+            bytes,
+        };
+        Signal {
+            idx,
+            time_indices,
+            data,
+        }
     }
 
-    pub(crate) fn new_var_len(idx: SignalIdx, time_indices: Vec<u32>, strings: Vec<String>) -> Self {
+    pub(crate) fn new_var_len(
+        idx: SignalIdx,
+        time_indices: Vec<u32>,
+        strings: Vec<String>,
+    ) -> Self {
         assert_eq!(time_indices.len(), strings.len());
         let data = SignalChangeData::VariableLength(strings);
-        Signal { idx, time_indices, data }
+        Signal {
+            idx,
+            time_indices,
+            data,
+        }
+    }
+
+    pub fn size_in_memory(&self) -> usize {
+        let base = std::mem::size_of::<Self>();
+        let time = self.time_indices.len() * std::mem::size_of::<u32>();
+        let data = match &self.data {
+            SignalChangeData::FixedLength { bytes, .. } => bytes.len(),
+            SignalChangeData::VariableLength(strings) => strings
+                .iter()
+                .map(|s| s.as_bytes().len() + std::mem::size_of::<String>())
+                .sum::<usize>(),
+        };
+        base + time + data
     }
 }
 

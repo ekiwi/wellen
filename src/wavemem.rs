@@ -118,9 +118,19 @@ impl Reader {
                     SignalLength::Fixed(signal_len) => {
                         let (mut new_data, mut new_time_indices) = if is_compressed {
                             let data = lz4_flex::decompress(data_block, data_len).unwrap();
-                            load_fixed_len_signal(&mut data.as_slice(), time_idx_offset, signal_len.get(), is_two_state)
+                            load_fixed_len_signal(
+                                &mut data.as_slice(),
+                                time_idx_offset,
+                                signal_len.get(),
+                                is_two_state,
+                            )
                         } else {
-                            load_fixed_len_signal(&mut data_block.clone(), time_idx_offset,signal_len.get(), is_two_state)
+                            load_fixed_len_signal(
+                                &mut data_block.clone(),
+                                time_idx_offset,
+                                signal_len.get(),
+                                is_two_state,
+                            )
                         };
                         time_indices.append(&mut new_time_indices);
                         data_bytes.append(&mut new_data);
@@ -138,9 +148,15 @@ impl Reader {
             SignalLength::Fixed(len) => {
                 assert!(strings.is_empty());
                 let (encoding, bytes_per_entry) = if is_two_state {
-                    (SignalEncoding::Binary(len.get()), int_div_ceil(len.get() as usize, 8) as u32)
+                    (
+                        SignalEncoding::Binary(len.get()),
+                        int_div_ceil(len.get() as usize, 8) as u32,
+                    )
                 } else {
-                    (SignalEncoding::FourValue(len.get()), int_div_ceil(len.get() as usize, 4) as u32)
+                    (
+                        SignalEncoding::FourValue(len.get()),
+                        int_div_ceil(len.get() as usize, 4) as u32,
+                    )
                 };
                 Signal::new_fixed_len(id, time_indices, encoding, bytes_per_entry, data_bytes)
             }
@@ -158,6 +174,8 @@ fn load_fixed_len_signal(
     let mut out = Vec::new();
     let mut time_indices = Vec::new();
     let mut last_time_idx = time_idx_offset;
+
+    todo!("implement");
 
     (out, time_indices)
 }
@@ -220,7 +238,7 @@ impl Block {
         let next_offset = self
             .offsets
             .iter()
-            .skip(id as usize)
+            .skip((id as usize) + 1)
             .find(|o| o.is_some())
             .map(|o| o.unwrap().get_index())
             .unwrap_or(self.data.len());
@@ -325,7 +343,8 @@ impl Encoder {
         let mut data: Vec<u8> = Vec::with_capacity(128);
         for signal in self.signals.iter_mut() {
             if let Some((mut signal_data, is_compressed)) = signal.finish() {
-                offsets.push(Some(SignalDataOffset::new(data.len())));
+                let offset = SignalDataOffset::new(data.len());
+                offsets.push(Some(offset));
                 data.push(encode_signal_stream_meta_data(is_compressed));
                 data.append(&mut signal_data);
             } else {
