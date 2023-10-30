@@ -175,7 +175,37 @@ fn load_fixed_len_signal(
     let mut time_indices = Vec::new();
     let mut last_time_idx = time_idx_offset;
 
-    todo!("implement");
+    loop {
+        // read time index
+        let time_idx_delta_raw = match leb128::read::unsigned(data) {
+            Ok(value) => value as u32,
+            Err(_) => break, // presumably there is no more data to be read
+        };
+        // now the decoding depends on the size and whether it is two state
+        let time_idx_delta = match signal_len {
+            1 => {
+                let value = (time_idx_delta_raw & 0x3) as u8;
+                // for a 1-bit signal we do not need to distinguish between 2 and 4 state!
+                out.push(value);
+                // time delta is encoded together with the value
+                time_idx_delta_raw >> 2
+            }
+            other => {
+                let num_bytes = int_div_ceil(other as usize, 4);
+                let mut buf = vec![0u8; num_bytes];
+                if is_two_state {
+                    todo!()
+                } else {
+                    data.read_exact(&mut buf.as_mut()).unwrap();
+                    out.append(&mut buf);
+                }
+                //
+                time_idx_delta_raw
+            }
+        };
+        last_time_idx += time_idx_delta;
+        time_indices.push(last_time_idx)
+    }
 
     (out, time_indices)
 }
@@ -308,6 +338,9 @@ impl Encoder {
             "We need a call to time_change first!"
         );
         let time_idx = (self.time_table.len() - 1) as u16;
+        if id == 61 {
+            println!();
+        }
         self.signals[id as usize].add_vcd_change(time_idx, value);
     }
 
@@ -341,7 +374,10 @@ impl Encoder {
         let signal_count = self.signals.len();
         let mut offsets = Vec::with_capacity(signal_count);
         let mut data: Vec<u8> = Vec::with_capacity(128);
-        for signal in self.signals.iter_mut() {
+        for (signal_idx, signal) in self.signals.iter_mut().enumerate() {
+            if signal_idx == 61 {
+                println!();
+            }
             if let Some((mut signal_data, is_compressed)) = signal.finish() {
                 let offset = SignalDataOffset::new(data.len());
                 offsets.push(Some(offset));
@@ -542,14 +578,17 @@ fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<()> {
     let bit_values = value.iter().map(|b| four_state_to_num(*b));
     let mut working_byte = 0u8;
     for (ii, digit_option) in bit_values.enumerate() {
-        let bit_id = bits - (ii * 2) - 1;
+        let bit_id = bits - (ii * 2) - 2;
         if let Some(value) = digit_option {
-            // is there old data to push?
-            if bit_id == 6 && ii > 0 {
+            working_byte = (working_byte << 2) + value;
+            // Is there old data to push?
+            // we use the bit_id here instead of just testing ii % 4 == 0
+            // because for e.g. a 7-bit signal, the push needs to happen after 3 iterations!
+            if bit_id % 8 == 0 {
                 data.push(working_byte);
                 working_byte = 0;
+                println!("PUSH");
             }
-            working_byte = (working_byte << 2) + value;
         } else {
             // remove added data
             let total_bytes = int_div_ceil(bits, 8);
@@ -560,6 +599,56 @@ fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<()> {
             return None;
         }
     }
-    data.push(working_byte);
     Some(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_try_write_4_state() {
+        // write all ones
+        do_test_try_write_4_state(b"1111".as_slice(), Some([0b01010101].as_slice()));
+        do_test_try_write_4_state(b"11111".as_slice(), Some([0b01, 0b01010101].as_slice()));
+        do_test_try_write_4_state(b"111111".as_slice(), Some([0b0101, 0b01010101].as_slice()));
+        do_test_try_write_4_state(
+            b"1111111".as_slice(),
+            Some([0b010101, 0b01010101].as_slice()),
+        );
+        do_test_try_write_4_state(
+            b"11111111".as_slice(),
+            Some([0b01010101, 0b01010101].as_slice()),
+        );
+        // write some zeros, including leading zeros
+        do_test_try_write_4_state(
+            b"011111111".as_slice(),
+            Some([0, 0b01010101, 0b01010101].as_slice()),
+        );
+        do_test_try_write_4_state(
+            b"1011001".as_slice(),
+            Some([0b010001, 0b01000001].as_slice()),
+        );
+        // write some X/Z
+        do_test_try_write_4_state(b"xz01".as_slice(), Some([0b10110001].as_slice()));
+    }
+
+    fn do_test_try_write_4_state(value: &[u8], expected: Option<&[u8]>) {
+        let mut out = vec![5u8, 7u8];
+        let out_starting_len = out.len();
+
+        match (try_write_4_state(value, &mut out), expected) {
+            (Some(()), Some(expect)) => {
+                assert_eq!(&out[out_starting_len..], expect);
+            }
+            (None, Some(expect)) => {
+                panic!("Expected: {expect:?}, but got error");
+            }
+            (Some(()), None) => {
+                panic!("Expected error, but got: {out:?}")
+            }
+            (None, None) => {
+                assert_eq!(out.len(), out_starting_len);
+            } // great!
+        }
+    }
 }

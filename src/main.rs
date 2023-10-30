@@ -65,7 +65,7 @@ fn main() {
     let ext = args.filename.split('.').last().unwrap();
     let (hierarchy, mut values) = match ext {
         "fst" => fst::read(&args.filename),
-        "vcd" => vcd::read(&args.filename),
+        "vcd" => vcd::read_single_thread(&args.filename),
         other => panic!("Unsupported file extension: {other}"),
     };
 
@@ -77,11 +77,12 @@ fn main() {
 
     // load every signal individually
     for var in hierarchy.get_unique_signals_vars().iter().flatten() {
+        let signal_name: String = var.full_name(&hierarchy);
         let ids = [(var.handle(), var.length()); 1];
         let signal = &values.load_signals(&ids)[0];
         println!(
             "{} takes {} in memory",
-            var.full_name(&hierarchy),
+            signal_name,
             ByteSize::b(signal.size_in_memory() as u64)
         );
     }
