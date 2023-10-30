@@ -587,7 +587,6 @@ fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<()> {
             if bit_id % 8 == 0 {
                 data.push(working_byte);
                 working_byte = 0;
-                println!("PUSH");
             }
         } else {
             // remove added data
