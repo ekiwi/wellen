@@ -8,7 +8,7 @@ use crate::hierarchy::{Hierarchy, SignalIdx, SignalLength};
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time};
 use crate::vcd::int_div_ceil;
 use bytesize::ByteSize;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::num::NonZeroU32;
 
 /// Holds queryable waveform data. Use the `Encoder` to generate.
@@ -279,6 +279,7 @@ impl Block {
 /// Position of first byte of a signal in the block data.
 #[derive(Debug, Clone, Copy)]
 struct SignalDataOffset(NonZeroU32);
+
 impl SignalDataOffset {
     fn new(index: usize) -> Self {
         SignalDataOffset(NonZeroU32::new((index as u32) + 1).unwrap())
@@ -338,9 +339,6 @@ impl Encoder {
             "We need a call to time_change first!"
         );
         let time_idx = (self.time_table.len() - 1) as u16;
-        if id == 61 {
-            println!();
-        }
         self.signals[id as usize].add_vcd_change(time_idx, value);
     }
 
@@ -415,6 +413,21 @@ fn encode_signal_stream_meta_data(is_compressed: bool) -> u8 {
 fn decode_signal_stream_meta_data(data: u8) -> bool {
     let is_compressed = data & 1 == 1;
     is_compressed
+}
+
+enum SignalEncodingMetaData {
+    /// signal is compressed and the output is at max `inner` bytes long
+    Compressed(u32),
+    Uncompressed,
+}
+
+impl SignalEncodingMetaData {
+    fn decode(data: &[u8]) -> Self {
+
+    }
+    fn encode(&self, out: &mut impl Write) {
+        
+    }
 }
 
 /// Encodes changes for a single signal.
@@ -600,6 +613,7 @@ fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<()> {
     }
     Some(())
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
