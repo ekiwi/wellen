@@ -299,7 +299,14 @@ fn read_single_stream_of_values<'a>(
         advance_to_first_newline(input)
     };
     let mut reader = BodyReader::new(input2);
+    // We only start recording once we have encountered out first time step
     let mut found_first_time_step = false;
+    // In the first thread, we might encounter a dump values which dumps all initial values
+    // without specifying a timestamp
+    if is_first {
+        encoder.time_change(0);
+        found_first_time_step = true;
+    }
     loop {
         if let Some((pos, cmd)) = reader.next() {
             if pos > stop_pos {
@@ -315,12 +322,6 @@ fn read_single_stream_of_values<'a>(
                     encoder.time_change(int_value);
                 }
                 BodyCmd::Value(value, id) => {
-                    if is_first {
-                        assert!(
-                            found_first_time_step,
-                            "in the first thread we always want to encounter a timestamp first"
-                        );
-                    }
                     if found_first_time_step {
                         encoder.vcd_value_change(id_to_int(id).unwrap(), value);
                     }

@@ -352,13 +352,16 @@ impl Encoder {
     }
 
     pub fn time_change(&mut self, time: u64) {
+        // sanity check to make sure that time is increasing
+        if let Some(prev_time) = self.time_table.last() {
+            if *prev_time == time {
+                return; // ignore calls to time_change that do not actually change anything
+            }
+            assert!(*prev_time < time, "Time can only increase!");
+        }
         // if we run out of time indices => start a new block
         if self.time_table.len() >= BlockTimeIdx::MAX as usize {
             self.finish_block();
-        }
-        // sanity check to make sure that time is increasing
-        if let Some(prev_time) = self.time_table.last() {
-            assert!(*prev_time < time, "Time can only increase!");
         }
         self.time_table.push(time);
     }
