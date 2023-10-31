@@ -12,6 +12,7 @@ mod wavemem;
 use crate::hierarchy::*;
 use bytesize::ByteSize;
 use clap::Parser;
+use std::cmp::min;
 
 #[derive(Parser, Debug)]
 #[command(name = "loadfst")]
@@ -76,14 +77,25 @@ fn main() {
     // print_size_of_full_vs_reduced_names(&hierarchy);
 
     // load every signal individually
+    let mut signal_load_times = Vec::new();
+    let mut signal_sizes = Vec::new();
     for var in hierarchy.get_unique_signals_vars().iter().flatten() {
         let signal_name: String = var.full_name(&hierarchy);
         let ids = [(var.handle(), var.length()); 1];
+        let start = std::time::Instant::now();
         let signal = &values.load_signals(&ids)[0];
-        println!(
-            "{} takes {} in memory",
-            signal_name,
-            ByteSize::b(signal.size_in_memory() as u64)
-        );
+        let load_time = start.elapsed();
+        let bytes_in_mem = signal.size_in_memory();
+        signal_load_times.push(load_time);
+        signal_sizes.push(bytes_in_mem);
     }
+
+    let average_signal_load_time =
+        signal_load_times.iter().sum::<std::time::Duration>() / signal_load_times.len() as u32;
+    let max_signal_load_time = signal_load_times.iter().max().unwrap();
+    let min_signal_load_time = signal_load_times.iter().min().unwrap();
+    println!(
+        "Loading a signal takes: {:?}..{:?} (avg. {:?})",
+        min_signal_load_time, max_signal_load_time, average_signal_load_time
+    );
 }
