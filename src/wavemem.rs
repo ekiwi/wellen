@@ -8,7 +8,7 @@ use crate::hierarchy::{Hierarchy, SignalIdx, SignalLength};
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time};
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
 use bytesize::ByteSize;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::num::NonZeroU32;
 
 /// Holds queryable waveform data. Use the `Encoder` to generate.
@@ -101,8 +101,13 @@ impl Reader {
                 let end_ii = start_ii + data_len;
                 // uncompress if necessary
                 let mut reader = std::io::Cursor::new(&block.data[start_ii..end_ii]);
-                let meta_data_raw = leb128::read::unsigned(&mut reader).unwrap();
+                // TODO: go back to compressed version
+                //let meta_data_raw = leb128::read::unsigned(&mut reader).unwrap();
+                let mut buf8 = [0u8; 8];
+                reader.read_exact(&mut buf8).unwrap();
+                let meta_data_raw = u64::from_le_bytes(buf8);
                 let meta_data = SignalEncodingMetaData::decode(meta_data_raw);
+                assert_eq!(reader.position(), 8);
                 let data_block = &block.data[start_ii + reader.position() as usize..end_ii];
                 blocks.push((time_idx_offset, data_block, meta_data))
             }
@@ -326,6 +331,8 @@ pub struct Encoder {
     time_table: Vec<Time>,
     /// Signals under construction
     signals: Vec<SignalEncoder>,
+    /// Tracks if there has been any new data that would require us to create another block.
+    has_new_data: bool,
     /// Finished blocks
     blocks: Vec<Block>,
 }
@@ -341,12 +348,14 @@ impl Encoder {
                 None => SignalLength::Variable, // we do not know!
                 Some(var) => var.length(),
             };
-            signals.push(SignalEncoder::new(len));
+            let pos = signals.len();
+            signals.push(SignalEncoder::new(len, pos));
         }
 
         Encoder {
             time_table: Vec::default(),
             signals,
+            has_new_data: false,
             blocks: Vec::default(),
         }
     }
@@ -364,6 +373,7 @@ impl Encoder {
             self.finish_block();
         }
         self.time_table.push(time);
+        self.has_new_data = true;
     }
 
     /// Call with an unaltered VCD value.
@@ -374,6 +384,7 @@ impl Encoder {
         );
         let time_idx = (self.time_table.len() - 1) as u16;
         self.signals[id as usize].add_vcd_change(time_idx, value);
+        self.has_new_data = true;
     }
 
     pub fn finish(mut self) -> Reader {
@@ -403,6 +414,9 @@ impl Encoder {
     }
 
     fn finish_block(&mut self) {
+        if !self.has_new_data {
+            return; // nothing to do!
+        }
         let signal_count = self.signals.len();
         let mut offsets = Vec::with_capacity(signal_count);
         let mut data: Vec<u8> = Vec::with_capacity(128);
@@ -411,7 +425,8 @@ impl Encoder {
                 let offset = SignalDataOffset::new(data.len());
                 offsets.push(Some(offset));
                 let meta_data = is_compressed.encode();
-                leb128::write::unsigned(&mut data, meta_data).unwrap();
+                //TODO: leb128::write::unsigned(&mut data, meta_data).unwrap();
+                data.write_all(&meta_data.to_le_bytes()).unwrap();
                 data.append(&mut signal_data);
             } else {
                 offsets.push(None);
@@ -429,6 +444,7 @@ impl Encoder {
             data,
         };
         self.blocks.push(block);
+        self.has_new_data = false;
     }
 }
 
@@ -500,15 +516,18 @@ struct SignalEncoder {
     len: SignalLength,
     prev_time_idx: u16,
     is_two_state: bool,
+    /// Same as the index of this encoder in a Vec<_>. Used for debugging purposes.
+    signal_idx: u32,
 }
 
 impl SignalEncoder {
-    fn new(len: SignalLength) -> Self {
+    fn new(len: SignalLength, pos: usize) -> Self {
         SignalEncoder {
             data: Vec::default(),
             len,
             prev_time_idx: 0,
             is_two_state: true,
+            signal_idx: pos as u32,
         }
     }
 }
