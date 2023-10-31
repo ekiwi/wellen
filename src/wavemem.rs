@@ -93,61 +93,74 @@ impl Reader {
         );
     }
 
-    fn load_signal(&self, id: SignalIdx, len: SignalLength) -> Signal {
-        let mut time_indices: Vec<u32> = Vec::new();
-        let mut data_bytes: Vec<u8> = Vec::new();
-        let mut strings: Vec<String> = Vec::new();
+    fn collect_signal_meta_data(&self, id: SignalIdx) -> SignalMetaData {
         let mut time_idx_offset = 0;
-        let is_two_state = false; // TODO: find out!
+        let mut blocks = Vec::with_capacity(self.blocks.len());
         for block in self.blocks.iter() {
             if let Some((start_ii, data_len)) = block.get_offset_and_length(id) {
                 let end_ii = start_ii + data_len;
                 // uncompress if necessary
                 let mut reader = std::io::Cursor::new(&block.data[start_ii..end_ii]);
-                let meta_data = leb128::read::unsigned(&mut reader).unwrap();
-                let is_compressed = SignalEncodingMetaData::decode(meta_data);
+                let meta_data_raw = leb128::read::unsigned(&mut reader).unwrap();
+                let meta_data = SignalEncodingMetaData::decode(meta_data_raw);
                 let data_block = &block.data[start_ii + reader.position() as usize..end_ii];
-
-                match len {
-                    SignalLength::Variable => {
-                        let (mut new_strings, mut new_time_indices) = match is_compressed {
-                            SignalEncodingMetaData::Compressed(uncompressed_len) => {
-                                let data =
-                                    lz4_flex::decompress(data_block, uncompressed_len).unwrap();
-                                load_signal_strings(&mut data.as_slice(), time_idx_offset)
-                            }
-                            SignalEncodingMetaData::Uncompressed => {
-                                load_signal_strings(&mut data_block.clone(), time_idx_offset)
-                            }
-                        };
-                        time_indices.append(&mut new_time_indices);
-                        strings.append(&mut new_strings);
-                    }
-                    SignalLength::Fixed(signal_len) => {
-                        let (mut new_data, mut new_time_indices) = match is_compressed {
-                            SignalEncodingMetaData::Compressed(uncompressed_len) => {
-                                let data =
-                                    lz4_flex::decompress(data_block, uncompressed_len).unwrap();
-                                load_fixed_len_signal(
-                                    &mut data.as_slice(),
-                                    time_idx_offset,
-                                    signal_len.get(),
-                                    is_two_state,
-                                )
-                            }
-                            SignalEncodingMetaData::Uncompressed => load_fixed_len_signal(
-                                &mut data_block.clone(),
-                                time_idx_offset,
-                                signal_len.get(),
-                                is_two_state,
-                            ),
-                        };
-                        time_indices.append(&mut new_time_indices);
-                        data_bytes.append(&mut new_data);
-                    }
-                }
+                blocks.push((time_idx_offset, data_block, meta_data))
             }
             time_idx_offset += block.time_table.len() as u32;
+        }
+        let is_two_state = blocks
+            .iter()
+            .map(|b| b.2.is_two_state)
+            .reduce(|a, b| a && b)
+            .unwrap_or(false);
+        SignalMetaData {
+            is_two_state,
+            blocks,
+        }
+    }
+
+    fn load_signal(&self, id: SignalIdx, len: SignalLength) -> Signal {
+        let meta = self.collect_signal_meta_data(id);
+        let mut time_indices: Vec<u32> = Vec::new();
+        let mut data_bytes: Vec<u8> = Vec::new();
+        let mut strings: Vec<String> = Vec::new();
+        for (time_idx_offset, data_block, meta_data) in meta.blocks.into_iter() {
+            match len {
+                SignalLength::Variable => {
+                    let (mut new_strings, mut new_time_indices) = match meta_data.compression {
+                        SignalCompression::Compressed(uncompressed_len) => {
+                            let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
+                            load_signal_strings(&mut data.as_slice(), time_idx_offset)
+                        }
+                        SignalCompression::Uncompressed => {
+                            load_signal_strings(&mut data_block.clone(), time_idx_offset)
+                        }
+                    };
+                    time_indices.append(&mut new_time_indices);
+                    strings.append(&mut new_strings);
+                }
+                SignalLength::Fixed(signal_len) => {
+                    let (mut new_data, mut new_time_indices) = match meta_data.compression {
+                        SignalCompression::Compressed(uncompressed_len) => {
+                            let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
+                            load_fixed_len_signal(
+                                &mut data.as_slice(),
+                                time_idx_offset,
+                                signal_len.get(),
+                                meta.is_two_state,
+                            )
+                        }
+                        SignalCompression::Uncompressed => load_fixed_len_signal(
+                            &mut data_block.clone(),
+                            time_idx_offset,
+                            signal_len.get(),
+                            meta.is_two_state,
+                        ),
+                    };
+                    time_indices.append(&mut new_time_indices);
+                    data_bytes.append(&mut new_data);
+                }
+            }
         }
 
         match len {
@@ -157,7 +170,7 @@ impl Reader {
             }
             SignalLength::Fixed(len) => {
                 assert!(strings.is_empty());
-                let (encoding, bytes_per_entry) = if is_two_state {
+                let (encoding, bytes_per_entry) = if meta.is_two_state {
                     (
                         SignalEncoding::Binary(len.get()),
                         usize_div_ceil(len.get() as usize, 8) as u32,
@@ -172,6 +185,14 @@ impl Reader {
             }
         }
     }
+}
+
+/// Data about a single signal inside a Reader.
+/// Only used internally by `collect_signal_meta_data`
+struct SignalMetaData<'a> {
+    is_two_state: bool,
+    /// For every block that contains the signal: time_idx_offset, data and meta-data
+    blocks: Vec<(u32, &'a [u8], SignalEncodingMetaData)>,
 }
 
 #[inline]
@@ -408,10 +429,17 @@ impl Encoder {
     }
 }
 
-enum SignalEncodingMetaData {
+#[derive(Debug, Clone)]
+enum SignalCompression {
     /// signal is compressed and the output is at max `inner` bytes long
     Compressed(usize),
     Uncompressed,
+}
+
+#[derive(Debug, Clone)]
+struct SignalEncodingMetaData {
+    compression: SignalCompression,
+    is_two_state: bool,
 }
 
 /// We divide the decompressed size by this number and round up.
@@ -419,25 +447,45 @@ enum SignalEncodingMetaData {
 const SIGNAL_DECOMPRESSED_LEN_DIV: u32 = 32;
 
 impl SignalEncodingMetaData {
+    fn uncompressed(is_two_state: bool) -> Self {
+        SignalEncodingMetaData {
+            compression: SignalCompression::Uncompressed,
+            is_two_state,
+        }
+    }
+
+    fn compressed(is_two_state: bool, uncompressed_len: usize) -> Self {
+        SignalEncodingMetaData {
+            compression: SignalCompression::Compressed(uncompressed_len),
+            is_two_state,
+        }
+    }
+
     fn decode(data: u64) -> Self {
-        let is_compressed = data & 1 == 1;
-        if is_compressed {
-            let decompressed_len_bits = ((data >> 1) & u32::MAX as u64) as u32;
+        let is_two_state = data & 1 == 1;
+        let is_compressed = (data >> 1) & 1 == 1;
+        let compression = if is_compressed {
+            let decompressed_len_bits = ((data >> 2) & u32::MAX as u64) as u32;
             let decompressed_len = decompressed_len_bits * SIGNAL_DECOMPRESSED_LEN_DIV;
-            SignalEncodingMetaData::Compressed(decompressed_len as usize)
+            SignalCompression::Compressed(decompressed_len as usize)
         } else {
-            SignalEncodingMetaData::Uncompressed
+            SignalCompression::Uncompressed
+        };
+        SignalEncodingMetaData {
+            compression,
+            is_two_state,
         }
     }
     fn encode(&self) -> u64 {
-        match &self {
-            SignalEncodingMetaData::Compressed(decompressed_len) => {
+        match &self.compression {
+            SignalCompression::Compressed(decompressed_len) => {
                 let decompressed_len_bits =
                     u32_div_ceil((*decompressed_len) as u32, SIGNAL_DECOMPRESSED_LEN_DIV);
-                let data = ((decompressed_len_bits as u64) << 1) + 1;
+                let data =
+                    ((decompressed_len_bits as u64) << 2) + 1 << 1 + (self.is_two_state as u64);
                 data
             }
-            SignalEncodingMetaData::Uncompressed => 0u64,
+            SignalCompression::Uncompressed => self.is_two_state as u64,
         }
     }
 }
@@ -448,6 +496,7 @@ struct SignalEncoder {
     data: Vec<u8>,
     len: SignalLength,
     prev_time_idx: u16,
+    is_two_state: bool,
 }
 
 impl SignalEncoder {
@@ -456,6 +505,7 @@ impl SignalEncoder {
             data: Vec::default(),
             len,
             prev_time_idx: 0,
+            is_two_state: true,
         }
     }
 }
@@ -472,7 +522,8 @@ impl SignalEncoder {
             SignalLength::Fixed(len) => {
                 if len.get() == 1 {
                     let digit = if value.len() == 1 { value[0] } else { value[1] };
-                    try_write_1_bit_4_state(time_idx_delta, digit, &mut self.data).unwrap();
+                    self.is_two_state &=
+                        try_write_1_bit_4_state(time_idx_delta, digit, &mut self.data).unwrap();
                 } else {
                     let value_bits: &[u8] = match value[0] {
                         b'b' | b'B' => &value[1..],
@@ -486,12 +537,13 @@ impl SignalEncoder {
                     leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
                     let bits = len.get() as usize;
                     if value_bits.len() == bits {
-                        try_write_4_state(value_bits, &mut self.data).unwrap_or_else(|| {
-                            panic!(
-                                "Failed to parse four state value: {}",
-                                String::from_utf8_lossy(value)
-                            )
-                        });
+                        self.is_two_state &= try_write_4_state(value_bits, &mut self.data)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "Failed to parse four state value: {}",
+                                    String::from_utf8_lossy(value)
+                                )
+                            });
                     } else {
                         let expanded = expand_special_vector_cases(value_bits, bits)
                             .unwrap_or_else(|| {
@@ -501,12 +553,13 @@ impl SignalEncoder {
                                     bits
                                 )
                             });
-                        try_write_4_state(&expanded, &mut self.data).unwrap_or_else(|| {
-                            panic!(
-                                "Failed to parse four state value: {}",
-                                String::from_utf8_lossy(value)
-                            )
-                        });
+                        self.is_two_state &= try_write_4_state(&expanded, &mut self.data)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "Failed to parse four state value: {}",
+                                    String::from_utf8_lossy(value)
+                                )
+                            });
                     };
                 }
             }
@@ -539,14 +592,23 @@ impl SignalEncoder {
 
         // is there so little data that compression does not make sense?
         if data.len() < MIN_SIZE_TO_COMPRESS || SKIP_COMPRESSION {
-            return Some((data, SignalEncodingMetaData::Uncompressed));
+            return Some((
+                data,
+                SignalEncodingMetaData::uncompressed(self.is_two_state),
+            ));
         }
         // attempt a compression
         let compressed = lz4_flex::compress(&data);
         if (compressed.len() + 1) >= data.len() {
-            Some((data, SignalEncodingMetaData::Uncompressed))
+            Some((
+                data,
+                SignalEncodingMetaData::uncompressed(self.is_two_state),
+            ))
         } else {
-            Some((compressed, SignalEncodingMetaData::Compressed(data.len())))
+            Some((
+                compressed,
+                SignalEncodingMetaData::compressed(self.is_two_state, data.len()),
+            ))
         }
     }
 }
@@ -606,7 +668,7 @@ fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<bool> {
     for (ii, digit_option) in bit_values.enumerate() {
         let bit_id = bits - (ii * 2) - 2;
         if let Some(value) = digit_option {
-            is_two_state = is_two_state && (value <= 1);
+            is_two_state &= (value <= 1);
             working_byte = (working_byte << 2) + value;
             // Is there old data to push?
             // we use the bit_id here instead of just testing ii % 4 == 0
