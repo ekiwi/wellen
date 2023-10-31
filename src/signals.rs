@@ -3,7 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::{SignalIdx, SignalLength};
-use crate::vcd::int_div_ceil;
+use crate::vcd::usize_div_ceil;
 
 pub type Time = u64;
 
@@ -103,7 +103,7 @@ fn byte_and_bit_index(ii: usize, max_byte_ii: usize, bits_per_byte: usize) -> (u
 }
 
 fn binary_to_four_value(bits: usize, value: &[u8]) -> Vec<u8> {
-    let mut out = vec![0u8; int_div_ceil(bits, 4)];
+    let mut out = vec![0u8; usize_div_ceil(bits, 4)];
     let max_value_ii = value.len() - 1;
     let max_out_ii = out.len() - 1;
     for ii in 0..bits {

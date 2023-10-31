@@ -232,7 +232,12 @@ enum HeaderCmd<'a> {
 const MIN_CHUNK_SIZE: usize = 8 * 1024;
 
 #[inline]
-pub(crate) fn int_div_ceil(a: usize, b: usize) -> usize {
+pub(crate) fn usize_div_ceil(a: usize, b: usize) -> usize {
+    (a + b - 1) / b
+}
+
+#[inline]
+pub(crate) fn u32_div_ceil(a: u32, b: u32) -> u32 {
     (a + b - 1) / b
 }
 
@@ -242,9 +247,9 @@ pub(crate) fn int_div_ceil(a: usize, b: usize) -> usize {
 #[inline]
 fn determine_thread_chunks(body_len: usize) -> Vec<(usize, usize)> {
     let max_threads = rayon::current_num_threads();
-    let number_of_threads_for_min_chunk_size = int_div_ceil(body_len, MIN_CHUNK_SIZE);
+    let number_of_threads_for_min_chunk_size = usize_div_ceil(body_len, MIN_CHUNK_SIZE);
     let num_threads = std::cmp::min(max_threads, number_of_threads_for_min_chunk_size);
-    let chunk_size = int_div_ceil(body_len, num_threads);
+    let chunk_size = usize_div_ceil(body_len, num_threads);
     // TODO: for large file it might make sense to have more chunks than threads
     (0..num_threads)
         .map(|ii| (ii * chunk_size, chunk_size))
