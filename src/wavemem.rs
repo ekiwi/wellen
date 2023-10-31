@@ -101,13 +101,8 @@ impl Reader {
                 let end_ii = start_ii + data_len;
                 // uncompress if necessary
                 let mut reader = std::io::Cursor::new(&block.data[start_ii..end_ii]);
-                // TODO: go back to compressed version
-                //let meta_data_raw = leb128::read::unsigned(&mut reader).unwrap();
-                let mut buf8 = [0u8; 8];
-                reader.read_exact(&mut buf8).unwrap();
-                let meta_data_raw = u64::from_le_bytes(buf8);
+                let meta_data_raw = leb128::read::unsigned(&mut reader).unwrap();
                 let meta_data = SignalEncodingMetaData::decode(meta_data_raw);
-                assert_eq!(reader.position(), 8);
                 let data_block = &block.data[start_ii + reader.position() as usize..end_ii];
                 blocks.push((time_idx_offset, data_block, meta_data));
             }
@@ -426,8 +421,7 @@ impl Encoder {
                 let offset = SignalDataOffset::new(data.len());
                 offsets.push(Some(offset));
                 let meta_data = is_compressed.encode();
-                //TODO: leb128::write::unsigned(&mut data, meta_data).unwrap();
-                data.write_all(&meta_data.to_le_bytes()).unwrap();
+                leb128::write::unsigned(&mut data, meta_data).unwrap();
                 data.append(&mut signal_data);
             } else {
                 offsets.push(None);
