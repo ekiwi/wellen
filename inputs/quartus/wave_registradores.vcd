@@ -1,0 +1,151 @@
+$date
+     Dec 16, 2020       19:50:58
+$end
+
+$version
+ SystemC 2.3.3-Accellera --- Nov 12 2020 19:12:35
+$end
+
+$timescale
+     1 ps
+$end
+
+$scope module SystemC $end
+$var wire    1  aaaaa  clock       $end
+$var wire    1  aaaab  mi_RegWrite       $end
+$var wire    5  aaaac  i_ReadRegister1 [4:0]  $end
+$var wire    5  aaaad  i_ReadRegister2 [4:0]  $end
+$var wire    5  aaaae  i_WriteRegister [4:0]  $end
+$var wire   32  aaaaf  i_WriteData [31:0]  $end
+$var wire   32  aaaag  o_ReadData1 [31:0]  $end
+$var wire   32  aaaah  o_ReadData2 [31:0]  $end
+$upscope $end
+$enddefinitions  $end
+
+$comment
+All initial values are dumped below at time 0 sec = 0 timescale units.
+$end
+
+$dumpvars
+1aaaaa
+1aaaab
+b0 aaaac
+b0 aaaad
+b1 aaaae
+b1 aaaaf
+b0 aaaag
+b0 aaaah
+$end
+
+#25000
+0aaaaa
+
+#50000
+1aaaaa
+b10 aaaae
+b10 aaaaf
+
+#75000
+0aaaaa
+
+#100000
+1aaaaa
+b101 aaaae
+b101 aaaaf
+
+#125000
+0aaaaa
+
+#150000
+1aaaaa
+0aaaab
+b1 aaaac
+b10 aaaad
+b0 aaaae
+b0 aaaaf
+
+#175000
+0aaaaa
+
+#200000
+1aaaaa
+b10 aaaac
+b101 aaaad
+b1 aaaag
+b10 aaaah
+
+#225000
+0aaaaa
+
+#250000
+1aaaaa
+1aaaab
+b0 aaaac
+b0 aaaad
+b1 aaaae
+b1 aaaaf
+b10 aaaag
+b101 aaaah
+
+#275000
+0aaaaa
+
+#300000
+1aaaaa
+b10 aaaae
+b10 aaaaf
+
+#325000
+0aaaaa
+
+#350000
+1aaaaa
+b101 aaaae
+b101 aaaaf
+
+#375000
+0aaaaa
+
+#400000
+1aaaaa
+0aaaab
+b1 aaaac
+b10 aaaad
+b0 aaaae
+b0 aaaaf
+
+#425000
+0aaaaa
+
+#450000
+1aaaaa
+b10 aaaac
+b101 aaaad
+b1 aaaag
+b10 aaaah
+
+#475000
+0aaaaa
+
+#500000
+1aaaaa
+1aaaab
+b0 aaaac
+b0 aaaad
+b1 aaaae
+b1 aaaaf
+b10 aaaag
+b101 aaaah
+
+#525000
+0aaaaa
+
+#550000
+1aaaaa
+b10 aaaae
+b10 aaaaf
+
+#575000
+0aaaaa
+
+#600000

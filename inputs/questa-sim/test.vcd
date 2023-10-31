@@ -1,0 +1,478 @@
+$date
+	Wed Jul  7 08:30:24 2021
+$end
+$version
+	QuestaSim Version 2020.1_1
+$end
+$timescale
+	1ns
+$end
+
+$scope module test $end
+$var reg 1 ! clk $end
+$var wire 1 " count [2] $end
+$var wire 1 # count [1] $end
+$var wire 1 $ count [0] $end
+
+$scope module dut $end
+$var reg 3 % count [2:0] $end
+$var wire 1 & clk $end
+$var reg 5 ' Dout [4:0] $end
+$var reg 5 ( Din [4:0] $end
+
+$scope begin init[4] $end
+$var parameter 32 ) i $end
+
+$scope module inst $end
+$var reg 1 * q $end
+$var wire 1 + din $end
+$var wire 1 & clk $end
+$upscope $end
+$upscope $end
+
+$scope begin init[3] $end
+$var parameter 32 , i $end
+
+$scope module inst $end
+$var reg 1 - q $end
+$var wire 1 . din $end
+$var wire 1 & clk $end
+$upscope $end
+$upscope $end
+
+$scope begin init[2] $end
+$var parameter 32 / i $end
+
+$scope module inst $end
+$var reg 1 0 q $end
+$var wire 1 1 din $end
+$var wire 1 & clk $end
+$upscope $end
+$upscope $end
+
+$scope begin init[1] $end
+$var parameter 32 2 i $end
+
+$scope module inst $end
+$var reg 1 3 q $end
+$var wire 1 4 din $end
+$var wire 1 & clk $end
+$upscope $end
+$upscope $end
+
+$scope begin init[0] $end
+$var parameter 32 5 i $end
+
+$scope module inst $end
+$var reg 1 6 q $end
+$var wire 1 7 din $end
+$var wire 1 & clk $end
+$upscope $end
+$upscope $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0!
+bx %
+bx '
+bx (
+x6
+x3
+x0
+x-
+x*
+b0 5
+b1 2
+b10 /
+b11 ,
+b100 )
+x$
+x#
+x"
+0&
+x7
+x4
+x1
+x.
+x+
+$end
+#5
+1!
+1&
+#6
+b10 (
+0+
+0.
+01
+14
+07
+#10
+0!
+0&
+#15
+1!
+1&
+06
+13
+00
+0-
+0*
+b0xxxx '
+b0xxx '
+b0xx '
+b1x '
+b10 '
+b10 %
+0$
+1#
+0"
+#16
+b1 (
+04
+17
+#20
+0!
+0&
+#25
+1!
+1&
+03
+16
+b11 '
+b1 '
+b1 %
+1$
+0#
+#26
+b1010 (
+1.
+14
+07
+#30
+0!
+0&
+#35
+1!
+1&
+1-
+06
+13
+b11 '
+b10 '
+b1010 '
+b10 %
+0$
+1#
+#36
+b1011 (
+17
+#40
+0!
+0&
+#45
+1!
+1&
+16
+b1011 '
+b11 %
+1$
+#46
+b10010 (
+1+
+0.
+07
+#50
+0!
+0&
+#55
+1!
+1&
+0-
+1*
+06
+b1010 '
+b11010 '
+b10010 '
+b10 %
+0$
+#56
+b10100 (
+11
+04
+#60
+0!
+0&
+#65
+1!
+1&
+03
+10
+b10110 '
+b10100 '
+b100 %
+0#
+1"
+#66
+b11010 (
+1.
+01
+14
+#70
+0!
+0&
+#75
+1!
+1&
+1-
+00
+13
+b10110 '
+b10010 '
+b11010 '
+b10 %
+1#
+0"
+#76
+b11101 (
+11
+04
+17
+#80
+0!
+0&
+#85
+1!
+1&
+16
+03
+10
+b11110 '
+b11100 '
+b11101 '
+b101 %
+1$
+0#
+1"
+#86
+b10 (
+0+
+0.
+01
+14
+07
+#90
+0!
+0&
+#95
+1!
+1&
+0-
+0*
+00
+13
+06
+b11100 '
+b11110 '
+b11010 '
+b1010 '
+b10 '
+b10 %
+0$
+1#
+0"
+#96
+b1 (
+04
+17
+#100
+0!
+0&
+#105
+1!
+1&
+16
+03
+b0 '
+b1 '
+b1 %
+1$
+0#
+#106
+b1010 (
+1.
+14
+07
+#110
+0!
+0&
+#115
+1!
+1&
+1-
+13
+06
+b0 '
+b10 '
+b1010 '
+b10 %
+0$
+1#
+#116
+b1011 (
+17
+#120
+0!
+0&
+#125
+1!
+1&
+16
+b1011 '
+b11 %
+1$
+#126
+b10010 (
+1+
+0.
+07
+#130
+0!
+0&
+#135
+1!
+1&
+0-
+1*
+06
+b1010 '
+b11010 '
+b10010 '
+b10 %
+0$
+#136
+b10100 (
+11
+04
+#140
+0!
+0&
+#145
+1!
+1&
+03
+10
+b10110 '
+b10100 '
+b100 %
+0#
+1"
+#146
+b11010 (
+1.
+01
+14
+#150
+0!
+0&
+#155
+1!
+1&
+1-
+00
+13
+b10110 '
+b10010 '
+b11010 '
+b10 %
+1#
+0"
+#156
+b11101 (
+11
+04
+17
+#160
+0!
+0&
+#165
+1!
+1&
+16
+03
+10
+b11110 '
+b11100 '
+b11101 '
+b101 %
+1$
+0#
+1"
+#166
+b10 (
+0+
+0.
+01
+14
+07
+#170
+0!
+0&
+#175
+1!
+1&
+0-
+0*
+00
+13
+06
+b11100 '
+b11110 '
+b11010 '
+b1010 '
+b10 '
+b10 %
+0$
+1#
+0"
+#176
+b1 (
+04
+17
+#180
+0!
+0&
+#185
+1!
+1&
+16
+03
+b0 '
+b1 '
+b1 %
+1$
+0#
+#186
+b1010 (
+1.
+14
+07
+#190
+0!
+0&
+#195
+1!
+1&
+1-
+13
+06
+b0 '
+b10 '
+b1010 '
+b10 %
+0$
+1#
+#196
+b1011 (
+17

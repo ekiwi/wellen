@@ -1,0 +1,936 @@
+$date
+Mon Jul 19 14:17:09 2021
+$end
+$version
+Riviera-PRO Version 2020.04.130.7729
+$end
+$timescale
+1 ps
+$end
+
+$scope module tb_tic_tac_toe $end
+$var wire 2 ! pos_led1 [1:0] $end
+$var wire 2 " pos_led2 [1:0] $end
+$var wire 2 # pos_led3 [1:0] $end
+$var wire 2 $ pos_led4 [1:0] $end
+$var wire 2 % pos_led5 [1:0] $end
+$var wire 2 & pos_led6 [1:0] $end
+$var wire 2 ' pos_led7 [1:0] $end
+$var wire 2 ( pos_led8 [1:0] $end
+$var wire 2 ) pos_led9 [1:0] $end
+$var wire 2 * who [1:0] $end
+$var reg 1 + clock $end
+$var reg 1 , reset $end
+$var reg 1 - play $end
+$var reg 1 . pc $end
+$var reg 4 / computer_position [3:0] $end
+$var reg 4 0 player_position [3:0] $end
+
+$scope module uut $end
+$var wire 1 1 clock $end
+$var wire 1 2 reset $end
+$var wire 1 3 play $end
+$var wire 1 4 pc $end
+$var wire 4 5 computer_position [3:0] $end
+$var wire 4 6 player_position [3:0] $end
+$var wire 2 ! pos1 [1:0] $end
+$var wire 2 " pos2 [1:0] $end
+$var wire 2 # pos3 [1:0] $end
+$var wire 2 $ pos4 [1:0] $end
+$var wire 2 % pos5 [1:0] $end
+$var wire 2 & pos6 [1:0] $end
+$var wire 2 ' pos7 [1:0] $end
+$var wire 2 ( pos8 [1:0] $end
+$var wire 2 ) pos9 [1:0] $end
+$var wire 2 * who [1:0] $end
+$var wire 1 7 PC_en [15] $end
+$var wire 1 8 PC_en [14] $end
+$var wire 1 9 PC_en [13] $end
+$var wire 1 : PC_en [12] $end
+$var wire 1 ; PC_en [11] $end
+$var wire 1 < PC_en [10] $end
+$var wire 1 = PC_en [9] $end
+$var wire 1 > PC_en [8] $end
+$var wire 1 ? PC_en [7] $end
+$var wire 1 @ PC_en [6] $end
+$var wire 1 A PC_en [5] $end
+$var wire 1 B PC_en [4] $end
+$var wire 1 C PC_en [3] $end
+$var wire 1 D PC_en [2] $end
+$var wire 1 E PC_en [1] $end
+$var wire 1 F PC_en [0] $end
+$var wire 1 G PL_en [15] $end
+$var wire 1 H PL_en [14] $end
+$var wire 1 I PL_en [13] $end
+$var wire 1 J PL_en [12] $end
+$var wire 1 K PL_en [11] $end
+$var wire 1 L PL_en [10] $end
+$var wire 1 M PL_en [9] $end
+$var wire 1 N PL_en [8] $end
+$var wire 1 O PL_en [7] $end
+$var wire 1 P PL_en [6] $end
+$var wire 1 Q PL_en [5] $end
+$var wire 1 R PL_en [4] $end
+$var wire 1 S PL_en [3] $end
+$var wire 1 T PL_en [2] $end
+$var wire 1 U PL_en [1] $end
+$var wire 1 V PL_en [0] $end
+$var wire 1 W illegal_move $end
+$var wire 1 X win $end
+$var wire 1 Y computer_play $end
+$var wire 1 Z player_play $end
+$var wire 1 [ no_space $end
+
+$scope module position_reg_unit $end
+$var wire 1 1 clock $end
+$var wire 1 2 reset $end
+$var wire 1 W illegal_move $end
+$var wire 1 > PC_en [8] $end
+$var wire 1 ? PC_en [7] $end
+$var wire 1 @ PC_en [6] $end
+$var wire 1 A PC_en [5] $end
+$var wire 1 B PC_en [4] $end
+$var wire 1 C PC_en [3] $end
+$var wire 1 D PC_en [2] $end
+$var wire 1 E PC_en [1] $end
+$var wire 1 F PC_en [0] $end
+$var wire 1 N PL_en [8] $end
+$var wire 1 O PL_en [7] $end
+$var wire 1 P PL_en [6] $end
+$var wire 1 Q PL_en [5] $end
+$var wire 1 R PL_en [4] $end
+$var wire 1 S PL_en [3] $end
+$var wire 1 T PL_en [2] $end
+$var wire 1 U PL_en [1] $end
+$var wire 1 V PL_en [0] $end
+$var reg 2 \ pos1 [1:0] $end
+$var reg 2 ] pos2 [1:0] $end
+$var reg 2 ^ pos3 [1:0] $end
+$var reg 2 _ pos4 [1:0] $end
+$var reg 2 ` pos5 [1:0] $end
+$var reg 2 a pos6 [1:0] $end
+$var reg 2 b pos7 [1:0] $end
+$var reg 2 c pos8 [1:0] $end
+$var reg 2 d pos9 [1:0] $end
+$upscope $end
+
+
+$scope module win_detect_unit $end
+$var wire 2 ! pos1 [1:0] $end
+$var wire 2 " pos2 [1:0] $end
+$var wire 2 # pos3 [1:0] $end
+$var wire 2 $ pos4 [1:0] $end
+$var wire 2 % pos5 [1:0] $end
+$var wire 2 & pos6 [1:0] $end
+$var wire 2 ' pos7 [1:0] $end
+$var wire 2 ( pos8 [1:0] $end
+$var wire 2 ) pos9 [1:0] $end
+$var wire 1 X winner $end
+$var wire 2 * who [1:0] $end
+$var wire 1 e win1 $end
+$var wire 1 f win2 $end
+$var wire 1 g win3 $end
+$var wire 1 h win4 $end
+$var wire 1 i win5 $end
+$var wire 1 j win6 $end
+$var wire 1 k win7 $end
+$var wire 1 l win8 $end
+$var wire 2 m who1 [1:0] $end
+$var wire 2 n who2 [1:0] $end
+$var wire 2 o who3 [1:0] $end
+$var wire 2 p who4 [1:0] $end
+$var wire 2 q who5 [1:0] $end
+$var wire 2 r who6 [1:0] $end
+$var wire 2 s who7 [1:0] $end
+$var wire 2 t who8 [1:0] $end
+
+$scope module u1 $end
+$var wire 2 ! pos0 [1:0] $end
+$var wire 2 " pos1 [1:0] $end
+$var wire 2 # pos2 [1:0] $end
+$var wire 1 e winner $end
+$var wire 2 m who [1:0] $end
+$var wire 2 u temp0 [1:0] $end
+$var wire 2 v temp1 [1:0] $end
+$var wire 2 w temp2 [1:0] $end
+$var wire 1 x temp3 $end
+$upscope $end
+
+
+$scope module u2 $end
+$var wire 2 $ pos0 [1:0] $end
+$var wire 2 % pos1 [1:0] $end
+$var wire 2 & pos2 [1:0] $end
+$var wire 1 f winner $end
+$var wire 2 n who [1:0] $end
+$var wire 2 y temp0 [1:0] $end
+$var wire 2 z temp1 [1:0] $end
+$var wire 2 { temp2 [1:0] $end
+$var wire 1 | temp3 $end
+$upscope $end
+
+
+$scope module u3 $end
+$var wire 2 ' pos0 [1:0] $end
+$var wire 2 ( pos1 [1:0] $end
+$var wire 2 ) pos2 [1:0] $end
+$var wire 1 g winner $end
+$var wire 2 o who [1:0] $end
+$var wire 2 } temp0 [1:0] $end
+$var wire 2 ~ temp1 [1:0] $end
+$var wire 2 !! temp2 [1:0] $end
+$var wire 1 "! temp3 $end
+$upscope $end
+
+
+$scope module u4 $end
+$var wire 2 ! pos0 [1:0] $end
+$var wire 2 $ pos1 [1:0] $end
+$var wire 2 ' pos2 [1:0] $end
+$var wire 1 h winner $end
+$var wire 2 p who [1:0] $end
+$var wire 2 #! temp0 [1:0] $end
+$var wire 2 $! temp1 [1:0] $end
+$var wire 2 %! temp2 [1:0] $end
+$var wire 1 &! temp3 $end
+$upscope $end
+
+
+$scope module u5 $end
+$var wire 2 " pos0 [1:0] $end
+$var wire 2 % pos1 [1:0] $end
+$var wire 2 ( pos2 [1:0] $end
+$var wire 1 i winner $end
+$var wire 2 q who [1:0] $end
+$var wire 2 '! temp0 [1:0] $end
+$var wire 2 (! temp1 [1:0] $end
+$var wire 2 )! temp2 [1:0] $end
+$var wire 1 *! temp3 $end
+$upscope $end
+
+
+$scope module u6 $end
+$var wire 2 # pos0 [1:0] $end
+$var wire 2 & pos1 [1:0] $end
+$var wire 2 ) pos2 [1:0] $end
+$var wire 1 j winner $end
+$var wire 2 r who [1:0] $end
+$var wire 2 +! temp0 [1:0] $end
+$var wire 2 ,! temp1 [1:0] $end
+$var wire 2 -! temp2 [1:0] $end
+$var wire 1 .! temp3 $end
+$upscope $end
+
+
+$scope module u7 $end
+$var wire 2 ! pos0 [1:0] $end
+$var wire 2 % pos1 [1:0] $end
+$var wire 2 ) pos2 [1:0] $end
+$var wire 1 k winner $end
+$var wire 2 s who [1:0] $end
+$var wire 2 /! temp0 [1:0] $end
+$var wire 2 0! temp1 [1:0] $end
+$var wire 2 1! temp2 [1:0] $end
+$var wire 1 2! temp3 $end
+$upscope $end
+
+
+$scope module u8 $end
+$var wire 2 # pos0 [1:0] $end
+$var wire 2 % pos1 [1:0] $end
+$var wire 2 & pos2 [1:0] $end
+$var wire 1 l winner $end
+$var wire 2 t who [1:0] $end
+$var wire 2 3! temp0 [1:0] $end
+$var wire 2 4! temp1 [1:0] $end
+$var wire 2 5! temp2 [1:0] $end
+$var wire 1 6! temp3 $end
+$upscope $end
+
+$upscope $end
+
+
+$scope module pd1 $end
+$var wire 4 5 in [3:0] $end
+$var wire 1 Y enable $end
+$var wire 1 7 out_en [15] $end
+$var wire 1 8 out_en [14] $end
+$var wire 1 9 out_en [13] $end
+$var wire 1 : out_en [12] $end
+$var wire 1 ; out_en [11] $end
+$var wire 1 < out_en [10] $end
+$var wire 1 = out_en [9] $end
+$var wire 1 > out_en [8] $end
+$var wire 1 ? out_en [7] $end
+$var wire 1 @ out_en [6] $end
+$var wire 1 A out_en [5] $end
+$var wire 1 B out_en [4] $end
+$var wire 1 C out_en [3] $end
+$var wire 1 D out_en [2] $end
+$var wire 1 E out_en [1] $end
+$var wire 1 F out_en [0] $end
+$var reg 16 7! temp1 [15:0] $end
+$upscope $end
+
+
+$scope module pd2 $end
+$var wire 4 6 in [3:0] $end
+$var wire 1 Z enable $end
+$var wire 1 G out_en [15] $end
+$var wire 1 H out_en [14] $end
+$var wire 1 I out_en [13] $end
+$var wire 1 J out_en [12] $end
+$var wire 1 K out_en [11] $end
+$var wire 1 L out_en [10] $end
+$var wire 1 M out_en [9] $end
+$var wire 1 N out_en [8] $end
+$var wire 1 O out_en [7] $end
+$var wire 1 P out_en [6] $end
+$var wire 1 Q out_en [5] $end
+$var wire 1 R out_en [4] $end
+$var wire 1 S out_en [3] $end
+$var wire 1 T out_en [2] $end
+$var wire 1 U out_en [1] $end
+$var wire 1 V out_en [0] $end
+$var reg 16 8! temp1 [15:0] $end
+$upscope $end
+
+
+$scope module imd_unit $end
+$var wire 2 ! pos1 [1:0] $end
+$var wire 2 " pos2 [1:0] $end
+$var wire 2 # pos3 [1:0] $end
+$var wire 2 $ pos4 [1:0] $end
+$var wire 2 % pos5 [1:0] $end
+$var wire 2 & pos6 [1:0] $end
+$var wire 2 ' pos7 [1:0] $end
+$var wire 2 ( pos8 [1:0] $end
+$var wire 2 ) pos9 [1:0] $end
+$var wire 1 > PC_en [8] $end
+$var wire 1 ? PC_en [7] $end
+$var wire 1 @ PC_en [6] $end
+$var wire 1 A PC_en [5] $end
+$var wire 1 B PC_en [4] $end
+$var wire 1 C PC_en [3] $end
+$var wire 1 D PC_en [2] $end
+$var wire 1 E PC_en [1] $end
+$var wire 1 F PC_en [0] $end
+$var wire 1 N PL_en [8] $end
+$var wire 1 O PL_en [7] $end
+$var wire 1 P PL_en [6] $end
+$var wire 1 Q PL_en [5] $end
+$var wire 1 R PL_en [4] $end
+$var wire 1 S PL_en [3] $end
+$var wire 1 T PL_en [2] $end
+$var wire 1 U PL_en [1] $end
+$var wire 1 V PL_en [0] $end
+$var wire 1 W illegal_move $end
+$var wire 1 9! temp1 $end
+$var wire 1 :! temp2 $end
+$var wire 1 ;! temp3 $end
+$var wire 1 <! temp4 $end
+$var wire 1 =! temp5 $end
+$var wire 1 >! temp6 $end
+$var wire 1 ?! temp7 $end
+$var wire 1 @! temp8 $end
+$var wire 1 A! temp9 $end
+$var wire 1 B! temp11 $end
+$var wire 1 C! temp12 $end
+$var wire 1 D! temp13 $end
+$var wire 1 E! temp14 $end
+$var wire 1 F! temp15 $end
+$var wire 1 G! temp16 $end
+$var wire 1 H! temp17 $end
+$var wire 1 I! temp18 $end
+$var wire 1 J! temp19 $end
+$var wire 1 K! temp21 $end
+$var wire 1 L! temp22 $end
+$upscope $end
+
+
+$scope module nsd_unit $end
+$var wire 2 ! pos1 [1:0] $end
+$var wire 2 " pos2 [1:0] $end
+$var wire 2 # pos3 [1:0] $end
+$var wire 2 $ pos4 [1:0] $end
+$var wire 2 % pos5 [1:0] $end
+$var wire 2 & pos6 [1:0] $end
+$var wire 2 ' pos7 [1:0] $end
+$var wire 2 ( pos8 [1:0] $end
+$var wire 2 ) pos9 [1:0] $end
+$var wire 1 [ no_space $end
+$var wire 1 M! temp1 $end
+$var wire 1 N! temp2 $end
+$var wire 1 O! temp3 $end
+$var wire 1 P! temp4 $end
+$var wire 1 Q! temp5 $end
+$var wire 1 R! temp6 $end
+$var wire 1 S! temp7 $end
+$var wire 1 T! temp8 $end
+$var wire 1 U! temp9 $end
+$upscope $end
+
+
+$scope module tic_tac_toe_controller $end
+$var wire 1 1 clock $end
+$var wire 1 2 reset $end
+$var wire 1 3 play $end
+$var wire 1 4 pc $end
+$var wire 1 W illegal_move $end
+$var wire 1 [ no_space $end
+$var wire 1 X win $end
+$var reg 1 V! computer_play $end
+$var reg 1 W! player_play $end
+$var reg 2 X! current_state [1:0] $end
+$var reg 2 Y! next_state [1:0] $end
+$var parameter 2 Z! IDLE [1:0] $end
+$var parameter 2 [! PLAYER [1:0] $end
+$var parameter 2 \! COMPUTER [1:0] $end
+$var parameter 2 ]! GAME_DONE [1:0] $end
+$upscope $end
+
+$upscope $end
+
+$upscope $end
+
+$enddefinitions $end
+$dumpvars
+b0 !
+b0 "
+b0 #
+b0 $
+b0 %
+b0 &
+b0 '
+b0 (
+b0 )
+b0 *
+0+
+1,
+0-
+0.
+b0 /
+b0 0
+01
+12
+03
+04
+b0 5
+b0 6
+07
+08
+09
+0:
+0;
+0<
+0=
+0>
+0?
+0@
+0A
+0B
+0C
+0D
+0E
+0F
+0G
+0H
+0I
+0J
+0K
+0L
+0M
+0N
+0O
+0P
+0Q
+0R
+0S
+0T
+0U
+0V
+0W
+0X
+0Y
+0Z
+0[
+b0 \
+b0 ]
+b0 ^
+b0 _
+b0 `
+b0 a
+b0 b
+b0 c
+b0 d
+0e
+0f
+0g
+0h
+0i
+0j
+0k
+0l
+b0 m
+b0 n
+b0 o
+b0 p
+b0 q
+b0 r
+b0 s
+b0 t
+b11 u
+b11 v
+b11 w
+0x
+b11 y
+b11 z
+b11 {
+0|
+b11 }
+b11 ~
+b11 !!
+0"!
+b11 #!
+b11 $!
+b11 %!
+0&!
+b11 '!
+b11 (!
+b11 )!
+0*!
+b11 +!
+b11 ,!
+b11 -!
+0.!
+b11 /!
+b11 0!
+b11 1!
+02!
+b11 3!
+b11 4!
+b11 5!
+06!
+b1 7!
+b1 8!
+09!
+0:!
+0;!
+0<!
+0=!
+0>!
+0?!
+0@!
+0A!
+0B!
+0C!
+0D!
+0E!
+0F!
+0G!
+0H!
+0I!
+0J!
+0K!
+0L!
+0M!
+0N!
+0O!
+0P!
+0Q!
+0R!
+0S!
+0T!
+0U!
+0V!
+0W!
+b0 X!
+b0 Y!
+b0 Z!
+b1 [!
+b10 \!
+b11 ]!
+$end
+#5000
+1+
+11
+#10000
+0+
+01
+#15000
+1+
+11
+#20000
+0+
+01
+#25000
+1+
+11
+#30000
+0+
+01
+#35000
+1+
+11
+#40000
+0+
+01
+#45000
+1+
+11
+#50000
+0,
+0+
+01
+02
+#55000
+1+
+11
+#60000
+0+
+01
+#65000
+1+
+11
+#70000
+0+
+01
+#75000
+1+
+11
+#80000
+0+
+01
+#85000
+1+
+11
+#90000
+0+
+01
+#95000
+1+
+11
+#100000
+1-
+b100 /
+0+
+01
+b100 5
+13
+b10000 7!
+b1 Y!
+#105000
+1+
+11
+b1 X!
+1W!
+b10 Y!
+1Z
+1V
+#110000
+0+
+01
+#115000
+1+
+11
+b1 \
+b10 X!
+b1 !
+1M!
+19!
+12!
+b10 /!
+1&!
+b10 #!
+1x
+b10 u
+1e
+1h
+1k
+b10 w
+b10 %!
+b10 1!
+1K!
+0k
+0h
+0e
+1W
+0W!
+0Z
+0V
+09!
+0K!
+0W
+#120000
+0+
+01
+#125000
+1.
+0-
+1+
+11
+03
+14
+b0 Y!
+1V!
+1Y
+1B
+#130000
+0+
+01
+#135000
+1+
+11
+b10 `
+b0 X!
+b10 %
+1Q!
+1F!
+b1 3!
+b1 0!
+b0 /!
+b1 (!
+b1 '!
+b1 4!
+b1 z
+b1 y
+b1 {
+b1 )!
+b0 1!
+b1 5!
+1L!
+1W
+0V!
+0Y
+0B
+0F!
+0L!
+0W
+#140000
+0+
+01
+#145000
+1+
+11
+#150000
+0+
+01
+#155000
+1+
+11
+#160000
+0+
+01
+#165000
+1+
+11
+#170000
+0+
+01
+#175000
+1-
+0.
+b1000 /
+b1 0
+1+
+11
+b1 6
+b1000 5
+04
+13
+b10 8!
+b100000000 7!
+b1 Y!
+#180000
+0+
+01
+#185000
+1+
+11
+b1 X!
+1W!
+b10 Y!
+1Z
+1U
+#190000
+0+
+01
+#195000
+1+
+11
+b1 ]
+b10 X!
+b1 "
+1N!
+1:!
+1*!
+b0 '!
+b10 v
+b11 u
+b0 )!
+1K!
+1W
+0W!
+0Z
+0U
+0:!
+0K!
+0W
+#200000
+1.
+0-
+0+
+01
+03
+14
+b0 Y!
+1V!
+1Y
+1>
+#205000
+1+
+11
+b10 d
+b0 X!
+b10 )
+1U!
+1J!
+b11 0!
+b1 ,!
+b1 ~
+b1 !!
+b1 -!
+1L!
+1W
+0V!
+0Y
+0>
+0J!
+0L!
+0W
+#210000
+0+
+01
+#215000
+1+
+11
+#220000
+0+
+01
+#225000
+1+
+11
+#230000
+0+
+01
+#235000
+1+
+11
+#240000
+0+
+01
+#245000
+1+
+11
+#250000
+1-
+0.
+b110 /
+b10 0
+0+
+01
+b10 6
+b110 5
+04
+13
+b100 8!
+b1000000 7!
+b1 Y!
+#255000
+1+
+11
+b1 X!
+1W!
+b10 Y!
+1Z
+1T
+#260000
+0+
+01
+#265000
+1+
+11
+b1 ^
+b10 X!
+b1 #
+1O!
+1;!
+16!
+b0 3!
+1.!
+b10 +!
+b11 v
+b11 w
+b0 -!
+b0 5!
+1K!
+1e
+1W
+b1 m
+1X
+b1 *
+0W!
+0Z
+0T
+0;!
+0K!
+0W
+#270000
+0+
+01
+#275000
+1.
+0-
+1+
+11
+03
+14
+b11 Y!
+1V!
+1Y
+1@
+#280000
+0+
+01
+#285000
+1+
+11
+b10 b
+b11 X!
+b10 '
+1S!
+1H!
+b1 $!
+1"!
+b1 }
+b0 %!
+1L!
+1W
+0V!
+0Y
+0@
+0H!
+0L!
+0W
+#290000
+0+
+01
+#295000
+1+
+11
+#300000
+0.
+0+
+01
+04
+#303000
