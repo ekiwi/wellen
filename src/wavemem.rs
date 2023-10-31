@@ -109,7 +109,7 @@ impl Reader {
                 let meta_data = SignalEncodingMetaData::decode(meta_data_raw);
                 assert_eq!(reader.position(), 8);
                 let data_block = &block.data[start_ii + reader.position() as usize..end_ii];
-                blocks.push((time_idx_offset, data_block, meta_data))
+                blocks.push((time_idx_offset, data_block, meta_data));
             }
             time_idx_offset += block.time_table.len() as u32;
         }
@@ -145,6 +145,7 @@ impl Reader {
                     strings.append(&mut new_strings);
                 }
                 SignalLength::Fixed(signal_len) => {
+                    let data_len = data_block.len();
                     let (mut new_data, mut new_time_indices) = match meta_data.compression {
                         SignalCompression::Compressed(uncompressed_len) => {
                             let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
@@ -448,14 +449,14 @@ impl Encoder {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum SignalCompression {
     /// signal is compressed and the output is at max `inner` bytes long
     Compressed(usize),
     Uncompressed,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct SignalEncodingMetaData {
     compression: SignalCompression,
     is_two_state: bool,
@@ -474,8 +475,12 @@ impl SignalEncodingMetaData {
     }
 
     fn compressed(is_two_state: bool, uncompressed_len: usize) -> Self {
+        // turn the length into a value that we can actually encode
+        let uncompressed_len_approx =
+            u32_div_ceil(uncompressed_len as u32, SIGNAL_DECOMPRESSED_LEN_DIV)
+                * SIGNAL_DECOMPRESSED_LEN_DIV;
         SignalEncodingMetaData {
-            compression: SignalCompression::Compressed(uncompressed_len),
+            compression: SignalCompression::Compressed(uncompressed_len_approx as usize),
             is_two_state,
         }
     }
@@ -501,7 +506,7 @@ impl SignalEncodingMetaData {
                 let decompressed_len_bits =
                     u32_div_ceil((*decompressed_len) as u32, SIGNAL_DECOMPRESSED_LEN_DIV);
                 let data =
-                    ((decompressed_len_bits as u64) << 2) + 1 << 1 + (self.is_two_state as u64);
+                    ((decompressed_len_bits as u64) << 2) | (1 << 1) | (self.is_two_state as u64);
                 data
             }
             SignalCompression::Uncompressed => self.is_two_state as u64,
@@ -556,7 +561,9 @@ impl SignalEncoder {
                             len.get()
                         ),
                     };
+                    // write time delta
                     leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
+                    // write actual data
                     let bits = len.get() as usize;
                     if value_bits.len() == bits {
                         self.is_two_state &= try_write_4_state(value_bits, &mut self.data)
@@ -575,6 +582,7 @@ impl SignalEncoder {
                                     bits
                                 )
                             });
+                        assert_eq!(expanded.len(), bits);
                         self.is_two_state &= try_write_4_state(&expanded, &mut self.data)
                             .unwrap_or_else(|| {
                                 panic!(
@@ -715,6 +723,21 @@ fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_meta_data_encoding() {
+        do_test_meta_data_round_trip(SignalEncodingMetaData::uncompressed(false));
+        do_test_meta_data_round_trip(SignalEncodingMetaData::uncompressed(true));
+        do_test_meta_data_round_trip(SignalEncodingMetaData::compressed(false, 12345));
+        do_test_meta_data_round_trip(SignalEncodingMetaData::compressed(true, 12345));
+    }
+
+    fn do_test_meta_data_round_trip(data: SignalEncodingMetaData) {
+        let encoded = data.encode();
+        let decoded = SignalEncodingMetaData::decode(encoded);
+        assert_eq!(data, decoded);
+        assert_eq!(encoded, decoded.encode())
+    }
 
     #[test]
     fn test_try_write_4_state() {
