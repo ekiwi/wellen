@@ -8,7 +8,7 @@ use crate::hierarchy::{Hierarchy, SignalIdx, SignalLength};
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time};
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
 use bytesize::ByteSize;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::num::NonZeroU32;
 
 /// Holds queryable waveform data. Use the `Encoder` to generate.
@@ -382,7 +382,7 @@ impl Encoder {
         let signal_count = self.signals.len();
         let mut offsets = Vec::with_capacity(signal_count);
         let mut data: Vec<u8> = Vec::with_capacity(128);
-        for (signal_idx, signal) in self.signals.iter_mut().enumerate() {
+        for signal in self.signals.iter_mut() {
             if let Some((mut signal_data, is_compressed)) = signal.finish() {
                 let offset = SignalDataOffset::new(data.len());
                 offsets.push(Some(offset));
@@ -598,13 +598,15 @@ fn try_write_1_bit_4_state(time_index: u16, value: u8, data: &mut Vec<u8>) -> Op
 }
 
 #[inline]
-fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<()> {
+fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<bool> {
     let bits = value.len() * 2;
     let bit_values = value.iter().map(|b| four_state_to_num(*b));
     let mut working_byte = 0u8;
+    let mut is_two_state = true;
     for (ii, digit_option) in bit_values.enumerate() {
         let bit_id = bits - (ii * 2) - 2;
         if let Some(value) = digit_option {
+            is_two_state = is_two_state && (value <= 1);
             working_byte = (working_byte << 2) + value;
             // Is there old data to push?
             // we use the bit_id here instead of just testing ii % 4 == 0
@@ -623,7 +625,7 @@ fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<()> {
             return None;
         }
     }
-    Some(())
+    Some(is_two_state)
 }
 
 #[cfg(test)]
@@ -633,42 +635,60 @@ mod tests {
     #[test]
     fn test_try_write_4_state() {
         // write all ones
-        do_test_try_write_4_state(b"1111".as_slice(), Some([0b01010101].as_slice()));
-        do_test_try_write_4_state(b"11111".as_slice(), Some([0b01, 0b01010101].as_slice()));
-        do_test_try_write_4_state(b"111111".as_slice(), Some([0b0101, 0b01010101].as_slice()));
+        do_test_try_write_4_state(b"1111".as_slice(), Some([0b01010101].as_slice()), true);
+        do_test_try_write_4_state(
+            b"11111".as_slice(),
+            Some([0b01, 0b01010101].as_slice()),
+            true,
+        );
+        do_test_try_write_4_state(
+            b"111111".as_slice(),
+            Some([0b0101, 0b01010101].as_slice()),
+            true,
+        );
+        do_test_try_write_4_state(
+            b"111111".as_slice(),
+            Some([0b0101, 0b01010101].as_slice()),
+            true,
+        );
         do_test_try_write_4_state(
             b"1111111".as_slice(),
             Some([0b010101, 0b01010101].as_slice()),
+            true,
         );
         do_test_try_write_4_state(
             b"11111111".as_slice(),
             Some([0b01010101, 0b01010101].as_slice()),
+            true,
         );
         // write some zeros, including leading zeros
         do_test_try_write_4_state(
             b"011111111".as_slice(),
             Some([0, 0b01010101, 0b01010101].as_slice()),
+            true,
         );
         do_test_try_write_4_state(
             b"1011001".as_slice(),
             Some([0b010001, 0b01000001].as_slice()),
+            true,
         );
         // write some X/Z
-        do_test_try_write_4_state(b"xz01".as_slice(), Some([0b10110001].as_slice()));
+        do_test_try_write_4_state(b"xz01".as_slice(), Some([0b10110001].as_slice()), false);
     }
 
-    fn do_test_try_write_4_state(value: &[u8], expected: Option<&[u8]>) {
+    fn do_test_try_write_4_state(value: &[u8], expected: Option<&[u8]>, is_two_state: bool) {
         let mut out = vec![5u8, 7u8];
         let out_starting_len = out.len();
 
         match (try_write_4_state(value, &mut out), expected) {
-            (Some(()), Some(expect)) => {
+            (Some(actual_two_state), Some(expect)) => {
                 assert_eq!(&out[out_starting_len..], expect);
+                assert_eq!(actual_two_state, is_two_state);
             }
             (None, Some(expect)) => {
                 panic!("Expected: {expect:?}, but got error");
             }
-            (Some(()), None) => {
+            (Some(_), None) => {
                 panic!("Expected error, but got: {out:?}")
             }
             (None, None) => {

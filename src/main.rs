@@ -11,7 +11,6 @@ mod wavemem;
 use crate::hierarchy::*;
 use bytesize::ByteSize;
 use clap::Parser;
-use std::cmp::min;
 
 #[derive(Parser, Debug)]
 #[command(name = "loadfst")]
