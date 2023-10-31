@@ -383,9 +383,6 @@ impl Encoder {
         let mut offsets = Vec::with_capacity(signal_count);
         let mut data: Vec<u8> = Vec::with_capacity(128);
         for (signal_idx, signal) in self.signals.iter_mut().enumerate() {
-            if signal_idx == 61 {
-                println!();
-            }
             if let Some((mut signal_data, is_compressed)) = signal.finish() {
                 let offset = SignalDataOffset::new(data.len());
                 offsets.push(Some(offset));
