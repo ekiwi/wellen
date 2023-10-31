@@ -4,7 +4,6 @@
 //
 // Space efficient format for a wavedump hierarchy.
 
-use crate::dense::DenseHashMap;
 use bytesize::ByteSize;
 use std::num::{NonZeroU16, NonZeroU32};
 use string_interner::Symbol;
@@ -288,7 +287,7 @@ pub struct HierarchyBuilder {
     scopes: Vec<Scope>,
     scope_stack: Vec<ScopeStackEntry>,
     strings: StringInterner,
-    handle_to_node: DenseHashMap<Option<HierarchyVarId>>,
+    handle_to_node: Vec<Option<HierarchyVarId>>,
     // some statistics
     duplicate_string_count: usize,
     duplicate_string_size: usize,
@@ -301,7 +300,7 @@ impl Default for HierarchyBuilder {
             scopes: Vec::default(),
             scope_stack: Vec::default(),
             strings: StringInterner::default(),
-            handle_to_node: DenseHashMap::default(),
+            handle_to_node: Vec::default(),
             duplicate_string_count: 0,
             duplicate_string_size: 0,
         }
@@ -314,7 +313,7 @@ impl HierarchyBuilder {
             vars: self.vars,
             scopes: self.scopes,
             strings: interner_to_vec(self.strings),
-            handle_to_var: self.handle_to_node.into_vec(),
+            handle_to_var: self.handle_to_node,
         }
     }
 
@@ -405,7 +404,11 @@ impl HierarchyBuilder {
         let parent = self.add_to_hierarchy_tree(wrapped_id);
 
         // add lookup
-        self.handle_to_node.insert(handle as usize, Some(var_id));
+        let handle_idx = handle as usize;
+        if self.handle_to_node.len() <= handle_idx {
+            self.handle_to_node.resize(handle_idx + 1, None);
+        }
+        self.handle_to_node[handle_idx] = Some(var_id);
 
         // now we can build the node data structure and store it
         let node = Var {

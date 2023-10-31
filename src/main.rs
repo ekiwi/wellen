@@ -2,7 +2,6 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-mod dense;
 mod fst;
 mod hierarchy;
 mod signals;
