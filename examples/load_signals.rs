@@ -2,13 +2,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-mod fst;
-mod hierarchy;
-mod signals;
-mod vcd;
-mod wavemem;
-
-use crate::hierarchy::*;
+use waveform::hierarchy::*;
 use bytesize::ByteSize;
 use clap::Parser;
 
@@ -64,8 +58,8 @@ fn main() {
     let ext = args.filename.split('.').last().unwrap();
     let start = std::time::Instant::now();
     let (hierarchy, mut values) = match ext {
-        "fst" => fst::read(&args.filename),
-        "vcd" => vcd::read(&args.filename),
+        "fst" => waveform::fst::read(&args.filename),
+        "vcd" => waveform::vcd::read(&args.filename),
         other => panic!("Unsupported file extension: {other}"),
     };
     let load_duration = start.elapsed();
