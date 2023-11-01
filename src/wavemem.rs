@@ -8,7 +8,7 @@ use crate::hierarchy::{Hierarchy, SignalIdx, SignalLength};
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time};
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
 use bytesize::ByteSize;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::num::NonZeroU32;
 
 /// Holds queryable waveform data. Use the `Encoder` to generate.
@@ -692,7 +692,7 @@ fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<bool> {
     for (ii, digit_option) in bit_values.enumerate() {
         let bit_id = bits - (ii * 2) - 2;
         if let Some(value) = digit_option {
-            is_two_state &= (value <= 1);
+            is_two_state &= value <= 1;
             working_byte = (working_byte << 2) + value;
             // Is there old data to push?
             // we use the bit_id here instead of just testing ii % 4 == 0

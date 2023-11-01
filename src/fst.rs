@@ -48,7 +48,7 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
             while *(index_and_time.1) < time {
                 index_and_time = time_table.next().unwrap();
             }
-            let time_idx = index_and_time.0;
+            let _time_idx = index_and_time.0;
             todo!()
         };
 
