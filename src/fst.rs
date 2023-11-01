@@ -112,13 +112,12 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 path_names.insert(id, name);
             }
             FstHierarchyEntry::SourceStem { .. } => todo!(),
-            FstHierarchyEntry::Comment { .. } => todo!(),
+            FstHierarchyEntry::Comment { .. } => {} // ignored
             FstHierarchyEntry::EnumTable { .. } => todo!(),
             FstHierarchyEntry::EnumTableRef { .. } => todo!(),
             FstHierarchyEntry::AttributeEnd => todo!(),
         };
     };
     reader.read_hierarchy(cb).unwrap();
-    h.print_statistics();
     h.finish()
 }

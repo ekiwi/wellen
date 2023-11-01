@@ -2,9 +2,9 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use waveform::hierarchy::*;
 use bytesize::ByteSize;
 use clap::Parser;
+use waveform::hierarchy::*;
 
 #[derive(Parser, Debug)]
 #[command(name = "loadfst")]

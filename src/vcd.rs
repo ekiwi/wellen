@@ -4,7 +4,6 @@
 
 use crate::hierarchy::*;
 use crate::signals::SignalSource;
-use bytesize::ByteSize;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
@@ -21,20 +20,22 @@ fn read_internal(filename: &str, multi_threaded: bool) -> (Hierarchy, Box<dyn Si
     // load file into memory (lazily)
     let input_file = std::fs::File::open(filename).expect("failed to open input file!");
     let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
-    let input_size = mmap.len();
     let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]));
     let wave_mem = read_values(&mmap[header_len..], multi_threaded, &hierarchy);
-    println!(
-        "The full VCD data takes up  {} bytes in memory.",
-        ByteSize::b(wave_mem.size_in_memory() as u64)
-    );
-    println!(
-        "The size of the VCD file is {} bytes on disk.",
-        ByteSize::b((input_size - header_len) as u64)
-    );
-    wave_mem.print_statistics();
     (hierarchy, wave_mem)
 }
+
+// fn print_stats() {
+//     println!(
+//         "The full VCD data takes up  {} bytes in memory.",
+//         ByteSize::b(wave_mem.size_in_memory() as u64)
+//     );
+//     println!(
+//         "The size of the VCD file is {} bytes on disk.",
+//         ByteSize::b((input_size - header_len) as u64)
+//     );
+//     wave_mem.print_statistics();
+// }
 
 fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
     let start = input.stream_position().unwrap();
@@ -78,7 +79,6 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
 
     read_header(input, foo).unwrap();
     let end = input.stream_position().unwrap();
-    h.print_statistics();
     let hierarchy = h.finish();
     ((end - start) as usize, hierarchy)
 }
