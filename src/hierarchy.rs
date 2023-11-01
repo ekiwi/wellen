@@ -72,19 +72,19 @@ impl HierarchyStringId {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum ScopeType {
     Module,
     Todo, // placeholder tpe
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum VarType {
     Wire,
     Todo, // placeholder tpe
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum VarDirection {
     Input,
     Todo, // placeholder tpe
@@ -122,7 +122,7 @@ pub struct Var {
     length: SignalLength,
     handle: SignalIdx,
     parent: HierarchyScopeId,
-    next: Option<HierarchyEntryId>,
+    next: Option<HierarchyItemId>,
 }
 
 const SCOPE_SEPARATOR: char = '.';
@@ -142,30 +142,36 @@ impl Var {
         out
     }
 
-    #[inline]
+    pub fn var_type(&self) -> VarType {
+        self.tpe
+    }
     pub fn handle(&self) -> SignalIdx {
         self.handle
     }
-
-    #[inline]
     pub fn length(&self) -> SignalLength {
         self.length
     }
 }
 
-// TODO: rename to HierarchyNodeId
 #[derive(Debug, Clone, Copy)]
-enum HierarchyEntryId {
+enum HierarchyItemId {
     Scope(HierarchyScopeId),
     Var(HierarchyVarId),
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum HierarchyItem<'a> {
+    Scope(&'a Scope),
+    Var(&'a Var),
+}
+
+#[derive(Debug)]
 pub struct Scope {
     name: HierarchyStringId,
     tpe: ScopeType,
-    child: Option<HierarchyEntryId>,
+    child: Option<HierarchyItemId>,
     parent: Option<HierarchyScopeId>,
-    next: Option<HierarchyEntryId>,
+    next: Option<HierarchyItemId>,
 }
 
 impl Scope {
@@ -190,6 +196,71 @@ impl Scope {
         out.push_str(self.name(hierarchy));
         out
     }
+
+    pub fn scope_type(&self) -> ScopeType {
+        self.tpe
+    }
+
+    pub fn items<'a>(&'a self, hierarchy: &'a Hierarchy) -> HierarchyItemIterator<'a> {
+        let start = self.child.map(|c| hierarchy.get_item(c));
+        HierarchyItemIterator::new(hierarchy, start)
+    }
+}
+
+pub struct HierarchyItemIterator<'a> {
+    hierarchy: &'a Hierarchy,
+    item: Option<HierarchyItem<'a>>,
+    is_first: bool,
+}
+
+impl<'a> HierarchyItemIterator<'a> {
+    fn new(hierarchy: &'a Hierarchy, item: Option<HierarchyItem<'a>>) -> Self {
+        HierarchyItemIterator {
+            hierarchy,
+            item,
+            is_first: true,
+        }
+    }
+
+    fn get_next(item: HierarchyItem) -> Option<HierarchyItemId> {
+        match item {
+            HierarchyItem::Scope(scope) => scope.next,
+            HierarchyItem::Var(var) => var.next,
+        }
+    }
+}
+
+impl<'a> Iterator for HierarchyItemIterator<'a> {
+    type Item = HierarchyItem<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.item {
+            None => None, // this iterator is done!
+            Some(item) => {
+                if self.is_first {
+                    self.is_first = false;
+                    Some(item)
+                } else {
+                    match Self::get_next(item) {
+                        None => {
+                            self.item = None;
+                            None
+                        }
+                        Some(HierarchyItemId::Scope(scope_id)) => {
+                            let new_scope = self.hierarchy.get_scope(scope_id);
+                            self.item = Some(HierarchyItem::Scope(new_scope));
+                            Some(HierarchyItem::Scope(new_scope))
+                        }
+                        Some(HierarchyItemId::Var(var_id)) => {
+                            let var = self.hierarchy.get_var(var_id);
+                            self.item = Some(HierarchyItem::Var(var));
+                            Some(HierarchyItem::Var(var))
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub struct Hierarchy {
@@ -208,6 +279,11 @@ impl Hierarchy {
 
     pub fn iter_scopes(&self) -> std::slice::Iter<'_, Scope> {
         self.scopes.iter()
+    }
+
+    pub fn items(&self) -> HierarchyItemIterator {
+        let start = self.scopes.first().map(|s| HierarchyItem::Scope(s));
+        HierarchyItemIterator::new(&self, start)
     }
 
     pub fn num_vars(&self) -> usize {
@@ -246,6 +322,13 @@ impl Hierarchy {
     fn get_var(&self, id: HierarchyVarId) -> &Var {
         &self.vars[id.index()]
     }
+
+    fn get_item(&self, id: HierarchyItemId) -> HierarchyItem {
+        match id {
+            HierarchyItemId::Scope(id) => HierarchyItem::Scope(self.get_scope(id)),
+            HierarchyItemId::Var(id) => HierarchyItem::Var(self.get_var(id)),
+        }
+    }
 }
 
 /// Estimates how much memory the hierarchy uses.
@@ -265,7 +348,7 @@ pub fn estimate_hierarchy_size(hierarchy: &Hierarchy) -> usize {
 
 struct ScopeStackEntry {
     scope_id: usize,
-    last_child: Option<HierarchyEntryId>,
+    last_child: Option<HierarchyItemId>,
 }
 
 type StringInternerSym = string_interner::symbol::SymbolU32;
@@ -338,17 +421,17 @@ impl HierarchyBuilder {
     }
 
     /// adds a variable or scope to the hierarchy tree
-    fn add_to_hierarchy_tree(&mut self, node_id: HierarchyEntryId) -> Option<HierarchyScopeId> {
+    fn add_to_hierarchy_tree(&mut self, node_id: HierarchyItemId) -> Option<HierarchyScopeId> {
         match self.scope_stack.last_mut() {
             Some(entry) => {
                 let parent = entry.scope_id;
                 match entry.last_child {
-                    Some(HierarchyEntryId::Var(child)) => {
+                    Some(HierarchyItemId::Var(child)) => {
                         // add pointer to new node from last child
                         assert!(self.vars[child.index()].next.is_none());
                         self.vars[child.index()].next = Some(node_id);
                     }
-                    Some(HierarchyEntryId::Scope(child)) => {
+                    Some(HierarchyItemId::Scope(child)) => {
                         // add pointer to new node from last child
                         assert!(self.scopes[child.index()].next.is_none());
                         self.scopes[child.index()].next = Some(node_id);
@@ -370,7 +453,7 @@ impl HierarchyBuilder {
 
     pub fn add_scope(&mut self, name: String, tpe: ScopeType) {
         let node_id = self.scopes.len();
-        let wrapped_id = HierarchyEntryId::Scope(HierarchyScopeId::from_index(node_id).unwrap());
+        let wrapped_id = HierarchyItemId::Scope(HierarchyScopeId::from_index(node_id).unwrap());
         let parent = self.add_to_hierarchy_tree(wrapped_id);
 
         // new active scope
@@ -400,7 +483,7 @@ impl HierarchyBuilder {
     ) {
         let node_id = self.vars.len();
         let var_id = HierarchyVarId::from_index(node_id).unwrap();
-        let wrapped_id = HierarchyEntryId::Var(var_id);
+        let wrapped_id = HierarchyItemId::Var(var_id);
         let parent = self.add_to_hierarchy_tree(wrapped_id);
 
         // add lookup
@@ -435,7 +518,7 @@ mod tests {
     #[test]
     fn test_sizes() {
         // unfortunately this one is pretty big
-        assert_eq!(std::mem::size_of::<HierarchyEntryId>(), 8);
+        assert_eq!(std::mem::size_of::<HierarchyItemId>(), 8);
 
         // Var
         assert_eq!(
@@ -446,7 +529,7 @@ mod tests {
                 + 4 // length
                 + std::mem::size_of::<SignalIdx>() // handle
                 + std::mem::size_of::<HierarchyScopeId>() // parent
-                + std::mem::size_of::<HierarchyEntryId>() // next
+                + std::mem::size_of::<HierarchyItemId>() // next
         );
         // currently this all comes out to 24 bytes (~= 3x 64-bit pointers)
         assert_eq!(std::mem::size_of::<Var>(), 24);
@@ -456,9 +539,9 @@ mod tests {
             std::mem::size_of::<Scope>(),
             std::mem::size_of::<HierarchyStringId>() // name
                 + 1 // tpe
-                + std::mem::size_of::<HierarchyEntryId>() // child
+                + std::mem::size_of::<HierarchyItemId>() // child
                 + std::mem::size_of::<HierarchyScopeId>() // parent
-                + std::mem::size_of::<HierarchyEntryId>() // next
+                + std::mem::size_of::<HierarchyItemId>() // next
                 + 1 // padding
         );
         // currently this all comes out to 24 bytes (~= 3x 64-bit pointers)

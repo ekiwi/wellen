@@ -21,4 +21,5 @@ smallvec = "1.11.1"
 string-interner = { version = "0.14.0", features = ["std", "inline-more", "backends"] }
 
 [dev-dependencies]
+itertools = "0.11.0"
 vcd = "0.7.0"
