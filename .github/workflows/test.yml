@@ -44,4 +44,4 @@ jobs:
       - name: Build
         run: cargo build --verbose --examples --release
       - name: load_signals
-        run: cargo run --example --release load_signals -- inputs/xilinx_isim/test1.vcd
+        run: cargo run --release --example load_signals -- inputs/xilinx_isim/test1.vcd
