@@ -140,7 +140,6 @@ impl Reader {
                     strings.append(&mut new_strings);
                 }
                 SignalLength::Fixed(signal_len) => {
-                    let data_len = data_block.len();
                     let (mut new_data, mut new_time_indices) = match meta_data.compression {
                         SignalCompression::Compressed(uncompressed_len) => {
                             let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();

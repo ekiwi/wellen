@@ -57,7 +57,7 @@ fn main() {
     let args = Args::parse();
     let ext = args.filename.split('.').last().unwrap();
     let start = std::time::Instant::now();
-    let (hierarchy, mut values) = match ext {
+    let mut wave = match ext {
         "fst" => waveform::fst::read(&args.filename),
         "vcd" => waveform::vcd::read(&args.filename),
         other => panic!("Unsupported file extension: {other}"),
@@ -67,21 +67,21 @@ fn main() {
 
     println!(
         "The hierarchy takes up at least {} of memory.",
-        ByteSize::b(estimate_hierarchy_size(&hierarchy) as u64)
+        ByteSize::b(estimate_hierarchy_size(wave.hierarchy()) as u64)
     );
-    // print_size_of_full_vs_reduced_names(&hierarchy);
+    print_size_of_full_vs_reduced_names(wave.hierarchy());
 
     // load every signal individually
     let mut signal_load_times = Vec::new();
     let mut signal_sizes = Vec::new();
     let signal_load_start = std::time::Instant::now();
-    for var in hierarchy.get_unique_signals_vars().iter().flatten() {
-        let signal_name: String = var.full_name(&hierarchy);
-        let ids = [(var.handle(), var.length()); 1];
+    for var in wave.hierarchy().get_unique_signals_vars().iter().flatten() {
+        let signal_name: String = var.full_name(wave.hierarchy());
+        let ids = [var.signal_idx(); 1];
         let start = std::time::Instant::now();
-        let signal = &values.load_signals(&ids)[0];
+        wave.load_signals(&ids);
         let load_time = start.elapsed();
-        let bytes_in_mem = signal.size_in_memory();
+        let bytes_in_mem = wave.get_signal_size_in_memory(var.signal_idx()).unwrap();
         signal_load_times.push(load_time);
         signal_sizes.push(bytes_in_mem);
     }

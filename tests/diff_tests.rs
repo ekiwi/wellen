@@ -2,18 +2,28 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use std::io::BufReader;
+use std::io::{BufRead, BufReader};
 use vcd::ScopeItem;
 use waveform::hierarchy::{Hierarchy, HierarchyItem, ScopeType, SignalLength, VarType};
+use waveform::Waveform;
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
-    let (vcd_hierarchy, vcd_source) = waveform::vcd::read(vcd_filename);
-    let (fst_hierarchy, fst_source) = waveform::fst::read(fst_filename);
+    {
+        let wave = waveform::vcd::read(vcd_filename);
+        diff_test_one(vcd_filename, wave);
+    }
+    {
+        let wave = waveform::fst::read(fst_filename);
+        diff_test_one(vcd_filename, wave);
+    }
+}
+
+fn diff_test_one(vcd_filename: &str, mut our: Waveform) {
     let mut ref_parser =
         vcd::Parser::new(BufReader::new(std::fs::File::open(vcd_filename).unwrap()));
     let ref_header = ref_parser.parse_header().unwrap();
-    diff_hierarchy(&vcd_hierarchy, &ref_header);
-    diff_hierarchy(&fst_hierarchy, &ref_header);
+    diff_hierarchy(our.hierarchy(), &ref_header);
+    diff_signals(&mut ref_parser, &mut our);
 }
 
 fn diff_hierarchy(ours: &Hierarchy, ref_header: &vcd::Header) {
@@ -83,6 +93,10 @@ fn diff_hierarchy_item(ref_item: &ScopeItem, our_item: HierarchyItem, our_hier: 
             other_ref, our
         ),
     }
+}
+
+fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform) {
+    println!("TODO")
 }
 
 #[test]

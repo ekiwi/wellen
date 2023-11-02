@@ -3,26 +3,26 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::*;
-use crate::signals::SignalSource;
+use crate::Waveform;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
 
-pub fn read(filename: &str) -> (Hierarchy, Box<dyn SignalSource>) {
+pub fn read(filename: &str) -> Waveform {
     read_internal(filename, true)
 }
 
-pub fn read_single_thread(filename: &str) -> (Hierarchy, Box<dyn SignalSource>) {
+pub fn read_single_thread(filename: &str) -> Waveform {
     read_internal(filename, false)
 }
 
-fn read_internal(filename: &str, multi_threaded: bool) -> (Hierarchy, Box<dyn SignalSource>) {
+fn read_internal(filename: &str, multi_threaded: bool) -> Waveform {
     // load file into memory (lazily)
     let input_file = std::fs::File::open(filename).expect("failed to open input file!");
     let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
     let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]));
     let wave_mem = read_values(&mmap[header_len..], multi_threaded, &hierarchy);
-    (hierarchy, wave_mem)
+    Waveform::new(hierarchy, wave_mem)
 }
 
 // fn print_stats() {

@@ -7,3 +7,5 @@ pub mod hierarchy;
 mod signals;
 pub mod vcd;
 mod wavemem;
+
+pub use signals::Waveform;

@@ -4,16 +4,17 @@
 
 use crate::hierarchy::*;
 use crate::signals::{Signal, SignalSource, Time};
+use crate::Waveform;
 use fst_native::*;
 use std::collections::HashMap;
 use std::io::{BufRead, Seek};
 
-pub fn read(filename: &str) -> (Hierarchy, Box<dyn SignalSource>) {
+pub fn read(filename: &str) -> Waveform {
     let input = std::fs::File::open(filename).expect("failed to open input file!");
     let mut reader = FstReader::open_and_read_time_table(std::io::BufReader::new(input)).unwrap();
     let hierarchy = read_hierarchy(&mut reader);
     let db = Box::new(FstWaveDatabase::new(reader));
-    (hierarchy, db)
+    Waveform::new(hierarchy, db)
 }
 
 struct FstWaveDatabase<R: BufRead + Seek> {
@@ -43,7 +44,7 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
 
         // store signals
         let mut signals = Vec::with_capacity(ids.len());
-        let foo = |time: u64, handle: FstSignalHandle, value: FstSignalValue| {
+        let foo = |time: u64, _handle: FstSignalHandle, _value: FstSignalValue| {
             // determine time index
             while *(index_and_time.1) < time {
                 index_and_time = time_table.next().unwrap();

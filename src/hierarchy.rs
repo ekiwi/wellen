@@ -120,7 +120,7 @@ pub struct Var {
     tpe: VarType,
     direction: VarDirection,
     length: SignalLength,
-    handle: SignalIdx,
+    signal_idx: SignalIdx,
     parent: HierarchyScopeId,
     next: Option<HierarchyItemId>,
 }
@@ -145,8 +145,11 @@ impl Var {
     pub fn var_type(&self) -> VarType {
         self.tpe
     }
-    pub fn handle(&self) -> SignalIdx {
-        self.handle
+    pub fn direction(&self) -> VarDirection {
+        self.direction
+    }
+    pub fn signal_idx(&self) -> SignalIdx {
+        self.signal_idx
     }
     pub fn length(&self) -> SignalLength {
         self.length
@@ -267,7 +270,7 @@ pub struct Hierarchy {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
     strings: Vec<String>,
-    handle_to_var: Vec<Option<HierarchyVarId>>,
+    signal_idx_to_var: Vec<Option<HierarchyVarId>>,
 }
 
 // public implementation
@@ -286,19 +289,26 @@ impl Hierarchy {
         HierarchyItemIterator::new(&self, start)
     }
 
-    pub fn num_vars(&self) -> usize {
+    pub(crate) fn num_vars(&self) -> usize {
         self.vars.len()
     }
 
-    pub fn num_unique_signals(&self) -> usize {
-        self.handle_to_var.len()
+    pub(crate) fn num_unique_signals(&self) -> usize {
+        self.signal_idx_to_var.len()
+    }
+
+    /// Retrieves the length of a signal identified by its id by looking up a
+    /// variable that refers to the signal.
+    pub(crate) fn get_signal_length(&self, signal_idx: SignalIdx) -> Option<SignalLength> {
+        let var_id = (*self.signal_idx_to_var.get(signal_idx as usize)?)?;
+        Some(self.get_var(var_id).length)
     }
 
     /// Returns one variable per unique signal in the order of signal handles.
     /// The value will be None if there is no var pointing to the given handle.
     pub fn get_unique_signals_vars(&self) -> Vec<Option<Var>> {
-        let mut out = Vec::with_capacity(self.handle_to_var.len());
-        for maybe_var_id in self.handle_to_var.iter() {
+        let mut out = Vec::with_capacity(self.signal_idx_to_var.len());
+        for maybe_var_id in self.signal_idx_to_var.iter() {
             if let Some(var_id) = maybe_var_id {
                 out.push(Some((*self.get_var(*var_id)).clone()));
             } else {
@@ -342,7 +352,7 @@ pub fn estimate_hierarchy_size(hierarchy: &Hierarchy) -> usize {
             .map(|s| s.as_bytes().len())
             .sum::<usize>();
     let handle_lookup_size =
-        hierarchy.handle_to_var.capacity() * std::mem::size_of::<HierarchyVarId>();
+        hierarchy.signal_idx_to_var.capacity() * std::mem::size_of::<HierarchyVarId>();
     var_size + scope_size + string_size + handle_lookup_size + std::mem::size_of::<Hierarchy>()
 }
 
@@ -396,7 +406,7 @@ impl HierarchyBuilder {
             vars: self.vars,
             scopes: self.scopes,
             strings: interner_to_vec(self.strings),
-            handle_to_var: self.handle_to_node,
+            signal_idx_to_var: self.handle_to_node,
         }
     }
 
@@ -479,15 +489,19 @@ impl HierarchyBuilder {
         tpe: VarType,
         direction: VarDirection,
         length: u32,
-        handle: SignalIdx,
+        signal_idx: SignalIdx,
     ) {
         let node_id = self.vars.len();
         let var_id = HierarchyVarId::from_index(node_id).unwrap();
         let wrapped_id = HierarchyItemId::Var(var_id);
         let parent = self.add_to_hierarchy_tree(wrapped_id);
+        assert!(
+            parent.is_some(),
+            "Vars cannot be at the top of the hierarchy (not supported for now)"
+        );
 
         // add lookup
-        let handle_idx = handle as usize;
+        let handle_idx = signal_idx as usize;
         if self.handle_to_node.len() <= handle_idx {
             self.handle_to_node.resize(handle_idx + 1, None);
         }
@@ -500,7 +514,7 @@ impl HierarchyBuilder {
             tpe,
             direction,
             length: SignalLength::from_uint(length),
-            handle,
+            signal_idx,
             next: None,
         };
         self.vars.push(node);
