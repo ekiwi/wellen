@@ -7,7 +7,7 @@ use waveform::{Hierarchy, HierarchyItem, ScopeType, SignalLength, VarType, Wavef
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
     {
-        let wave = waveform::vcd::read(vcd_filename);
+        let wave = waveform::vcd::read(vcd_filename).expect("Failed to load VCD");
         diff_test_one(vcd_filename, wave);
     }
     {

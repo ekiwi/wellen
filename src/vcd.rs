@@ -8,35 +8,39 @@ use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
 
-pub fn read(filename: &str) -> Waveform {
+#[derive(Debug)]
+pub struct WaveformError {}
+pub type Result<T> = std::result::Result<T, WaveformError>;
+
+pub fn read(filename: &str) -> Result<Waveform> {
     read_file_internal(filename, true)
 }
 
-pub fn read_single_thread(filename: &str) -> Waveform {
+pub fn read_single_thread(filename: &str) -> Result<Waveform> {
     read_file_internal(filename, false)
 }
 
-pub fn read_from_bytes(bytes: &[u8]) -> Waveform {
+pub fn read_from_bytes(bytes: &[u8]) -> Result<Waveform> {
     read_bytes_internal(bytes, true)
 }
 
-pub fn read_from_bytes_single_thread(bytes: &[u8]) -> Waveform {
+pub fn read_from_bytes_single_thread(bytes: &[u8]) -> Result<Waveform> {
     read_bytes_internal(bytes, false)
 }
 
-fn read_file_internal(filename: &str, multi_threaded: bool) -> Waveform {
+fn read_file_internal(filename: &str, multi_threaded: bool) -> Result<Waveform> {
     // load file into memory (lazily)
     let input_file = std::fs::File::open(filename).expect("failed to open input file!");
     let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
     let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]));
     let wave_mem = read_values(&mmap[header_len..], multi_threaded, &hierarchy);
-    Waveform::new(hierarchy, wave_mem)
+    Ok(Waveform::new(hierarchy, wave_mem))
 }
 
-fn read_bytes_internal(bytes: &[u8], multi_threaded: bool) -> Waveform {
+fn read_bytes_internal(bytes: &[u8], multi_threaded: bool) -> Result<Waveform> {
     let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&bytes));
     let wave_mem = read_values(&bytes[header_len..], multi_threaded, &hierarchy);
-    Waveform::new(hierarchy, wave_mem)
+    Ok(Waveform::new(hierarchy, wave_mem))
 }
 
 // fn print_stats() {
