@@ -274,6 +274,12 @@ impl Scope {
         let start = self.child.map(|c| hierarchy.get_item(c));
         HierarchyItemIterator::new(hierarchy, start)
     }
+
+    pub fn vars<'a>(&'a self, hierarchy: &'a Hierarchy) -> HierarchyVarIterator<'a> {
+        HierarchyVarIterator {
+            underlying: self.items(hierarchy),
+        }
+    }
 }
 
 pub struct HierarchyItemIterator<'a> {
@@ -327,6 +333,24 @@ impl<'a> Iterator for HierarchyItemIterator<'a> {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+pub struct HierarchyVarIterator<'a> {
+    underlying: HierarchyItemIterator<'a>,
+}
+
+impl<'a> Iterator for HierarchyVarIterator<'a> {
+    type Item = &'a Var;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.underlying.next() {
+                None => return None,
+                Some(HierarchyItem::Var(var)) => return Some(var),
+                Some(_) => {} // continue
             }
         }
     }
