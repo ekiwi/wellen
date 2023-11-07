@@ -4,7 +4,7 @@
 
 use bytesize::ByteSize;
 use clap::Parser;
-use waveform::hierarchy::*;
+use waveform::*;
 
 #[derive(Parser, Debug)]
 #[command(name = "loadfst")]
@@ -67,7 +67,7 @@ fn main() {
 
     println!(
         "The hierarchy takes up at least {} of memory.",
-        ByteSize::b(estimate_hierarchy_size(wave.hierarchy()) as u64)
+        ByteSize::b(wave.hierarchy().size_in_memory() as u64)
     );
     print_size_of_full_vs_reduced_names(wave.hierarchy());
 

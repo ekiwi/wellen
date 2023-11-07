@@ -352,6 +352,20 @@ impl Hierarchy {
         }
         out
     }
+
+    /// Size of the Hierarchy in bytes.
+    pub fn size_in_memory(&self) -> usize {
+        let var_size = self.vars.capacity() * std::mem::size_of::<Var>();
+        let scope_size = self.scopes.capacity() * std::mem::size_of::<Scope>();
+        let string_size = self.strings.capacity() * std::mem::size_of::<String>()
+            + self
+                .strings
+                .iter()
+                .map(|s| s.as_bytes().len())
+                .sum::<usize>();
+        let handle_lookup_size = self.signal_idx_to_var.capacity() * std::mem::size_of::<VarRef>();
+        var_size + scope_size + string_size + handle_lookup_size + std::mem::size_of::<Hierarchy>()
+    }
 }
 
 // private implementation
@@ -374,20 +388,6 @@ impl Hierarchy {
             HierarchyItemId::Var(id) => HierarchyItem::Var(self.get_var(id)),
         }
     }
-}
-
-/// Estimates how much memory the hierarchy uses.
-pub fn estimate_hierarchy_size(hierarchy: &Hierarchy) -> usize {
-    let var_size = hierarchy.vars.capacity() * std::mem::size_of::<Var>();
-    let scope_size = hierarchy.scopes.capacity() * std::mem::size_of::<Scope>();
-    let string_size = hierarchy.strings.capacity() * std::mem::size_of::<String>()
-        + hierarchy
-            .strings
-            .iter()
-            .map(|s| s.as_bytes().len())
-            .sum::<usize>();
-    let handle_lookup_size = hierarchy.signal_idx_to_var.capacity() * std::mem::size_of::<VarRef>();
-    var_size + scope_size + string_size + handle_lookup_size + std::mem::size_of::<Hierarchy>()
 }
 
 struct ScopeStackEntry {

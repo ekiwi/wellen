@@ -3,9 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use std::io::{BufRead, BufReader};
-use vcd::ScopeItem;
-use waveform::hierarchy::{Hierarchy, HierarchyItem, ScopeType, SignalLength, VarType};
-use waveform::Waveform;
+use waveform::{Waveform, Hierarchy, ScopeType, VarType, HierarchyItem, SignalLength};
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
     {
@@ -35,7 +33,7 @@ fn diff_hierarchy(ours: &Hierarchy, ref_header: &vcd::Header) {
         ref_header
             .items
             .iter()
-            .filter(|i| !matches!(i, ScopeItem::Comment(_))),
+            .filter(|i| !matches!(i, vcd::ScopeItem::Comment(_))),
         ours.items(),
     ) {
         diff_hierarchy_item(ref_child, our_child, ours)
@@ -56,9 +54,9 @@ fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
     }
 }
 
-fn diff_hierarchy_item(ref_item: &ScopeItem, our_item: HierarchyItem, our_hier: &Hierarchy) {
+fn diff_hierarchy_item(ref_item: &vcd::ScopeItem, our_item: HierarchyItem, our_hier: &Hierarchy) {
     match (ref_item, our_item) {
-        (ScopeItem::Scope(ref_scope), HierarchyItem::Scope(our_scope)) => {
+        (vcd::ScopeItem::Scope(ref_scope), HierarchyItem::Scope(our_scope)) => {
             assert_eq!(ref_scope.identifier, our_scope.name(our_hier));
             assert_eq!(
                 ref_scope.scope_type.to_string(),
@@ -69,13 +67,13 @@ fn diff_hierarchy_item(ref_item: &ScopeItem, our_item: HierarchyItem, our_hier: 
                 ref_scope
                     .items
                     .iter()
-                    .filter(|i| !matches!(i, ScopeItem::Comment(_))),
+                    .filter(|i| !matches!(i, vcd::ScopeItem::Comment(_))),
                 our_scope.items(our_hier),
             ) {
                 diff_hierarchy_item(ref_child, our_child, our_hier)
             }
         }
-        (ScopeItem::Var(ref_var), HierarchyItem::Var(our_var)) => {
+        (vcd::ScopeItem::Var(ref_var), HierarchyItem::Var(our_var)) => {
             assert_eq!(ref_var.reference, our_var.name(our_hier));
             assert_eq!(
                 ref_var.var_type.to_string(),
@@ -87,7 +85,7 @@ fn diff_hierarchy_item(ref_item: &ScopeItem, our_item: HierarchyItem, our_hier: 
             }
             assert!(ref_var.index.is_none(), "TODO: expose index");
         }
-        (ScopeItem::Comment(_), _) => {} // we do not care about comments
+        (vcd::ScopeItem::Comment(_), _) => {} // we do not care about comments
         (other_ref, our) => panic!(
             "Unexpected combination of scope items: {:?} (expected) vs. {:?}",
             other_ref, our
@@ -95,7 +93,7 @@ fn diff_hierarchy_item(ref_item: &ScopeItem, our_item: HierarchyItem, our_hier: 
     }
 }
 
-fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform) {
+fn diff_signals<R: BufRead>(_ref_reader: &mut vcd::Parser<R>, _our: &mut Waveform) {
     println!("TODO")
 }
 
