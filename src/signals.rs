@@ -5,14 +5,15 @@
 use crate::hierarchy::{Hierarchy, SignalLength, SignalRef};
 use crate::vcd::usize_div_ceil;
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 pub type Time = u64;
 
+#[derive(Debug, Clone, Copy)]
 pub enum SignalValue<'a> {
     Binary(&'a [u8]),
     String(&'a str),
 }
-
 /// Specifies the encoding of a signal.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum SignalEncoding {
@@ -91,6 +92,12 @@ pub struct Waveform {
     /// Signals are stored in a HashMap since we expect only a small subset of signals to be
     /// loaded at a time.
     signals: HashMap<SignalRef, Signal>,
+}
+
+impl Debug for Waveform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Waveform(...)")
+    }
 }
 
 impl Waveform {

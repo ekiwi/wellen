@@ -205,6 +205,21 @@ impl Var {
     pub fn length(&self) -> SignalLength {
         self.length
     }
+    pub fn is_real(&self) -> bool {
+        todo!()
+    }
+    pub fn is_string(&self) -> bool {
+        todo!()
+    }
+    pub fn is_bit_vector(&self) -> bool {
+        true
+    }
+    pub fn is_1bit(&self) -> bool {
+        match self.length {
+            SignalLength::Fixed(l) => l.get() == 1,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

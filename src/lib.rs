@@ -10,6 +10,6 @@ mod wavemem;
 
 pub use hierarchy::{
     Hierarchy, HierarchyItem, Scope, ScopeRef, ScopeType, SignalLength, SignalRef, Timescale,
-    TimescaleUnit, VarDirection, VarRef, VarType,
+    TimescaleUnit, Var, VarDirection, VarRef, VarType,
 };
 pub use signals::{SignalValue, Waveform};
