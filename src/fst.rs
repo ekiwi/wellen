@@ -17,6 +17,13 @@ pub fn read(filename: &str) -> Waveform {
     Waveform::new(hierarchy, db)
 }
 
+pub fn read_from_bytes(bytes: Vec<u8>) -> Waveform {
+    let mut reader = FstReader::open_and_read_time_table(std::io::Cursor::new(bytes)).unwrap();
+    let hierarchy = read_hierarchy(&mut reader);
+    let db = Box::new(FstWaveDatabase::new(reader));
+    Waveform::new(hierarchy, db)
+}
+
 struct FstWaveDatabase<R: BufRead + Seek> {
     reader: FstReader<R>,
     time_table: Vec<u64>,
