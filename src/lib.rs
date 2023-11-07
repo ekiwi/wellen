@@ -3,9 +3,12 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 pub mod fst;
-pub mod hierarchy;
+mod hierarchy;
 mod signals;
 pub mod vcd;
 mod wavemem;
 
-pub use signals::Waveform;
+pub use hierarchy::{
+    Hierarchy, Scope, ScopeRef, SignalRef, Timescale, TimescaleUnit, VarDirection, VarRef, VarType,
+};
+pub use signals::{SignalValue, Waveform};

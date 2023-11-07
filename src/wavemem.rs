@@ -4,7 +4,7 @@
 //
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
-use crate::hierarchy::{Hierarchy, SignalIdx, SignalLength};
+use crate::hierarchy::{Hierarchy, SignalLength, SignalRef};
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time};
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
 use bytesize::ByteSize;
@@ -17,7 +17,7 @@ pub struct Reader {
 }
 
 impl SignalSource for Reader {
-    fn load_signals(&mut self, ids: &[(SignalIdx, SignalLength)]) -> Vec<Signal> {
+    fn load_signals(&mut self, ids: &[(SignalRef, SignalLength)]) -> Vec<Signal> {
         let mut signals = Vec::with_capacity(ids.len());
         for (id, len) in ids.iter() {
             let sig = self.load_signal(*id, *len);
@@ -93,7 +93,7 @@ impl Reader {
         );
     }
 
-    fn collect_signal_meta_data(&self, id: SignalIdx) -> SignalMetaData {
+    fn collect_signal_meta_data(&self, id: SignalRef) -> SignalMetaData {
         let mut time_idx_offset = 0;
         let mut blocks = Vec::with_capacity(self.blocks.len());
         for block in self.blocks.iter() {
@@ -119,7 +119,7 @@ impl Reader {
         }
     }
 
-    fn load_signal(&self, id: SignalIdx, len: SignalLength) -> Signal {
+    fn load_signal(&self, id: SignalRef, len: SignalLength) -> Signal {
         let meta = self.collect_signal_meta_data(id);
         let mut time_indices: Vec<u32> = Vec::new();
         let mut data_bytes: Vec<u8> = Vec::new();
@@ -290,7 +290,7 @@ impl Block {
         *self.time_table.last().unwrap()
     }
 
-    fn get_offset_and_length(&self, id: SignalIdx) -> Option<(usize, usize)> {
+    fn get_offset_and_length(&self, id: SignalRef) -> Option<(usize, usize)> {
         let offset = match self.offsets[id as usize] {
             None => return None,
             Some(offset) => offset.get_index(),

@@ -9,14 +9,47 @@ use std::num::{NonZeroU16, NonZeroU32};
 use string_interner::Symbol;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct HierarchyVarId(NonZeroU32);
+pub struct Timescale {
+    pub factor: u32,
+    pub unit: TimescaleUnit,
+}
 
-impl HierarchyVarId {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TimescaleUnit {
+    FemtoSeconds,
+    PicoSeconds,
+    NanoSeconds,
+    MicroSeconds,
+    MilliSeconds,
+    Seconds,
+    Unknown,
+}
+
+impl TimescaleUnit {
+    pub fn to_exponent(&self) -> Option<i8> {
+        match &self {
+            TimescaleUnit::FemtoSeconds => Some(-15),
+            TimescaleUnit::PicoSeconds => Some(-12),
+            TimescaleUnit::NanoSeconds => Some(-9),
+            TimescaleUnit::MicroSeconds => Some(-6),
+            TimescaleUnit::MilliSeconds => Some(-3),
+            TimescaleUnit::Seconds => Some(0),
+            TimescaleUnit::Unknown => None,
+        }
+    }
+}
+
+/// Uniquely identifies a variable in the hierarchy.
+/// Replaces the old `SignalRef`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VarRef(NonZeroU32);
+
+impl VarRef {
     #[inline]
     fn from_index(index: usize) -> Option<Self> {
         match NonZeroU32::new(index as u32 + 1) {
             None => None,
-            Some(value) => Some(HierarchyVarId(value)),
+            Some(value) => Some(VarRef(value)),
         }
     }
 
@@ -26,16 +59,18 @@ impl HierarchyVarId {
     }
 }
 
-impl Default for HierarchyVarId {
+impl Default for VarRef {
     fn default() -> Self {
         Self::from_index(0).unwrap()
     }
 }
 
+/// Uniquely identifies a scope in the hierarchy.
+/// Replaces the old `ModuleRef`.
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct HierarchyScopeId(NonZeroU16);
+pub struct ScopeRef(NonZeroU16);
 
-impl HierarchyScopeId {
+impl ScopeRef {
     #[inline]
     fn from_index(index: usize) -> Option<Self> {
         match NonZeroU16::new(index as u16 + 1) {
@@ -50,7 +85,7 @@ impl HierarchyScopeId {
     }
 }
 
-impl Default for HierarchyScopeId {
+impl Default for ScopeRef {
     fn default() -> Self {
         Self::from_index(0).unwrap()
     }
@@ -91,7 +126,7 @@ pub enum VarDirection {
 }
 
 /// Signal identifier in the waveform (VCD, FST, etc.) file.
-pub type SignalIdx = u32;
+pub type SignalRef = u32;
 
 #[derive(Debug, Clone, Copy)]
 pub enum SignalLength {
@@ -120,8 +155,8 @@ pub struct Var {
     tpe: VarType,
     direction: VarDirection,
     length: SignalLength,
-    signal_idx: SignalIdx,
-    parent: HierarchyScopeId,
+    signal_idx: SignalRef,
+    parent: ScopeRef,
     next: Option<HierarchyItemId>,
 }
 
@@ -148,7 +183,7 @@ impl Var {
     pub fn direction(&self) -> VarDirection {
         self.direction
     }
-    pub fn signal_idx(&self) -> SignalIdx {
+    pub fn signal_idx(&self) -> SignalRef {
         self.signal_idx
     }
     pub fn length(&self) -> SignalLength {
@@ -158,8 +193,8 @@ impl Var {
 
 #[derive(Debug, Clone, Copy)]
 enum HierarchyItemId {
-    Scope(HierarchyScopeId),
-    Var(HierarchyVarId),
+    Scope(ScopeRef),
+    Var(VarRef),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -173,7 +208,7 @@ pub struct Scope {
     name: HierarchyStringId,
     tpe: ScopeType,
     child: Option<HierarchyItemId>,
-    parent: Option<HierarchyScopeId>,
+    parent: Option<ScopeRef>,
     next: Option<HierarchyItemId>,
 }
 
@@ -270,7 +305,7 @@ pub struct Hierarchy {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
     strings: Vec<String>,
-    signal_idx_to_var: Vec<Option<HierarchyVarId>>,
+    signal_idx_to_var: Vec<Option<VarRef>>,
 }
 
 // public implementation
@@ -299,7 +334,7 @@ impl Hierarchy {
 
     /// Retrieves the length of a signal identified by its id by looking up a
     /// variable that refers to the signal.
-    pub(crate) fn get_signal_length(&self, signal_idx: SignalIdx) -> Option<SignalLength> {
+    pub(crate) fn get_signal_length(&self, signal_idx: SignalRef) -> Option<SignalLength> {
         let var_id = (*self.signal_idx_to_var.get(signal_idx as usize)?)?;
         Some(self.get_var(var_id).length)
     }
@@ -325,11 +360,11 @@ impl Hierarchy {
         &self.strings[id.index()]
     }
 
-    fn get_scope(&self, id: HierarchyScopeId) -> &Scope {
+    fn get_scope(&self, id: ScopeRef) -> &Scope {
         &self.scopes[id.index()]
     }
 
-    fn get_var(&self, id: HierarchyVarId) -> &Var {
+    fn get_var(&self, id: VarRef) -> &Var {
         &self.vars[id.index()]
     }
 
@@ -351,8 +386,7 @@ pub fn estimate_hierarchy_size(hierarchy: &Hierarchy) -> usize {
             .iter()
             .map(|s| s.as_bytes().len())
             .sum::<usize>();
-    let handle_lookup_size =
-        hierarchy.signal_idx_to_var.capacity() * std::mem::size_of::<HierarchyVarId>();
+    let handle_lookup_size = hierarchy.signal_idx_to_var.capacity() * std::mem::size_of::<VarRef>();
     var_size + scope_size + string_size + handle_lookup_size + std::mem::size_of::<Hierarchy>()
 }
 
@@ -380,7 +414,7 @@ pub struct HierarchyBuilder {
     scopes: Vec<Scope>,
     scope_stack: Vec<ScopeStackEntry>,
     strings: StringInterner,
-    handle_to_node: Vec<Option<HierarchyVarId>>,
+    handle_to_node: Vec<Option<VarRef>>,
     // some statistics
     duplicate_string_count: usize,
     duplicate_string_size: usize,
@@ -431,7 +465,7 @@ impl HierarchyBuilder {
     }
 
     /// adds a variable or scope to the hierarchy tree
-    fn add_to_hierarchy_tree(&mut self, node_id: HierarchyItemId) -> Option<HierarchyScopeId> {
+    fn add_to_hierarchy_tree(&mut self, node_id: HierarchyItemId) -> Option<ScopeRef> {
         match self.scope_stack.last_mut() {
             Some(entry) => {
                 let parent = entry.scope_id;
@@ -455,7 +489,7 @@ impl HierarchyBuilder {
                 // the new node is now the last child
                 entry.last_child = Some(node_id);
                 // return the parent id
-                Some(HierarchyScopeId::from_index(parent).unwrap())
+                Some(ScopeRef::from_index(parent).unwrap())
             }
             None => None,
         }
@@ -463,7 +497,7 @@ impl HierarchyBuilder {
 
     pub fn add_scope(&mut self, name: String, tpe: ScopeType) {
         let node_id = self.scopes.len();
-        let wrapped_id = HierarchyItemId::Scope(HierarchyScopeId::from_index(node_id).unwrap());
+        let wrapped_id = HierarchyItemId::Scope(ScopeRef::from_index(node_id).unwrap());
         let parent = self.add_to_hierarchy_tree(wrapped_id);
 
         // new active scope
@@ -489,10 +523,10 @@ impl HierarchyBuilder {
         tpe: VarType,
         direction: VarDirection,
         length: u32,
-        signal_idx: SignalIdx,
+        signal_idx: SignalRef,
     ) {
         let node_id = self.vars.len();
-        let var_id = HierarchyVarId::from_index(node_id).unwrap();
+        let var_id = VarRef::from_index(node_id).unwrap();
         let wrapped_id = HierarchyItemId::Var(var_id);
         let parent = self.add_to_hierarchy_tree(wrapped_id);
         assert!(
@@ -541,8 +575,8 @@ mod tests {
                 + 1 // tpe
                 + 1 // direction
                 + 4 // length
-                + std::mem::size_of::<SignalIdx>() // handle
-                + std::mem::size_of::<HierarchyScopeId>() // parent
+                + std::mem::size_of::<SignalRef>() // handle
+                + std::mem::size_of::<ScopeRef>() // parent
                 + std::mem::size_of::<HierarchyItemId>() // next
         );
         // currently this all comes out to 24 bytes (~= 3x 64-bit pointers)
@@ -554,7 +588,7 @@ mod tests {
             std::mem::size_of::<HierarchyStringId>() // name
                 + 1 // tpe
                 + std::mem::size_of::<HierarchyItemId>() // child
-                + std::mem::size_of::<HierarchyScopeId>() // parent
+                + std::mem::size_of::<ScopeRef>() // parent
                 + std::mem::size_of::<HierarchyItemId>() // next
                 + 1 // padding
         );

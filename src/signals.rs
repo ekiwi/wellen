@@ -2,11 +2,16 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use crate::hierarchy::{Hierarchy, SignalIdx, SignalLength};
+use crate::hierarchy::{Hierarchy, SignalLength, SignalRef};
 use crate::vcd::usize_div_ceil;
 use std::collections::HashMap;
 
 pub type Time = u64;
+
+pub enum SignalValue<'a> {
+    Binary(&'a [u8]),
+    String(&'a str),
+}
 
 /// Specifies the encoding of a signal.
 #[derive(Debug, Clone, Copy)]
@@ -24,14 +29,14 @@ pub(crate) enum SignalEncoding {
 }
 
 pub(crate) struct Signal {
-    idx: SignalIdx,
+    idx: SignalRef,
     time_indices: Vec<u32>,
     data: SignalChangeData,
 }
 
 impl Signal {
     pub(crate) fn new_fixed_len(
-        idx: SignalIdx,
+        idx: SignalRef,
         time_indices: Vec<u32>,
         encoding: SignalEncoding,
         width: u32,
@@ -51,7 +56,7 @@ impl Signal {
     }
 
     pub(crate) fn new_var_len(
-        idx: SignalIdx,
+        idx: SignalRef,
         time_indices: Vec<u32>,
         strings: Vec<String>,
     ) -> Self {
@@ -85,7 +90,7 @@ pub struct Waveform {
     time_table: Vec<Time>,
     /// Signals are stored in a HashMap since we expect only a small subset of signals to be
     /// loaded at a time.
-    signals: HashMap<SignalIdx, Signal>,
+    signals: HashMap<SignalRef, Signal>,
 }
 
 impl Waveform {
@@ -103,7 +108,7 @@ impl Waveform {
         &self.hierarchy
     }
 
-    pub fn load_signals(&mut self, ids: &[SignalIdx]) {
+    pub fn load_signals(&mut self, ids: &[SignalRef]) {
         let ids_with_len = ids
             .iter()
             .map(|i| (*i, self.hierarchy.get_signal_length(*i).unwrap()))
@@ -116,13 +121,13 @@ impl Waveform {
         }
     }
 
-    pub fn unload_signals(&mut self, ids: &[SignalIdx]) {
+    pub fn unload_signals(&mut self, ids: &[SignalRef]) {
         for id in ids.iter() {
             self.signals.remove(id);
         }
     }
 
-    pub fn get_signal_size_in_memory(&self, id: SignalIdx) -> Option<usize> {
+    pub fn get_signal_size_in_memory(&self, id: SignalRef) -> Option<usize> {
         Some((self.signals.get(&id)?).size_in_memory())
     }
 }
@@ -139,7 +144,7 @@ enum SignalChangeData {
 pub(crate) trait SignalSource {
     /// Loads new signals.
     /// Many implementations take advantage of loading multiple signals at a time.
-    fn load_signals(&mut self, ids: &[(SignalIdx, SignalLength)]) -> Vec<Signal>;
+    fn load_signals(&mut self, ids: &[(SignalRef, SignalLength)]) -> Vec<Signal>;
     /// Returns the global time table which stores the time at each value change.
     fn get_time_table(&self) -> Vec<Time>;
 }
@@ -170,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_sizes() {
-        assert_eq!(std::mem::size_of::<SignalIdx>(), 4);
+        assert_eq!(std::mem::size_of::<SignalRef>(), 4);
 
         // 4 bytes for length + tag + padding
         assert_eq!(std::mem::size_of::<SignalEncoding>(), 8);
