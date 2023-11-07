@@ -87,7 +87,7 @@ impl Signal {
 /// Provides file format independent access to a waveform file.
 pub struct Waveform {
     hierarchy: Hierarchy,
-    source: Box<dyn SignalSource>,
+    source: Box<dyn SignalSource + Send>,
     time_table: Vec<Time>,
     /// Signals are stored in a HashMap since we expect only a small subset of signals to be
     /// loaded at a time.
@@ -101,7 +101,7 @@ impl Debug for Waveform {
 }
 
 impl Waveform {
-    pub(crate) fn new(hierarchy: Hierarchy, source: Box<dyn SignalSource>) -> Self {
+    pub(crate) fn new(hierarchy: Hierarchy, source: Box<dyn SignalSource + Send>) -> Self {
         let time_table = source.get_time_table();
         Waveform {
             hierarchy,
