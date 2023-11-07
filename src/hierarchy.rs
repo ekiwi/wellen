@@ -126,7 +126,23 @@ pub enum VarDirection {
 }
 
 /// Signal identifier in the waveform (VCD, FST, etc.) file.
-pub type SignalRef = u32;
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
+pub struct SignalRef(NonZeroU32);
+
+impl SignalRef {
+    #[inline]
+    pub(crate) fn from_index(index: usize) -> Option<Self> {
+        match NonZeroU32::new(index as u32 + 1) {
+            None => None,
+            Some(value) => Some(Self(value)),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn index(&self) -> usize {
+        (self.0.get() - 1) as usize
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum SignalLength {
@@ -335,7 +351,7 @@ impl Hierarchy {
     /// Retrieves the length of a signal identified by its id by looking up a
     /// variable that refers to the signal.
     pub(crate) fn get_signal_length(&self, signal_idx: SignalRef) -> Option<SignalLength> {
-        let var_id = (*self.signal_idx_to_var.get(signal_idx as usize)?)?;
+        let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
         Some(self.get_var(var_id).length)
     }
 
@@ -535,7 +551,7 @@ impl HierarchyBuilder {
         );
 
         // add lookup
-        let handle_idx = signal_idx as usize;
+        let handle_idx = signal_idx.index();
         if self.handle_to_node.len() <= handle_idx {
             self.handle_to_node.resize(handle_idx + 1, None);
         }

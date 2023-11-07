@@ -3,6 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::*;
+use crate::signals::Signal;
 use crate::Waveform;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
@@ -54,7 +55,7 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
             convert_var_tpe(tpe),
             VarDirection::Todo,
             u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
-            id_to_int(id).unwrap() as u32,
+            SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
         ),
         HeaderCmd::VectorVar(tpe, size, id, name, _) => {
             let length = match u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10) {
@@ -72,7 +73,7 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
                 convert_var_tpe(tpe),
                 VarDirection::Todo,
                 length,
-                id_to_int(id).unwrap() as u32,
+                SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
             );
         }
     };

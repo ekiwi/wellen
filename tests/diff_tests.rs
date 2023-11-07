@@ -3,7 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use std::io::{BufRead, BufReader};
-use waveform::{Waveform, Hierarchy, ScopeType, VarType, HierarchyItem, SignalLength};
+use waveform::{Hierarchy, HierarchyItem, ScopeType, SignalLength, VarType, Waveform};
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
     {

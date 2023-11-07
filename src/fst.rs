@@ -34,7 +34,7 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
         // create a FST filter
         let fst_ids = ids
             .iter()
-            .map(|(ii, _)| FstSignalHandle::from_index(*ii as usize))
+            .map(|(ii, _)| FstSignalHandle::from_index(ii.index()))
             .collect::<Vec<_>>();
         let filter = FstFilter::filter_signals(fst_ids);
 
@@ -106,7 +106,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                     convert_var_tpe(tpe),
                     convert_var_direction(direction),
                     length,
-                    handle.get_index() as u32,
+                    SignalRef::from_index(handle.get_index()).unwrap(),
                 );
             }
             FstHierarchyEntry::PathName { id, name } => {

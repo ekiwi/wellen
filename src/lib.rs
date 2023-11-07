@@ -9,7 +9,7 @@ pub mod vcd;
 mod wavemem;
 
 pub use hierarchy::{
-    Hierarchy, Scope, ScopeRef, SignalRef, Timescale, TimescaleUnit, VarDirection, VarRef, VarType,
-    ScopeType, HierarchyItem, SignalLength,
+    Hierarchy, HierarchyItem, Scope, ScopeRef, ScopeType, SignalLength, SignalRef, Timescale,
+    TimescaleUnit, VarDirection, VarRef, VarType,
 };
 pub use signals::{SignalValue, Waveform};
