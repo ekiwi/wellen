@@ -4,9 +4,10 @@
 
 use crate::hierarchy::*;
 use crate::Waveform;
+use clap::builder::Str;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
-use std::io::{BufRead, Seek};
+use std::io::{BufRead, Read, Seek};
 
 #[derive(Debug)]
 pub struct WaveformError {}
@@ -150,63 +151,76 @@ fn read_header(
     let mut buf: Vec<u8> = Vec::with_capacity(128);
     loop {
         buf.clear();
-        let read = input.read_until(b'\n', &mut buf)?;
-        if read == 0 {
-            return Ok(());
-        }
-        truncate(&mut buf);
-        if buf.is_empty() {
-            continue;
-        }
+        let (cmd, body) = read_command(input, &mut buf)?;
+        println!(
+            "{} {}",
+            String::from_utf8_lossy(cmd),
+            String::from_utf8_lossy(body)
+        );
+    }
+}
 
-        // decode
-        if buf.starts_with(b"$scope") {
-            let parts: Vec<&[u8]> = line_to_tokens(&buf);
-            assert_eq!(parts.last().unwrap(), b"$end");
-            (callback)(HeaderCmd::Scope(parts[1], parts[2]));
-        } else if buf.starts_with(b"$var") {
-            let parts: Vec<&[u8]> = line_to_tokens(&buf);
-            assert_eq!(parts.last().unwrap(), b"$end");
-            match parts.len() - 2 {
-                4 => (callback)(HeaderCmd::ScalarVar(parts[1], parts[2], parts[3], parts[4])),
-                5 => {
-                    (callback)(HeaderCmd::VectorVar(
-                        parts[1], parts[2], parts[3], parts[4], parts[4],
-                    ));
-                }
-                _ => panic!(
-                    "Unexpected var declaration: {}",
-                    std::str::from_utf8(&buf).unwrap()
-                ),
+/// Reads in a command until the `$end`. Uses buf to store the read data.
+/// Returns the name and the body of the command.
+fn read_command<'a>(
+    input: &mut impl BufRead,
+    buf: &'a mut Vec<u8>,
+) -> std::io::Result<(&'a [u8], &'a [u8])> {
+    // start out with an empty buffer
+    assert!(buf.is_empty());
+
+    // skip over any preceding whitespace
+    let start_char = skip_whitespace(input)?;
+    buf.push(start_char);
+
+    // read the rest of the command into the buffer
+    read_token(input, buf)?;
+
+    // check to see if this is a valid command
+    todo!(
+        "Check to see if {} is a valid command!",
+        String::from_utf8_lossy(buf)
+    );
+
+    // remember the length of the command
+    let command_len = buf.len();
+
+    // return the length of the command
+    Ok((&buf[..command_len], &buf[command_len..]))
+}
+
+#[inline]
+fn read_token(input: &mut impl BufRead, buf: &mut Vec<u8>) -> std::io::Result<()> {
+    loop {
+        let byte = read_byte(input)?;
+        match byte {
+            b' ' | b'\n' | b'\r' | b'\t' => {
+                return Ok(());
             }
-        } else if buf.starts_with(b"$upscope") {
-            let parts: Vec<&[u8]> = line_to_tokens(&buf);
-            assert_eq!(parts.last().unwrap(), b"$end");
-            assert_eq!(parts.len(), 2);
-            (callback)(HeaderCmd::UpScope);
-        } else if buf.starts_with(b"$enddefinitions") {
-            let parts: Vec<&[u8]> = line_to_tokens(&buf);
-            assert_eq!(parts.last().unwrap(), b"$end");
-            // header is done
-            return Ok(());
-        } else if buf.starts_with(b"$date")
-            || buf.starts_with(b"$version")
-            || buf.starts_with(b"$comment")
-            || buf.starts_with(b"$timescale")
-        {
-            // ignored commands, just find the $end
-            while !contains_end(&buf) {
-                buf.clear();
-                let read = input.read_until(b'\n', &mut buf)?;
-                if read == 0 {
-                    return Ok(());
-                }
-                truncate(&mut buf);
+            other => {
+                buf.push(other);
             }
-        } else {
-            panic!("Unexpected line: {}", std::str::from_utf8(&buf).unwrap());
         }
     }
+}
+
+/// Advances the input until the first non-whitespace character which is then returned.
+#[inline]
+fn skip_whitespace(input: &mut impl BufRead) -> std::io::Result<u8> {
+    loop {
+        let byte = read_byte(input)?;
+        match byte {
+            b' ' | b'\n' | b'\r' | b'\t' => {}
+            other => return Ok(other),
+        }
+    }
+}
+
+#[inline]
+fn read_byte(input: &mut impl BufRead) -> std::io::Result<u8> {
+    let mut buf = [0u8; 1];
+    input.read_exact(&mut buf)?;
+    Ok(buf[0])
 }
 
 #[inline]
