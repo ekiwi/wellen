@@ -187,7 +187,7 @@ impl Var {
 
     /// Full hierarchical name of the variable.
     pub fn full_name<'a>(&self, hierarchy: &Hierarchy) -> String {
-        let mut out = hierarchy.get_scope(self.parent).full_name(hierarchy);
+        let mut out = hierarchy.get(self.parent).full_name(hierarchy);
         out.push(SCOPE_SEPARATOR);
         out.push_str(self.name(hierarchy));
         out
@@ -255,11 +255,11 @@ impl Scope {
         let mut parent = self.parent;
         while let Some(id) = parent {
             parents.push(id);
-            parent = hierarchy.get_scope(id).parent;
+            parent = hierarchy.get(id).parent;
         }
         let mut out: String = String::with_capacity((parents.len() + 1) * 5);
         for parent_id in parents.iter().rev() {
-            out.push_str(hierarchy.get_scope(*parent_id).name(hierarchy));
+            out.push_str(hierarchy.get(*parent_id).name(hierarchy));
             out.push(SCOPE_SEPARATOR)
         }
         out.push_str(self.name(hierarchy));
@@ -322,12 +322,12 @@ impl<'a> Iterator for HierarchyItemIterator<'a> {
                             None
                         }
                         Some(HierarchyItemId::Scope(scope_id)) => {
-                            let new_scope = self.hierarchy.get_scope(scope_id);
+                            let new_scope = self.hierarchy.get(scope_id);
                             self.item = Some(HierarchyItem::Scope(new_scope));
                             Some(HierarchyItem::Scope(new_scope))
                         }
                         Some(HierarchyItemId::Var(var_id)) => {
-                            let var = self.hierarchy.get_var(var_id);
+                            let var = self.hierarchy.get(var_id);
                             self.item = Some(HierarchyItem::Var(var));
                             Some(HierarchyItem::Var(var))
                         }
@@ -391,7 +391,7 @@ impl Hierarchy {
     /// variable that refers to the signal.
     pub(crate) fn get_signal_length(&self, signal_idx: SignalRef) -> Option<SignalLength> {
         let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
-        Some(self.get_var(var_id).length)
+        Some(self.get(var_id).length)
     }
 
     /// Returns one variable per unique signal in the order of signal handles.
@@ -400,7 +400,7 @@ impl Hierarchy {
         let mut out = Vec::with_capacity(self.signal_idx_to_var.len());
         for maybe_var_id in self.signal_idx_to_var.iter() {
             if let Some(var_id) = maybe_var_id {
-                out.push(Some((*self.get_var(*var_id)).clone()));
+                out.push(Some((*self.get(*var_id)).clone()));
             } else {
                 out.push(None)
             }
@@ -429,19 +429,27 @@ impl Hierarchy {
         &self.strings[id.index()]
     }
 
-    fn get_scope(&self, id: ScopeRef) -> &Scope {
-        &self.scopes[id.index()]
-    }
-
-    fn get_var(&self, id: VarRef) -> &Var {
-        &self.vars[id.index()]
-    }
-
     fn get_item(&self, id: HierarchyItemId) -> HierarchyItem {
         match id {
-            HierarchyItemId::Scope(id) => HierarchyItem::Scope(self.get_scope(id)),
-            HierarchyItemId::Var(id) => HierarchyItem::Var(self.get_var(id)),
+            HierarchyItemId::Scope(id) => HierarchyItem::Scope(self.get(id)),
+            HierarchyItemId::Var(id) => HierarchyItem::Var(self.get(id)),
         }
+    }
+}
+
+pub trait GetItem<R, I> {
+    fn get(&self, id: R) -> &I;
+}
+
+impl GetItem<ScopeRef, Scope> for Hierarchy {
+    fn get(&self, id: ScopeRef) -> &Scope {
+        &self.scopes[id.index()]
+    }
+}
+
+impl GetItem<VarRef, Var> for Hierarchy {
+    fn get(&self, id: VarRef) -> &Var {
+        &self.vars[id.index()]
     }
 }
 
