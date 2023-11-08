@@ -365,33 +365,25 @@ pub struct Hierarchy {
 
 // public implementation
 impl Hierarchy {
-    // TODO: add custom iterator that guarantees a traversal in topological order
+    /// Returns an iterator over all variables (at all levels).
     pub fn iter_vars(&self) -> std::slice::Iter<'_, Var> {
         self.vars.iter()
     }
 
+    /// Returns an iterator over all scopes (at all levels).
     pub fn iter_scopes(&self) -> std::slice::Iter<'_, Scope> {
         self.scopes.iter()
     }
 
+    /// Returns an iterator over all top-level scopes and variables.
     pub fn items(&self) -> HierarchyItemIterator {
         let start = self.scopes.first().map(|s| HierarchyItem::Scope(s));
         HierarchyItemIterator::new(&self, start)
     }
 
-    pub(crate) fn num_vars(&self) -> usize {
-        self.vars.len()
-    }
-
-    pub(crate) fn num_unique_signals(&self) -> usize {
-        self.signal_idx_to_var.len()
-    }
-
-    /// Retrieves the length of a signal identified by its id by looking up a
-    /// variable that refers to the signal.
-    pub(crate) fn get_signal_length(&self, signal_idx: SignalRef) -> Option<SignalLength> {
-        let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
-        Some(self.get(var_id).length)
+    /// Returns the first scope that was declared in the underlying file.
+    pub fn first_scope(&self) -> Option<&Scope> {
+        self.scopes.first()
     }
 
     /// Returns one variable per unique signal in the order of signal handles.
@@ -420,6 +412,23 @@ impl Hierarchy {
                 .sum::<usize>();
         let handle_lookup_size = self.signal_idx_to_var.capacity() * std::mem::size_of::<VarRef>();
         var_size + scope_size + string_size + handle_lookup_size + std::mem::size_of::<Hierarchy>()
+    }
+}
+
+impl Hierarchy {
+    pub(crate) fn num_vars(&self) -> usize {
+        self.vars.len()
+    }
+
+    pub(crate) fn num_unique_signals(&self) -> usize {
+        self.signal_idx_to_var.len()
+    }
+
+    /// Retrieves the length of a signal identified by its id by looking up a
+    /// variable that refers to the signal.
+    pub(crate) fn get_signal_length(&self, signal_idx: SignalRef) -> Option<SignalLength> {
+        let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
+        Some(self.get(var_id).length)
     }
 }
 
