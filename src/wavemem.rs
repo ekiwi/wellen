@@ -679,22 +679,21 @@ fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
         return None;
     }
 
-    // sometimes an all z or all x vector is written with only a single digit
-    if value.len() == 1 && matches!(value[0], b'x' | b'X' | b'z' | b'Z') {
-        let mut repeated = Vec::with_capacity(len);
-        repeated.resize(len, value[0]);
-        return Some(repeated);
+    // zero, x or z extend
+    match value[0] {
+        b'1' | b'0' => {
+            let mut zero_extended = Vec::with_capacity(len);
+            zero_extended.resize(len - value.len(), b'0');
+            zero_extended.extend_from_slice(value);
+            Some(zero_extended)
+        }
+        b'x' | b'X' | b'z' | b'Z' => {
+            let mut repeated = Vec::with_capacity(len);
+            repeated.resize(len, value[0]);
+            Some(repeated)
+        }
+        _ => None, // failed
     }
-
-    // check if we might want to zero extend the value
-    if matches!(value[0], b'1' | b'0') {
-        let mut zero_extended = Vec::with_capacity(len);
-        zero_extended.resize(len - value.len(), b'0');
-        zero_extended.extend_from_slice(value);
-        return Some(zero_extended);
-    }
-
-    None // failed
 }
 
 #[inline]

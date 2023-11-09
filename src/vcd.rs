@@ -72,9 +72,10 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
             convert_var_tpe(tpe),
             VarDirection::Todo,
             u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
+            None,
             SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
         ),
-        HeaderCmd::VectorVar(tpe, size, id, name, _) => {
+        HeaderCmd::VectorVar(tpe, size, id, name, index) => {
             let length = match u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10) {
                 Ok(len) => len,
                 Err(_) => {
@@ -90,6 +91,7 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
                 convert_var_tpe(tpe),
                 VarDirection::Todo,
                 length,
+                parse_index(index),
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
             );
         }
@@ -115,6 +117,32 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
     ((end - start) as usize, hierarchy)
 }
 
+fn parse_index(index: &[u8]) -> Option<VarIndex> {
+    if index.len() < 3 {
+        return None;
+    }
+    assert_eq!(index[0], b'[');
+    assert_eq!(*index.last().unwrap(), b']');
+    let sep = index.iter().position(|b| *b == b':');
+    match sep {
+        None => {
+            let inner = &index[1..(index.len() - 1)];
+            let inner_str = std::str::from_utf8(inner).unwrap();
+            let bit = i32::from_str_radix(inner_str, 10).unwrap();
+            Some(VarIndex { msb: bit, lsb: bit })
+        }
+        Some(pos) => {
+            let msb_bytes = &index[1..pos];
+            let msb_str = std::str::from_utf8(msb_bytes).unwrap();
+            let msb = i32::from_str_radix(msb_str, 10).unwrap();
+            let lsb_bytes = &index[(pos + 1)..(index.len() - 1)];
+            let lsb_str = std::str::from_utf8(lsb_bytes).unwrap();
+            let lsb = i32::from_str_radix(lsb_str, 10).unwrap();
+            Some(VarIndex { msb, lsb })
+        }
+    }
+}
+
 fn convert_timescale_unit(name: &[u8]) -> TimescaleUnit {
     match name {
         b"fs" => TimescaleUnit::FemtoSeconds,
@@ -138,6 +166,7 @@ fn convert_var_tpe(tpe: &[u8]) -> VarType {
     match tpe {
         b"wire" => VarType::Wire,
         b"reg" => VarType::Reg,
+        b"parameter" => VarType::Parameter,
         b"string" => VarType::String,
         _ => panic!("TODO: convert {}", String::from_utf8_lossy(tpe)),
     }

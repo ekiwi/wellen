@@ -80,6 +80,7 @@ fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
     match tpe {
         VarType::Wire => "wire",
         VarType::Reg => "reg",
+        VarType::Parameter => "parameter",
         VarType::String => "string",
         VarType::Todo => "todo",
     }
@@ -113,7 +114,17 @@ fn diff_hierarchy_item(ref_item: &vcd::ScopeItem, our_item: HierarchyItem, our_h
                 SignalLength::Variable => {} // nothing to check
                 SignalLength::Fixed(size) => assert_eq!(ref_var.size, size.get()),
             }
-            assert!(ref_var.index.is_none(), "TODO: expose index");
+            match ref_var.index {
+                None => assert!(our_var.index().is_none()),
+                Some(vcd::ReferenceIndex::BitSelect(bit)) => {
+                    assert_eq!(our_var.index().unwrap().msb, bit);
+                    assert_eq!(our_var.index().unwrap().lsb, bit);
+                }
+                Some(vcd::ReferenceIndex::Range(msb, lsb)) => {
+                    assert_eq!(our_var.index().unwrap().msb, msb);
+                    assert_eq!(our_var.index().unwrap().lsb, lsb);
+                }
+            }
         }
         (vcd::ScopeItem::Comment(_), _) => {} // we do not care about comments
         (other_ref, our) => panic!(
@@ -163,9 +174,12 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                     let suffix: String = our_value_str.chars().skip(prefix_len).collect();
                     assert_eq!(suffix, value.to_string());
                     let is_x_extended = suffix.chars().next().unwrap() == 'x';
+                    let is_z_extended = suffix.chars().next().unwrap() == 'z';
                     for c in our_value_str.chars().take(prefix_len) {
                         if is_x_extended {
                             assert_eq!(c, 'x');
+                        } else if is_z_extended {
+                            assert_eq!(c, 'z');
                         } else {
                             assert_eq!(c, '0');
                         }

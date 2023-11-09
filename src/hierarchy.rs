@@ -123,6 +123,7 @@ pub enum ScopeType {
 pub enum VarType {
     Wire,
     Reg,
+    Parameter,
     String,
     Todo, // placeholder tpe
 }
@@ -131,6 +132,12 @@ pub enum VarType {
 pub enum VarDirection {
     Input,
     Todo, // placeholder tpe
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct VarIndex {
+    pub msb: i32,
+    pub lsb: i32,
 }
 
 /// Signal identifier in the waveform (VCD, FST, etc.) file.
@@ -179,6 +186,7 @@ pub struct Var {
     tpe: VarType,
     direction: VarDirection,
     length: SignalLength,
+    index: Option<VarIndex>,
     signal_idx: SignalRef,
     parent: Option<ScopeRef>,
     next: Option<HierarchyItemId>,
@@ -211,6 +219,9 @@ impl Var {
     }
     pub fn direction(&self) -> VarDirection {
         self.direction
+    }
+    pub fn index(&self) -> Option<VarIndex> {
+        self.index
     }
     pub fn signal_idx(&self) -> SignalRef {
         self.signal_idx
@@ -651,6 +662,7 @@ impl HierarchyBuilder {
         tpe: VarType,
         direction: VarDirection,
         raw_length: u32,
+        index: Option<VarIndex>,
         signal_idx: SignalRef,
     ) {
         let node_id = self.vars.len();
@@ -681,6 +693,7 @@ impl HierarchyBuilder {
             tpe,
             direction,
             length,
+            index,
             signal_idx,
             next: None,
         };
@@ -742,12 +755,13 @@ mod tests {
                 + 1 // tpe
                 + 1 // direction
                 + 4 // length
+                + 12 // bit index TODO: try to save some space here!
                 + std::mem::size_of::<SignalRef>() // handle
                 + std::mem::size_of::<ScopeRef>() // parent
                 + std::mem::size_of::<HierarchyItemId>() // next
         );
-        // currently this all comes out to 24 bytes (~= 3x 64-bit pointers)
-        assert_eq!(std::mem::size_of::<Var>(), 24);
+        // currently this all comes out to 36 bytes (~= 4x 64-bit pointers)
+        assert_eq!(std::mem::size_of::<Var>(), 36);
 
         // Scope
         assert_eq!(

@@ -152,6 +152,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                     convert_var_tpe(tpe),
                     convert_var_direction(direction),
                     length,
+                    None,
                     SignalRef::from_index(handle.get_index()).unwrap(),
                 );
             }
