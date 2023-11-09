@@ -4,7 +4,7 @@
 
 use std::io::{BufRead, BufReader};
 use waveform::{
-    Hierarchy, HierarchyItem, ScopeType, SignalLength, TimescaleUnit, VarType, Waveform,
+    Hierarchy, HierarchyItem, ScopeType, SignalLength, SignalRef, TimescaleUnit, VarType, Waveform,
 };
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
@@ -91,7 +91,6 @@ fn diff_hierarchy_item(ref_item: &vcd::ScopeItem, our_item: HierarchyItem, our_h
                 ref_scope.scope_type.to_string(),
                 waveform_scope_type_to_string(our_scope.scope_type())
             );
-            println!("Scope");
             for (ref_child, our_child) in itertools::zip_eq(
                 ref_scope
                     .items
@@ -144,17 +143,55 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 time_table_idx += 1;
                 assert_eq!(current_time, time_table[time_table_idx]);
             }
-            vcd::Command::ChangeScalar(_, _) => {}
+            vcd::Command::ChangeScalar(id, value) => {
+                let signal_ref = vcd_lib_id_to_signal_ref(id);
+                let our_value = our.get_signal_value_at(signal_ref, time_table_idx as u32);
+                let our_value_str = our_value.to_bit_string().unwrap();
+                assert_eq!(our_value_str, value.to_string());
+            }
             vcd::Command::ChangeVector(_, _) => {}
-            vcd::Command::ChangeReal(_, _) => {}
-            vcd::Command::ChangeString(_, _) => {}
+            vcd::Command::ChangeReal(_, _) => {
+                todo!("compare real")
+            }
+            vcd::Command::ChangeString(_, _) => {
+                todo!("compare string")
+            }
             vcd::Command::Begin(_) => {} // ignore
             vcd::Command::End(_) => {}   // ignore
             other => panic!("Unhandled command: {:?}", other),
         }
     }
+}
 
-    println!("TODO")
+fn vcd_lib_id_to_signal_ref(id: vcd::IdCode) -> SignalRef {
+    let num = id_to_int(id.to_string().as_bytes()).unwrap();
+    SignalRef::from_index(num as usize).unwrap()
+}
+
+const ID_CHAR_MIN: u8 = b'!';
+const ID_CHAR_MAX: u8 = b'~';
+const NUM_ID_CHARS: u64 = (ID_CHAR_MAX - ID_CHAR_MIN + 1) as u64;
+
+/// Copied from https://github.com/kevinmehall/rust-vcd, licensed under MIT
+fn id_to_int(id: &[u8]) -> Option<u64> {
+    if id.is_empty() {
+        return None;
+    }
+    let mut result = 0u64;
+    for &i in id.iter().rev() {
+        if !(ID_CHAR_MIN..=ID_CHAR_MAX).contains(&i) {
+            return None;
+        }
+        let c = ((i - ID_CHAR_MIN) as u64) + 1;
+        result = match result
+            .checked_mul(NUM_ID_CHARS)
+            .and_then(|x| x.checked_add(c))
+        {
+            None => return None,
+            Some(value) => value,
+        };
+    }
+    Some(result - 1)
 }
 
 #[test]

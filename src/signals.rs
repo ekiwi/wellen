@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 
 pub type Time = u64;
+pub type TimeTableIdx = u32;
 
 #[derive(Debug, Clone, Copy)]
 pub enum SignalValue<'a> {
@@ -33,7 +34,7 @@ impl<'a> Display for SignalValue<'a> {
 }
 
 impl<'a> SignalValue<'a> {
-    fn to_bit_string(&self) -> Option<String> {
+    pub fn to_bit_string(&self) -> Option<String> {
         match &self {
             SignalValue::Binary(data, bits) => Some(two_state_to_bit_string(data, *bits)),
             SignalValue::FourValue(data, bits) => Some(four_state_to_bit_string(data, *bits)),
@@ -115,14 +116,14 @@ pub(crate) enum SignalEncoding {
 
 pub(crate) struct Signal {
     idx: SignalRef,
-    time_indices: Vec<u32>,
+    time_indices: Vec<TimeTableIdx>,
     data: SignalChangeData,
 }
 
 impl Signal {
     pub(crate) fn new_fixed_len(
         idx: SignalRef,
-        time_indices: Vec<u32>,
+        time_indices: Vec<TimeTableIdx>,
         encoding: SignalEncoding,
         width: u32,
         bytes: Vec<u8>,
@@ -142,7 +143,7 @@ impl Signal {
 
     pub(crate) fn new_var_len(
         idx: SignalRef,
-        time_indices: Vec<u32>,
+        time_indices: Vec<TimeTableIdx>,
         strings: Vec<String>,
     ) -> Self {
         assert_eq!(time_indices.len(), strings.len());
@@ -156,7 +157,7 @@ impl Signal {
 
     pub(crate) fn size_in_memory(&self) -> usize {
         let base = std::mem::size_of::<Self>();
-        let time = self.time_indices.len() * std::mem::size_of::<u32>();
+        let time = self.time_indices.len() * std::mem::size_of::<TimeTableIdx>();
         let data = match &self.data {
             SignalChangeData::FixedLength { bytes, .. } => bytes.len(),
             SignalChangeData::VariableLength(strings) => strings
@@ -225,6 +226,41 @@ impl Waveform {
     pub fn get_signal_size_in_memory(&self, id: SignalRef) -> Option<usize> {
         Some((self.signals.get(&id)?).size_in_memory())
     }
+
+    pub fn get_signal_value_at(
+        &self,
+        signal_ref: SignalRef,
+        time_table_idx: TimeTableIdx,
+    ) -> SignalValue {
+        assert!((time_table_idx as usize) < self.time_table.len());
+        let signal: &Signal = &self.signals[&signal_ref];
+        let offset = find_offset_from_time_table_idx(&signal.time_indices, time_table_idx);
+        signal.data.get_value_at(offset)
+    }
+}
+
+/// Finds the index that is the same or less than the needle and returns the position of it.
+/// Note that `indices` needs to sorted from smallest to largest.
+/// Essentially implements a binary search!
+fn find_offset_from_time_table_idx(indices: &[TimeTableIdx], needle: TimeTableIdx) -> usize {
+    let mut lower_idx = 0usize;
+    let mut upper_idx = indices.len() - 1;
+    while lower_idx <= upper_idx {
+        let mid_idx = lower_idx + ((upper_idx - lower_idx) / 2);
+
+        match indices[mid_idx].cmp(&needle) {
+            std::cmp::Ordering::Less => {
+                lower_idx = mid_idx + 1;
+            }
+            std::cmp::Ordering::Equal => {
+                return mid_idx;
+            }
+            std::cmp::Ordering::Greater => {
+                upper_idx = mid_idx - 1;
+            }
+        }
+    }
+    lower_idx - 1
 }
 
 enum SignalChangeData {
@@ -234,6 +270,35 @@ enum SignalChangeData {
         bytes: Vec<u8>,
     },
     VariableLength(Vec<String>),
+}
+
+impl SignalChangeData {
+    fn get_value_at(&self, offset: usize) -> SignalValue {
+        match &self {
+            SignalChangeData::FixedLength {
+                encoding,
+                width,
+                bytes,
+            } => {
+                let start = offset * (*width as usize);
+                let data = &bytes[start..(start + (*width as usize))];
+                match encoding {
+                    SignalEncoding::Binary(bits) => SignalValue::Binary(data, *bits),
+                    SignalEncoding::FourValue(bits) => SignalValue::FourValue(data, *bits),
+                    SignalEncoding::FixedLength => {
+                        SignalValue::String(std::str::from_utf8(data).unwrap())
+                    }
+                    SignalEncoding::Float => {
+                        SignalValue::Float(f64::from_le_bytes(<[u8; 8]>::try_from(data).unwrap()))
+                    }
+                    SignalEncoding::VariableLength => {
+                        panic!("Variable length signals need to be variable length encoded!")
+                    }
+                }
+            }
+            SignalChangeData::VariableLength(strings) => SignalValue::String(&strings[offset]),
+        }
+    }
 }
 
 pub(crate) trait SignalSource {
