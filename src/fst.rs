@@ -60,7 +60,7 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
             }
             let time_idx = index_and_time.0;
             let signal_pos = idx_to_pos[&handle.get_index()];
-            todo!()
+            todo!("Add better interface to FST library that lets us read one signal at a time")
         };
 
         self.reader.read_signals(&filter, foo).unwrap();
