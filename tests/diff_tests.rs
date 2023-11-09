@@ -141,9 +141,9 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
     for cmd_res in ref_reader {
         match cmd_res.unwrap() {
             vcd::Command::Timestamp(new_time) => {
-                current_time = new_time;
-                if new_time > 0 {
+                if new_time > current_time {
                     time_table_idx += 1;
+                    current_time = new_time;
                 }
                 assert_eq!(current_time, time_table[time_table_idx]);
             }
@@ -241,6 +241,26 @@ fn diff_amaranth_up_counter() {
 #[test]
 fn diff_ghdl_alu() {
     run_diff_test("inputs/ghdl/alu.vcd", "inputs/ghdl/alu.vcd.fst");
+}
+
+#[test]
+#[ignore] // TODO: this test requires VHDL 9-state support
+fn diff_ghdl_idea() {
+    run_diff_test("inputs/ghdl/idea.vcd", "inputs/ghdl/idea.vcd.fst");
+}
+
+#[test]
+#[ignore] // TODO: this test requires VHDL 9-state support
+fn diff_ghdl_pcpu() {
+    run_diff_test("inputs/ghdl/pcpu.vcd", "inputs/ghdl/pcpu.vcd.fst");
+}
+
+#[test]
+fn diff_gtkwave_perm_current() {
+    run_diff_test(
+        "inputs/gtkwave-analyzer/perm_current.vcd",
+        "inputs/gtkwave-analyzer/perm_current.vcd.fst",
+    );
 }
 
 #[test]

@@ -498,8 +498,8 @@ fn read_single_stream_of_values<'a>(
 ) -> crate::wavemem::Encoder {
     let mut encoder = crate::wavemem::Encoder::new(hierarchy);
 
-    let input2 = if is_first {
-        input
+    let (input2, offset) = if is_first {
+        (input, 0)
     } else {
         advance_to_first_newline(input)
     };
@@ -514,8 +514,8 @@ fn read_single_stream_of_values<'a>(
     }
     loop {
         if let Some((pos, cmd)) = reader.next() {
-            if pos > stop_pos {
-                if let BodyCmd::Time(_) = cmd {
+            if (pos + offset) > stop_pos {
+                if let BodyCmd::Time(value) = cmd {
                     break; // stop before the next time value when we go beyond the stop position
                 }
             }
@@ -541,16 +541,16 @@ fn read_single_stream_of_values<'a>(
 }
 
 #[inline]
-fn advance_to_first_newline(input: &[u8]) -> &[u8] {
+fn advance_to_first_newline(input: &[u8]) -> (&[u8], usize) {
     for (pos, byte) in input.iter().enumerate() {
         match *byte {
             b'\n' => {
-                return &input[pos..];
+                return (&input[pos..], pos);
             }
             _ => {}
         }
     }
-    &[] // no whitespaces found
+    (&[], 0) // no whitespaces found
 }
 
 struct BodyReader<'a> {
@@ -633,6 +633,7 @@ impl<'a> BodyReader<'a> {
 impl<'a> Iterator for BodyReader<'a> {
     type Item = (usize, BodyCmd<'a>);
 
+    /// returns the starting position and the body of the command
     #[inline]
     fn next(&mut self) -> Option<(usize, BodyCmd<'a>)> {
         if self.pos >= self.input.len() {
@@ -641,6 +642,7 @@ impl<'a> Iterator for BodyReader<'a> {
         let mut token_start: Option<usize> = None;
         let mut prev_token: Option<&'a [u8]> = None;
         let mut pending_lines = 0;
+        let mut start_pos = 0;
         for (offset, b) in self.input[self.pos..].iter().enumerate() {
             let pos = self.pos + offset;
             match b {
@@ -663,7 +665,7 @@ impl<'a> Iterator for BodyReader<'a> {
                                 if *b == b'\n' {
                                     self.lines_read += 1;
                                 }
-                                return Some((pos, cmd));
+                                return Some((start_pos, cmd));
                             }
                         }
                     }
@@ -671,6 +673,10 @@ impl<'a> Iterator for BodyReader<'a> {
                 _ => match token_start {
                     None => {
                         token_start = Some(pos);
+                        if prev_token.is_none() {
+                            // remember the start of the first token
+                            start_pos = pos;
+                        }
                     }
                     Some(_) => {}
                 },
@@ -682,7 +688,7 @@ impl<'a> Iterator for BodyReader<'a> {
         match self.try_finish_token(self.pos, &mut token_start, &mut prev_token) {
             None => {}
             Some(cmd) => {
-                return Some((self.pos, cmd));
+                return Some((start_pos, cmd));
             }
         }
         // now we are done
