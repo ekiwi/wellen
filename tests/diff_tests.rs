@@ -3,7 +3,9 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use std::io::{BufRead, BufReader};
-use waveform::{Hierarchy, HierarchyItem, ScopeType, SignalLength, VarType, Waveform};
+use waveform::{
+    Hierarchy, HierarchyItem, ScopeType, SignalLength, TimescaleUnit, VarType, Waveform,
+};
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
     {
@@ -25,9 +27,7 @@ fn diff_test_one(vcd_filename: &str, mut our: Waveform) {
 }
 
 fn diff_hierarchy(ours: &Hierarchy, ref_header: &vcd::Header) {
-    println!("{:?}", ref_header.version);
-    println!("{:?}", ref_header.date);
-    println!("{:?}", ref_header.timescale);
+    diff_meta(ours, ref_header);
 
     for (ref_child, our_child) in itertools::zip_eq(
         ref_header
@@ -37,6 +37,34 @@ fn diff_hierarchy(ours: &Hierarchy, ref_header: &vcd::Header) {
         ours.items(),
     ) {
         diff_hierarchy_item(ref_child, our_child, ours)
+    }
+}
+
+fn diff_meta(ours: &Hierarchy, ref_header: &vcd::Header) {
+    match &ref_header.version {
+        None => assert!(ours.version().is_empty()),
+        Some(version) => assert_eq!(version, ours.version()),
+    }
+
+    match &ref_header.date {
+        None => assert!(ours.date().is_empty()),
+        Some(date) => assert_eq!(date, ours.date()),
+    }
+
+    match ref_header.timescale {
+        None => assert!(ours.timescale().is_none()),
+        Some((factor, unit)) => {
+            let our_time = ours.timescale().unwrap();
+            assert_eq!(factor, our_time.factor);
+            match unit {
+                vcd::TimescaleUnit::S => assert_eq!(our_time.unit, TimescaleUnit::Seconds),
+                vcd::TimescaleUnit::MS => assert_eq!(our_time.unit, TimescaleUnit::MilliSeconds),
+                vcd::TimescaleUnit::US => assert_eq!(our_time.unit, TimescaleUnit::MicroSeconds),
+                vcd::TimescaleUnit::NS => assert_eq!(our_time.unit, TimescaleUnit::NanoSeconds),
+                vcd::TimescaleUnit::PS => assert_eq!(our_time.unit, TimescaleUnit::PicoSeconds),
+                vcd::TimescaleUnit::FS => assert_eq!(our_time.unit, TimescaleUnit::FemtoSeconds),
+            }
+        }
     }
 }
 

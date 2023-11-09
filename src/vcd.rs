@@ -4,7 +4,6 @@
 
 use crate::hierarchy::*;
 use crate::Waveform;
-use clap::builder::Str;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Read, Seek};
@@ -94,12 +93,37 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
             );
         }
+        HeaderCmd::Date(value) => {
+            h.set_date(String::from_utf8_lossy(value).to_string());
+        }
+        HeaderCmd::Version(value) => {
+            h.set_version(String::from_utf8_lossy(value).to_string());
+        }
+        HeaderCmd::Comment(value) => {
+            h.add_comment(String::from_utf8_lossy(value).to_string());
+        }
+        HeaderCmd::Timescale(factor, unit) => {
+            let factor_int = u32::from_str_radix(std::str::from_utf8(factor).unwrap(), 10).unwrap();
+            h.set_timescale(factor_int, convert_timescale_unit(unit));
+        }
     };
 
     read_header(input, foo).unwrap();
     let end = input.stream_position().unwrap();
     let hierarchy = h.finish();
     ((end - start) as usize, hierarchy)
+}
+
+fn convert_timescale_unit(name: &[u8]) -> TimescaleUnit {
+    match name {
+        b"fs" => TimescaleUnit::FemtoSeconds,
+        b"ps" => TimescaleUnit::PicoSeconds,
+        b"ns" => TimescaleUnit::NanoSeconds,
+        b"us" => TimescaleUnit::MicroSeconds,
+        b"ms" => TimescaleUnit::MilliSeconds,
+        b"s" => TimescaleUnit::Seconds,
+        _ => TimescaleUnit::Unknown,
+    }
 }
 
 fn convert_scope_tpe(tpe: &[u8]) -> ScopeType {
@@ -152,12 +176,140 @@ fn read_header(
     loop {
         buf.clear();
         let (cmd, body) = read_command(input, &mut buf)?;
-        println!(
-            "{} {}",
-            String::from_utf8_lossy(cmd),
-            String::from_utf8_lossy(body)
-        );
+        let parsed = match cmd {
+            VcdCmd::Scope => {
+                let tokens = find_tokens(body);
+                HeaderCmd::Scope(tokens[0], tokens[1])
+            }
+            VcdCmd::Var => {
+                let tokens = find_tokens(body);
+                match tokens.len() {
+                    4 => HeaderCmd::ScalarVar(tokens[0], tokens[1], tokens[2], tokens[3]),
+                    5 => {
+                        HeaderCmd::VectorVar(tokens[0], tokens[1], tokens[2], tokens[3], tokens[4])
+                    }
+                    _ => panic!(
+                        "Unexpected var declaration: {}",
+                        std::str::from_utf8(&buf).unwrap()
+                    ),
+                }
+            }
+            VcdCmd::UpScope => HeaderCmd::UpScope,
+            VcdCmd::Date => HeaderCmd::Date(body),
+            VcdCmd::Comment => HeaderCmd::Comment(body),
+            VcdCmd::Version => HeaderCmd::Version(body),
+            VcdCmd::Timescale => {
+                let tokens = find_tokens(body);
+                let (factor, unit) = match tokens.len() {
+                    1 => {
+                        // find the first non-numeric character
+                        let token = tokens[0];
+                        match token.iter().position(|c| *c < b'0' || *c > b'9') {
+                            None => (token, &[] as &[u8]),
+                            Some(pos) => (&token[..pos], &token[pos..]),
+                        }
+                    }
+                    2 => (tokens[0], tokens[1]),
+                    _ => panic!(
+                        "Unexpected number of tokens for timescale: {}",
+                        iter_bytes_to_list_str(tokens.iter())
+                    ),
+                };
+                HeaderCmd::Timescale(factor, unit)
+            }
+            VcdCmd::EndDefinitions => {
+                // header is done
+                return Ok(());
+            }
+        };
+        (callback)(parsed);
     }
+}
+
+const VCD_DATE: &[u8] = b"date";
+const VCD_TIMESCALE: &[u8] = b"timescale";
+const VCD_VAR: &[u8] = b"var";
+const VCD_SCOPE: &[u8] = b"scope";
+const VCD_UP_SCOPE: &[u8] = b"upscope";
+const VCD_COMMENT: &[u8] = b"comment";
+const VCD_VERSION: &[u8] = b"version";
+const VCD_END_DEFINITIONS: &[u8] = b"enddefinitions";
+const VCD_COMMANDS: [&[u8]; 8] = [
+    VCD_DATE,
+    VCD_TIMESCALE,
+    VCD_VAR,
+    VCD_SCOPE,
+    VCD_UP_SCOPE,
+    VCD_COMMENT,
+    VCD_VERSION,
+    VCD_END_DEFINITIONS,
+];
+
+/// Used to show all commands when printing an error message.
+fn get_vcd_command_str() -> String {
+    let test: core::slice::Iter<'_, &[u8]> = VCD_COMMANDS.iter();
+
+    iter_bytes_to_list_str(VCD_COMMANDS.iter())
+}
+
+fn iter_bytes_to_list_str<'a, I>(bytes: I) -> String
+where
+    I: Iterator<Item = &'a &'a [u8]>,
+{
+    bytes
+        .map(|c| String::from_utf8_lossy(c))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+enum VcdCmd {
+    Date,
+    Timescale,
+    Var,
+    Scope,
+    UpScope,
+    Comment,
+    Version,
+    EndDefinitions,
+}
+
+impl VcdCmd {
+    fn from_bytes(name: &[u8]) -> Option<Self> {
+        match name {
+            VCD_VAR => Some(VcdCmd::Var),
+            VCD_SCOPE => Some(VcdCmd::Scope),
+            VCD_UP_SCOPE => Some(VcdCmd::UpScope),
+            VCD_DATE => Some(VcdCmd::Date),
+            VCD_TIMESCALE => Some(VcdCmd::Timescale),
+            VCD_COMMENT => Some(VcdCmd::Comment),
+            VCD_VERSION => Some(VcdCmd::Version),
+            VCD_END_DEFINITIONS => Some(VcdCmd::EndDefinitions),
+            _ => None,
+        }
+    }
+
+    fn from_bytes_or_panic(name: &[u8]) -> Self {
+        match Self::from_bytes(name) {
+            None => {
+                panic!(
+                    "Unexpected VCD command {}. Supported commands are: {:?}",
+                    String::from_utf8_lossy(name),
+                    get_vcd_command_str()
+                );
+            }
+            Some(cmd) => cmd,
+        }
+    }
+}
+
+#[inline]
+fn is_vcd_command(cmd: &[u8]) -> bool {
+    for expected in VCD_COMMANDS.iter() {
+        if cmd == *expected {
+            return true;
+        }
+    }
+    false
 }
 
 /// Reads in a command until the `$end`. Uses buf to store the read data.
@@ -165,28 +317,73 @@ fn read_header(
 fn read_command<'a>(
     input: &mut impl BufRead,
     buf: &'a mut Vec<u8>,
-) -> std::io::Result<(&'a [u8], &'a [u8])> {
+) -> std::io::Result<(VcdCmd, &'a [u8])> {
     // start out with an empty buffer
     assert!(buf.is_empty());
 
     // skip over any preceding whitespace
     let start_char = skip_whitespace(input)?;
-    buf.push(start_char);
+    assert_eq!(
+        start_char,
+        b'$',
+        "Expected `$` but got `{}`",
+        String::from_utf8_lossy(&[start_char])
+    );
 
     // read the rest of the command into the buffer
     read_token(input, buf)?;
 
     // check to see if this is a valid command
-    todo!(
-        "Check to see if {} is a valid command!",
-        String::from_utf8_lossy(buf)
-    );
+    let cmd = VcdCmd::from_bytes_or_panic(&buf);
+    buf.clear();
 
-    // remember the length of the command
-    let command_len = buf.len();
+    // read until we find the end token
+    read_until_end_token(input, buf)?;
 
-    // return the length of the command
-    Ok((&buf[..command_len], &buf[command_len..]))
+    // return the name and body of the command
+    Ok((cmd, &buf[..]))
+}
+
+#[inline]
+fn find_tokens(line: &[u8]) -> Vec<&[u8]> {
+    line.split(|c| matches!(*c, b' '))
+        .filter(|e| !e.is_empty())
+        .collect()
+}
+
+#[inline]
+fn read_until_end_token(input: &mut impl BufRead, buf: &mut Vec<u8>) -> std::io::Result<()> {
+    // count how many characters of the $end token we have recognized
+    let mut end_index = 0;
+    // we skip any whitespace at the beginning, but not between tokens
+    let mut skipping_preceding_whitespace = true;
+    loop {
+        let byte = read_byte(input)?;
+        if skipping_preceding_whitespace {
+            match byte {
+                b' ' | b'\n' | b'\r' | b'\t' => {
+                    continue;
+                }
+                _ => {
+                    skipping_preceding_whitespace = false;
+                }
+            }
+        }
+        // we always append and then later drop the `$end` bytes.
+        buf.push(byte);
+        end_index = match (end_index, byte) {
+            (0, b'$') => 1,
+            (1, b'e') => 2,
+            (2, b'n') => 3,
+            (3, b'd') => {
+                // we are done!
+                buf.truncate(buf.len() - 4); // drop $end
+                right_strip(buf);
+                return Ok(());
+            }
+            _ => 0, // reset
+        };
+    }
 }
 
 #[inline]
@@ -224,21 +421,7 @@ fn read_byte(input: &mut impl BufRead) -> std::io::Result<u8> {
 }
 
 #[inline]
-fn line_to_tokens(line: &[u8]) -> Vec<&[u8]> {
-    line.split(|c| *c == b' ')
-        .filter(|e| !e.is_empty())
-        .collect()
-}
-
-#[inline]
-fn truncate(buf: &mut Vec<u8>) {
-    while !buf.is_empty() {
-        match buf.first().unwrap() {
-            b' ' | b'\n' | b'\r' | b'\t' => buf.remove(0),
-            _ => break,
-        };
-    }
-
+fn right_strip(buf: &mut Vec<u8>) {
     while !buf.is_empty() {
         match buf.last().unwrap() {
             b' ' | b'\n' | b'\r' | b'\t' => buf.pop(),
@@ -247,14 +430,12 @@ fn truncate(buf: &mut Vec<u8>) {
     }
 }
 
-#[inline]
-fn contains_end(line: &[u8]) -> bool {
-    let str_view = std::str::from_utf8(line).unwrap();
-    str_view.contains("$end")
-}
-
 enum HeaderCmd<'a> {
-    Scope(&'a [u8], &'a [u8]), // tpe, name
+    Date(&'a [u8]),
+    Version(&'a [u8]),
+    Comment(&'a [u8]),
+    Timescale(&'a [u8], &'a [u8]), // factor, unit
+    Scope(&'a [u8], &'a [u8]),     // tpe, name
     UpScope,
     ScalarVar(&'a [u8], &'a [u8], &'a [u8], &'a [u8]), // tpe, size, id, name
     VectorVar(&'a [u8], &'a [u8], &'a [u8], &'a [u8], &'a [u8]), // tpe, size, id, name, vector def
@@ -604,5 +785,21 @@ x%i"
         ];
         let res = read_body_to_vec(&mut input.as_bytes());
         assert_eq!(res, expected);
+    }
+
+    #[test]
+    fn test_read_command() {
+        let mut buf = Vec::with_capacity(128);
+        let input_0 = b"$upscope $end";
+        let (cmd_0, body_0) = read_command(&mut input_0.as_slice(), &mut buf).unwrap();
+        assert_eq!(cmd_0, b"upscope");
+        assert!(body_0.is_empty());
+
+        // test with more whitespace
+        buf.clear();
+        let input_1 = b" \t $upscope \n $end  \n ";
+        let (cmd_1, body_1) = read_command(&mut input_1.as_slice(), &mut buf).unwrap();
+        assert_eq!(cmd_1, b"upscope");
+        assert!(body_1.is_empty());
     }
 }

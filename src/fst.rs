@@ -90,8 +90,18 @@ fn convert_var_direction(tpe: FstVarDirection) -> VarDirection {
     }
 }
 
+// fn convert_timescale_unit() -> TimescaleUnit {
+//
+// }
+
 fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
     let mut h = HierarchyBuilder::default();
+    // load meta-data
+    let fst_header = reader.get_header();
+    h.set_version(fst_header.version.trim().to_string());
+    h.set_date(fst_header.date.trim().to_string());
+    //TODO: h.set_timescale( Timescale { factor: 0, unit: convert_timescale_unit(fst_header.) } );
+
     let mut path_names = HashMap::new();
 
     let cb = |entry: FstHierarchyEntry| {

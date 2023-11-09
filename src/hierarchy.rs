@@ -361,6 +361,25 @@ pub struct Hierarchy {
     scopes: Vec<Scope>,
     strings: Vec<String>,
     signal_idx_to_var: Vec<Option<VarRef>>,
+    meta: HierarchyMetaData,
+}
+
+struct HierarchyMetaData {
+    timescale: Option<Timescale>,
+    date: String,
+    version: String,
+    comments: Vec<String>,
+}
+
+impl Default for HierarchyMetaData {
+    fn default() -> Self {
+        HierarchyMetaData {
+            timescale: None,
+            date: "".to_string(),
+            version: "".to_string(),
+            comments: Vec::default(),
+        }
+    }
 }
 
 // public implementation
@@ -412,6 +431,16 @@ impl Hierarchy {
                 .sum::<usize>();
         let handle_lookup_size = self.signal_idx_to_var.capacity() * std::mem::size_of::<VarRef>();
         var_size + scope_size + string_size + handle_lookup_size + std::mem::size_of::<Hierarchy>()
+    }
+
+    pub fn date(&self) -> &str {
+        &self.meta.date
+    }
+    pub fn version(&self) -> &str {
+        &self.meta.version
+    }
+    pub fn timescale(&self) -> Option<Timescale> {
+        self.meta.timescale
     }
 }
 
@@ -487,6 +516,7 @@ pub struct HierarchyBuilder {
     scope_stack: Vec<ScopeStackEntry>,
     strings: StringInterner,
     handle_to_node: Vec<Option<VarRef>>,
+    meta: HierarchyMetaData,
     // some statistics
     duplicate_string_count: usize,
     duplicate_string_size: usize,
@@ -500,6 +530,7 @@ impl Default for HierarchyBuilder {
             scope_stack: Vec::default(),
             strings: StringInterner::default(),
             handle_to_node: Vec::default(),
+            meta: HierarchyMetaData::default(),
             duplicate_string_count: 0,
             duplicate_string_size: 0,
         }
@@ -513,6 +544,7 @@ impl HierarchyBuilder {
             scopes: self.scopes,
             strings: interner_to_vec(self.strings),
             signal_idx_to_var: self.handle_to_node,
+            meta: self.meta,
         }
     }
 
@@ -628,6 +660,41 @@ impl HierarchyBuilder {
 
     pub fn pop_scope(&mut self) {
         self.scope_stack.pop().unwrap();
+    }
+
+    pub fn set_date(&mut self, value: String) {
+        assert!(
+            self.meta.date.is_empty(),
+            "Duplicate dates: {} vs {}",
+            self.meta.date,
+            value
+        );
+        self.meta.date = value;
+    }
+
+    pub fn set_version(&mut self, value: String) {
+        assert!(
+            self.meta.version.is_empty(),
+            "Duplicate versions: {} vs {}",
+            self.meta.version,
+            value
+        );
+        self.meta.version = value;
+    }
+
+    pub fn set_timescale(&mut self, factor: u32, unit: TimescaleUnit) {
+        let value = Timescale { factor, unit };
+        assert!(
+            self.meta.timescale.is_none(),
+            "Duplicate timescales: {:?} vs {:?}",
+            self.meta.timescale.unwrap(),
+            value
+        );
+        self.meta.timescale = Some(value);
+    }
+
+    pub fn add_comment(&mut self, comment: String) {
+        self.meta.comments.push(comment);
     }
 }
 
