@@ -132,6 +132,27 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
         .map(|v| v.signal_idx())
         .collect();
     our.load_signals(&all_signals);
+    let time_table = our.time_table();
+
+    // iterate over reference VCD and compare with signals in our waveform
+    let mut current_time = 0;
+    let mut time_table_idx = 0;
+    for cmd_res in ref_reader {
+        match cmd_res.unwrap() {
+            vcd::Command::Timestamp(new_time) => {
+                current_time = new_time;
+                time_table_idx += 1;
+                assert_eq!(current_time, time_table[time_table_idx]);
+            }
+            vcd::Command::ChangeScalar(_, _) => {}
+            vcd::Command::ChangeVector(_, _) => {}
+            vcd::Command::ChangeReal(_, _) => {}
+            vcd::Command::ChangeString(_, _) => {}
+            vcd::Command::Begin(_) => {} // ignore
+            vcd::Command::End(_) => {}   // ignore
+            other => panic!("Unhandled command: {:?}", other),
+        }
+    }
 
     println!("TODO")
 }

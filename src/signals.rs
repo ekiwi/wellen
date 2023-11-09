@@ -199,6 +199,10 @@ impl Waveform {
         &self.hierarchy
     }
 
+    pub fn time_table(&self) -> &[Time] {
+        &self.time_table
+    }
+
     pub fn load_signals(&mut self, ids: &[SignalRef]) {
         let ids_with_len = ids
             .iter()
