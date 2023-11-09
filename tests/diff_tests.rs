@@ -79,6 +79,7 @@ fn waveform_scope_type_to_string(tpe: ScopeType) -> &'static str {
 fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
     match tpe {
         VarType::Wire => "wire",
+        VarType::String => "string",
         VarType::Todo => "todo",
     }
 }
@@ -108,7 +109,7 @@ fn diff_hierarchy_item(ref_item: &vcd::ScopeItem, our_item: HierarchyItem, our_h
                 waveform_var_type_to_string(our_var.var_type())
             );
             match our_var.length() {
-                SignalLength::Variable => panic!("TODO: check for varlen!"),
+                SignalLength::Variable => {} // nothing to check
                 SignalLength::Fixed(size) => assert_eq!(ref_var.size, size.get()),
             }
             assert!(ref_var.index.is_none(), "TODO: expose index");
@@ -140,7 +141,9 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
         match cmd_res.unwrap() {
             vcd::Command::Timestamp(new_time) => {
                 current_time = new_time;
-                time_table_idx += 1;
+                if new_time > 0 {
+                    time_table_idx += 1;
+                }
                 assert_eq!(current_time, time_table[time_table_idx]);
             }
             vcd::Command::ChangeScalar(id, value) => {
@@ -153,13 +156,31 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 let signal_ref = vcd_lib_id_to_signal_ref(id);
                 let our_value = our.get_signal_value_at(signal_ref, time_table_idx as u32);
                 let our_value_str = our_value.to_bit_string().unwrap();
-                assert_eq!(our_value_str, value.to_string());
+                if value.len() < our_value_str.len() {
+                    let prefix_len = our_value_str.len() - value.len();
+                    // we are zero / x extending, so our string might be longer
+                    let suffix: String = our_value_str.chars().skip(prefix_len).collect();
+                    assert_eq!(suffix, value.to_string());
+                    let is_x_extended = suffix.chars().next().unwrap() == 'x';
+                    for c in our_value_str.chars().take(prefix_len) {
+                        if is_x_extended {
+                            assert_eq!(c, 'x');
+                        } else {
+                            assert_eq!(c, '0');
+                        }
+                    }
+                } else {
+                    assert_eq!(our_value_str, value.to_string());
+                }
             }
             vcd::Command::ChangeReal(_, _) => {
                 todo!("compare real")
             }
-            vcd::Command::ChangeString(_, _) => {
-                todo!("compare string")
+            vcd::Command::ChangeString(id, value) => {
+                let signal_ref = vcd_lib_id_to_signal_ref(id);
+                let our_value = our.get_signal_value_at(signal_ref, time_table_idx as u32);
+                let our_value_str = our_value.to_string();
+                assert_eq!(our_value_str, value);
             }
             vcd::Command::Begin(_) => {} // ignore
             vcd::Command::End(_) => {}   // ignore
@@ -197,6 +218,23 @@ fn id_to_int(id: &[u8]) -> Option<u64> {
         };
     }
     Some(result - 1)
+}
+
+#[test]
+#[ignore]
+fn diff_aldec_SPI_Write() {
+    run_diff_test(
+        "inputs/aldec/SPI_Write.vcd",
+        "inputs/aldec/SPI_Write.vcd.fst",
+    );
+}
+
+#[test]
+fn diff_amaranth_up_counter() {
+    run_diff_test(
+        "inputs/amaranth/up_counter.vcd",
+        "inputs/amaranth/up_counter.vcd.fst",
+    );
 }
 
 #[test]

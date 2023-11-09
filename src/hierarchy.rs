@@ -122,6 +122,7 @@ pub enum ScopeType {
 #[derive(Debug, Clone, Copy)]
 pub enum VarType {
     Wire,
+    String,
     Todo, // placeholder tpe
 }
 
@@ -628,7 +629,7 @@ impl HierarchyBuilder {
         name: String,
         tpe: VarType,
         direction: VarDirection,
-        length: u32,
+        raw_length: u32,
         signal_idx: SignalRef,
     ) {
         let node_id = self.vars.len();
@@ -647,13 +648,19 @@ impl HierarchyBuilder {
         }
         self.handle_to_node[handle_idx] = Some(var_id);
 
+        // for strings, the length is always flexible
+        let length = match tpe {
+            VarType::String => SignalLength::Variable,
+            _ => SignalLength::from_uint(raw_length),
+        };
+
         // now we can build the node data structure and store it
         let node = Var {
             parent: parent.unwrap(),
             name: self.add_string(name),
             tpe,
             direction,
-            length: SignalLength::from_uint(length),
+            length,
             signal_idx,
             next: None,
         };

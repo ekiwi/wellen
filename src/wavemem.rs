@@ -630,8 +630,8 @@ impl SignalEncoder {
                 );
                 // string: var-length time index + var-len length + content
                 leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
-                leb128::write::unsigned(&mut self.data, value.len() as u64).unwrap();
-                self.data.extend_from_slice(value);
+                leb128::write::unsigned(&mut self.data, (value.len() - 1) as u64).unwrap();
+                self.data.extend_from_slice(&value[1..]);
             }
         }
         self.prev_time_idx = time_index;
