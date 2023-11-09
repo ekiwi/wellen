@@ -5,15 +5,99 @@
 use crate::hierarchy::{Hierarchy, SignalLength, SignalRef};
 use crate::vcd::usize_div_ceil;
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 
 pub type Time = u64;
 
 #[derive(Debug, Clone, Copy)]
 pub enum SignalValue<'a> {
-    Binary(&'a [u8]),
+    Binary(&'a [u8], u32),
+    FourValue(&'a [u8], u32),
     String(&'a str),
+    Float(f64),
 }
+
+impl<'a> Display for SignalValue<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            SignalValue::Binary(data, bits) => {
+                write!(f, "{}", two_state_to_bit_string(data, *bits))
+            }
+            SignalValue::FourValue(data, bits) => {
+                write!(f, "{}", four_state_to_bit_string(data, *bits))
+            }
+            SignalValue::String(value) => write!(f, "{}", value),
+            SignalValue::Float(value) => write!(f, "{}", value),
+        }
+    }
+}
+
+impl<'a> SignalValue<'a> {
+    fn to_bit_string(&self) -> Option<String> {
+        match &self {
+            SignalValue::Binary(data, bits) => Some(two_state_to_bit_string(data, *bits)),
+            SignalValue::FourValue(data, bits) => Some(four_state_to_bit_string(data, *bits)),
+            _ => None,
+        }
+    }
+}
+
+fn two_state_to_bit_string(data: &[u8], bits: u32) -> String {
+    let mut out = String::with_capacity(bits as usize);
+    if bits == 0 {
+        return out;
+    }
+
+    // the first byte might not contain a full 8 bits
+    let byte0_bits = bits - ((bits / 8) * 8);
+    let byte0_is_special = byte0_bits > 0;
+    if byte0_is_special {
+        let byte0 = data[0];
+        for ii in (0..byte0_bits).rev() {
+            let value = (byte0 >> ii) & 1;
+            let char = ['0', '1'][value as usize];
+            out.push(char);
+        }
+    }
+
+    for byte in data.iter().skip(if byte0_is_special { 1 } else { 0 }) {
+        for ii in (0..8).rev() {
+            let value = (byte >> ii) & 1;
+            let char = ['0', '1'][value as usize];
+            out.push(char);
+        }
+    }
+    out
+}
+
+fn four_state_to_bit_string(data: &[u8], bits: u32) -> String {
+    let mut out = String::with_capacity(bits as usize);
+    if bits == 0 {
+        return out;
+    }
+
+    // the first byte might not contain a full 4 bits
+    let byte0_bits = bits - ((bits / 4) * 4);
+    let byte0_is_special = byte0_bits > 0;
+    if byte0_is_special {
+        let byte = data[0];
+        for ii in (0..byte0_bits).rev() {
+            let value = (byte >> (ii * 2)) & 3;
+            let char = ['0', '1', 'x', 'z'][value as usize];
+            out.push(char);
+        }
+    }
+
+    for byte in data.iter().skip(if byte0_is_special { 1 } else { 0 }) {
+        for ii in (0..4).rev() {
+            let value = (byte >> (ii * 2)) & 3;
+            let char = ['0', '1', 'x', 'z'][value as usize];
+            out.push(char);
+        }
+    }
+    out
+}
+
 /// Specifies the encoding of a signal.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum SignalEncoding {
@@ -156,26 +240,6 @@ pub(crate) trait SignalSource {
     fn get_time_table(&self) -> Vec<Time>;
 }
 
-#[inline]
-fn byte_and_bit_index(ii: usize, max_byte_ii: usize, bits_per_byte: usize) -> (usize, usize) {
-    (max_byte_ii - ii / bits_per_byte, ii % bits_per_byte)
-}
-
-fn binary_to_four_value(bits: usize, value: &[u8]) -> Vec<u8> {
-    let mut out = vec![0u8; usize_div_ceil(bits, 4)];
-    let max_value_ii = value.len() - 1;
-    let max_out_ii = out.len() - 1;
-    for ii in 0..bits {
-        let (in_byte_index, in_bit_index) = byte_and_bit_index(ii, max_value_ii, 8);
-        let is_active = (value[in_byte_index] >> in_bit_index) & 1 == 1;
-        let (out_byte_index, out_bit_index) = byte_and_bit_index(ii, max_out_ii, 4);
-        if is_active {
-            out[out_byte_index] |= 1 << out_bit_index;
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,5 +256,53 @@ mod tests {
 
         // since there is some empty space in the Signal struct, we can make it an option for free!
         assert_eq!(std::mem::size_of::<Option<Signal>>(), 72);
+
+        // signal values contain a slice (ptr + len) as well as a tag and potentially a length
+        assert_eq!(std::mem::size_of::<&[u8]>(), 16);
+        assert_eq!(std::mem::size_of::<SignalValue>(), 16 + 8);
+    }
+
+    #[test]
+    fn test_to_bit_string_binary() {
+        let data0 = [0b11100101u8, 0b00110010];
+        let full_str = "1110010100110010";
+        let full_str_len = full_str.len();
+
+        for bits in 0..(full_str_len + 1) {
+            let expected: String = full_str.chars().skip(full_str_len - bits).collect();
+            let number_of_bytes = usize_div_ceil(bits, 8);
+            let drop_bytes = data0.len() - number_of_bytes;
+            let data = &data0[drop_bytes..];
+            assert_eq!(
+                SignalValue::Binary(data, bits as u32)
+                    .to_bit_string()
+                    .unwrap(),
+                expected,
+                "bits={}",
+                bits
+            );
+        }
+    }
+
+    #[test]
+    fn test_to_bit_string_four_state() {
+        let data0 = [0b11100101u8, 0b00110010];
+        let full_str = "zx110z0x";
+        let full_str_len = full_str.len();
+
+        for bits in 0..(full_str_len + 1) {
+            let expected: String = full_str.chars().skip(full_str_len - bits).collect();
+            let number_of_bytes = usize_div_ceil(bits, 4);
+            let drop_bytes = data0.len() - number_of_bytes;
+            let data = &data0[drop_bytes..];
+            assert_eq!(
+                SignalValue::FourValue(data, bits as u32)
+                    .to_bit_string()
+                    .unwrap(),
+                expected,
+                "bits={}",
+                bits
+            );
+        }
     }
 }

@@ -451,10 +451,6 @@ impl Hierarchy {
 }
 
 impl Hierarchy {
-    pub(crate) fn num_vars(&self) -> usize {
-        self.vars.len()
-    }
-
     pub(crate) fn num_unique_signals(&self) -> usize {
         self.signal_idx_to_var.len()
     }

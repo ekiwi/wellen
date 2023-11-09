@@ -6,7 +6,7 @@ use crate::hierarchy::*;
 use crate::Waveform;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
-use std::io::{BufRead, Read, Seek};
+use std::io::{BufRead, Seek};
 
 #[derive(Debug)]
 pub struct WaveformError {}
@@ -248,8 +248,6 @@ const VCD_COMMANDS: [&[u8]; 8] = [
 
 /// Used to show all commands when printing an error message.
 fn get_vcd_command_str() -> String {
-    let test: core::slice::Iter<'_, &[u8]> = VCD_COMMANDS.iter();
-
     iter_bytes_to_list_str(VCD_COMMANDS.iter())
 }
 
@@ -302,16 +300,6 @@ impl VcdCmd {
             Some(cmd) => cmd,
         }
     }
-}
-
-#[inline]
-fn is_vcd_command(cmd: &[u8]) -> bool {
-    for expected in VCD_COMMANDS.iter() {
-        if cmd == *expected {
-            return true;
-        }
-    }
-    false
 }
 
 /// Reads in a command until the `$end`. Uses buf to store the read data.
