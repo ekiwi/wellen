@@ -104,7 +104,8 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
         }
         HeaderCmd::Timescale(factor, unit) => {
             let factor_int = u32::from_str_radix(std::str::from_utf8(factor).unwrap(), 10).unwrap();
-            h.set_timescale(factor_int, convert_timescale_unit(unit));
+            let value = Timescale::new(factor_int, convert_timescale_unit(unit));
+            h.set_timescale(value);
         }
     };
 

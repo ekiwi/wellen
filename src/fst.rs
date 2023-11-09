@@ -90,9 +90,35 @@ fn convert_var_direction(tpe: FstVarDirection) -> VarDirection {
     }
 }
 
-// fn convert_timescale_unit() -> TimescaleUnit {
-//
-// }
+fn convert_timescale(exponent: i8) -> Timescale {
+    if exponent >= 0 {
+        Timescale::new(10u32.pow(exponent as u32), TimescaleUnit::Seconds)
+    } else if exponent >= -3 {
+        Timescale::new(
+            10u32.pow((exponent + 3) as u32),
+            TimescaleUnit::MilliSeconds,
+        )
+    } else if exponent >= -6 {
+        Timescale::new(
+            10u32.pow((exponent + 6) as u32),
+            TimescaleUnit::MicroSeconds,
+        )
+    } else if exponent >= -9 {
+        Timescale::new(10u32.pow((exponent + 9) as u32), TimescaleUnit::NanoSeconds)
+    } else if exponent >= -12 {
+        Timescale::new(
+            10u32.pow((exponent + 12) as u32),
+            TimescaleUnit::PicoSeconds,
+        )
+    } else if exponent >= -15 {
+        Timescale::new(
+            10u32.pow((exponent + 15) as u32),
+            TimescaleUnit::FemtoSeconds,
+        )
+    } else {
+        panic!("Unexpected timescale exponent: {}", exponent);
+    }
+}
 
 fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
     let mut h = HierarchyBuilder::default();
@@ -100,7 +126,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
     let fst_header = reader.get_header();
     h.set_version(fst_header.version.trim().to_string());
     h.set_date(fst_header.date.trim().to_string());
-    //TODO: h.set_timescale( Timescale { factor: 0, unit: convert_timescale_unit(fst_header.) } );
+    h.set_timescale(convert_timescale(fst_header.timescale_exponent));
 
     let mut path_names = HashMap::new();
 

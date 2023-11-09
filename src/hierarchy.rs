@@ -14,6 +14,12 @@ pub struct Timescale {
     pub unit: TimescaleUnit,
 }
 
+impl Timescale {
+    pub fn new(factor: u32, unit: TimescaleUnit) -> Self {
+        Timescale { factor, unit }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimescaleUnit {
     FemtoSeconds,
@@ -682,8 +688,7 @@ impl HierarchyBuilder {
         self.meta.version = value;
     }
 
-    pub fn set_timescale(&mut self, factor: u32, unit: TimescaleUnit) {
-        let value = Timescale { factor, unit };
+    pub fn set_timescale(&mut self, value: Timescale) {
         assert!(
             self.meta.timescale.is_none(),
             "Duplicate timescales: {:?} vs {:?}",
