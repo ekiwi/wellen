@@ -122,6 +122,7 @@ pub enum ScopeType {
 #[derive(Debug, Clone, Copy)]
 pub enum VarType {
     Wire,
+    Reg,
     String,
     Todo, // placeholder tpe
 }
@@ -179,7 +180,7 @@ pub struct Var {
     direction: VarDirection,
     length: SignalLength,
     signal_idx: SignalRef,
-    parent: ScopeRef,
+    parent: Option<ScopeRef>,
     next: Option<HierarchyItemId>,
 }
 
@@ -194,10 +195,15 @@ impl Var {
 
     /// Full hierarchical name of the variable.
     pub fn full_name<'a>(&self, hierarchy: &Hierarchy) -> String {
-        let mut out = hierarchy.get(self.parent).full_name(hierarchy);
-        out.push(SCOPE_SEPARATOR);
-        out.push_str(self.name(hierarchy));
-        out
+        match self.parent {
+            None => self.name(hierarchy).to_string(),
+            Some(parent) => {
+                let mut out = hierarchy.get(parent).full_name(hierarchy);
+                out.push(SCOPE_SEPARATOR);
+                out.push_str(self.name(hierarchy));
+                out
+            }
+        }
     }
 
     pub fn var_type(&self) -> VarType {
@@ -366,6 +372,7 @@ impl<'a> Iterator for HierarchyVarIterator<'a> {
 pub struct Hierarchy {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
+    first_item: Option<HierarchyItemId>,
     strings: Vec<String>,
     signal_idx_to_var: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
@@ -403,7 +410,7 @@ impl Hierarchy {
 
     /// Returns an iterator over all top-level scopes and variables.
     pub fn items(&self) -> HierarchyItemIterator {
-        let start = self.scopes.first().map(|s| HierarchyItem::Scope(s));
+        let start = self.first_item.map(|id| self.get_item(id));
         HierarchyItemIterator::new(&self, start)
     }
 
@@ -516,6 +523,7 @@ fn interner_to_vec(interner: StringInterner) -> Vec<String> {
 pub struct HierarchyBuilder {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
+    first_item: Option<HierarchyItemId>,
     scope_stack: Vec<ScopeStackEntry>,
     strings: StringInterner,
     handle_to_node: Vec<Option<VarRef>>,
@@ -527,10 +535,16 @@ pub struct HierarchyBuilder {
 
 impl Default for HierarchyBuilder {
     fn default() -> Self {
+        // we start with a fake entry in the scope stack to keep track of multiple items in the top scope
+        let scope_stack = vec![ScopeStackEntry {
+            scope_id: usize::MAX,
+            last_child: None,
+        }];
         HierarchyBuilder {
             vars: Vec::default(),
             scopes: Vec::default(),
-            scope_stack: Vec::default(),
+            first_item: None,
+            scope_stack,
             strings: StringInterner::default(),
             handle_to_node: Vec::default(),
             meta: HierarchyMetaData::default(),
@@ -545,6 +559,7 @@ impl HierarchyBuilder {
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
+            first_item: self.first_item,
             strings: interner_to_vec(self.strings),
             signal_idx_to_var: self.handle_to_node,
             meta: self.meta,
@@ -573,38 +588,44 @@ impl HierarchyBuilder {
 
     /// adds a variable or scope to the hierarchy tree
     fn add_to_hierarchy_tree(&mut self, node_id: HierarchyItemId) -> Option<ScopeRef> {
-        match self.scope_stack.last_mut() {
-            Some(entry) => {
-                let parent = entry.scope_id;
-                match entry.last_child {
-                    Some(HierarchyItemId::Var(child)) => {
-                        // add pointer to new node from last child
-                        assert!(self.vars[child.index()].next.is_none());
-                        self.vars[child.index()].next = Some(node_id);
-                    }
-                    Some(HierarchyItemId::Scope(child)) => {
-                        // add pointer to new node from last child
-                        assert!(self.scopes[child.index()].next.is_none());
-                        self.scopes[child.index()].next = Some(node_id);
-                    }
-                    None => {
-                        // otherwise we need to add a pointer from the parent
-                        assert!(self.scopes[parent].child.is_none());
-                        self.scopes[parent].child = Some(node_id);
-                    }
-                }
-                // the new node is now the last child
-                entry.last_child = Some(node_id);
-                // return the parent id
-                Some(ScopeRef::from_index(parent).unwrap())
+        let entry = self.scope_stack.last_mut().unwrap();
+        let parent = entry.scope_id;
+        let fake_top_scope_parent = parent == usize::MAX;
+        match entry.last_child {
+            Some(HierarchyItemId::Var(child)) => {
+                // add pointer to new node from last child
+                assert!(self.vars[child.index()].next.is_none());
+                self.vars[child.index()].next = Some(node_id);
             }
-            None => None,
+            Some(HierarchyItemId::Scope(child)) => {
+                // add pointer to new node from last child
+                assert!(self.scopes[child.index()].next.is_none());
+                self.scopes[child.index()].next = Some(node_id);
+            }
+            None => {
+                if !fake_top_scope_parent {
+                    // otherwise we need to add a pointer from the parent
+                    assert!(self.scopes[parent].child.is_none());
+                    self.scopes[parent].child = Some(node_id);
+                }
+            }
+        }
+        // the new node is now the last child
+        entry.last_child = Some(node_id);
+        // return the parent id if we had a real parent and we aren't at the top scope
+        if fake_top_scope_parent {
+            None
+        } else {
+            Some(ScopeRef::from_index(parent).unwrap())
         }
     }
 
     pub fn add_scope(&mut self, name: String, tpe: ScopeType) {
         let node_id = self.scopes.len();
         let wrapped_id = HierarchyItemId::Scope(ScopeRef::from_index(node_id).unwrap());
+        if self.first_item.is_none() {
+            self.first_item = Some(wrapped_id);
+        }
         let parent = self.add_to_hierarchy_tree(wrapped_id);
 
         // new active scope
@@ -635,11 +656,10 @@ impl HierarchyBuilder {
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
         let wrapped_id = HierarchyItemId::Var(var_id);
+        if self.first_item.is_none() {
+            self.first_item = Some(wrapped_id);
+        }
         let parent = self.add_to_hierarchy_tree(wrapped_id);
-        assert!(
-            parent.is_some(),
-            "Vars cannot be at the top of the hierarchy (not supported for now)"
-        );
 
         // add lookup
         let handle_idx = signal_idx.index();
@@ -656,7 +676,7 @@ impl HierarchyBuilder {
 
         // now we can build the node data structure and store it
         let node = Var {
-            parent: parent.unwrap(),
+            parent,
             name: self.add_string(name),
             tpe,
             direction,

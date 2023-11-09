@@ -3,7 +3,6 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::{Hierarchy, SignalLength, SignalRef};
-use crate::vcd::usize_div_ceil;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -312,6 +311,7 @@ pub(crate) trait SignalSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vcd::usize_div_ceil;
 
     #[test]
     fn test_sizes() {

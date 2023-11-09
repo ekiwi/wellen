@@ -37,7 +37,7 @@ fn diff_hierarchy(ours: &Hierarchy, ref_header: &vcd::Header) {
             .filter(|i| !matches!(i, vcd::ScopeItem::Comment(_))),
         ours.items(),
     ) {
-        diff_hierarchy_item(ref_child, our_child, ours)
+        diff_hierarchy_item(ref_child, our_child, ours);
     }
 }
 
@@ -79,6 +79,7 @@ fn waveform_scope_type_to_string(tpe: ScopeType) -> &'static str {
 fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
     match tpe {
         VarType::Wire => "wire",
+        VarType::Reg => "reg",
         VarType::String => "string",
         VarType::Todo => "todo",
     }
@@ -235,6 +236,11 @@ fn diff_amaranth_up_counter() {
         "inputs/amaranth/up_counter.vcd",
         "inputs/amaranth/up_counter.vcd.fst",
     );
+}
+
+#[test]
+fn diff_ghdl_alu() {
+    run_diff_test("inputs/ghdl/alu.vcd", "inputs/ghdl/alu.vcd.fst");
 }
 
 #[test]

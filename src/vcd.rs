@@ -137,6 +137,7 @@ fn convert_scope_tpe(tpe: &[u8]) -> ScopeType {
 fn convert_var_tpe(tpe: &[u8]) -> VarType {
     match tpe {
         b"wire" => VarType::Wire,
+        b"reg" => VarType::Reg,
         b"string" => VarType::String,
         _ => panic!("TODO: convert {}", String::from_utf8_lossy(tpe)),
     }
