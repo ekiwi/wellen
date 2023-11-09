@@ -149,7 +149,12 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 let our_value_str = our_value.to_bit_string().unwrap();
                 assert_eq!(our_value_str, value.to_string());
             }
-            vcd::Command::ChangeVector(_, _) => {}
+            vcd::Command::ChangeVector(id, value) => {
+                let signal_ref = vcd_lib_id_to_signal_ref(id);
+                let our_value = our.get_signal_value_at(signal_ref, time_table_idx as u32);
+                let our_value_str = our_value.to_bit_string().unwrap();
+                assert_eq!(our_value_str, value.to_string());
+            }
             vcd::Command::ChangeReal(_, _) => {
                 todo!("compare real")
             }
