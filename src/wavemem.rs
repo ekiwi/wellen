@@ -573,7 +573,13 @@ impl SignalEncoder {
                 if len.get() == 1 {
                     let digit = if value.len() == 1 { value[0] } else { value[1] };
                     self.is_two_state &=
-                        try_write_1_bit_4_state(time_idx_delta, digit, &mut self.data).unwrap();
+                        try_write_1_bit_4_state(time_idx_delta, digit, &mut self.data)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "Failed to parse four state value: {} for signal of size 1",
+                                    String::from_utf8_lossy(value)
+                                )
+                            });
                 } else {
                     let value_bits: &[u8] = match value[0] {
                         b'b' | b'B' => &value[1..],
