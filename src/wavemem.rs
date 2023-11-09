@@ -224,12 +224,11 @@ fn load_fixed_len_signal(
             other => {
                 let num_bytes = usize_div_ceil(other as usize, 4);
                 let mut buf = vec![0u8; num_bytes];
+                data.read_exact(&mut buf.as_mut()).unwrap();
                 if is_two_state {
-                    todo!()
-                } else {
-                    data.read_exact(&mut buf.as_mut()).unwrap();
-                    out.append(&mut buf);
+                    four_state_to_two_state(&mut buf);
                 }
+                out.append(&mut buf);
                 //
                 time_idx_delta_raw
             }
@@ -239,6 +238,37 @@ fn load_fixed_len_signal(
     }
 
     (out, time_indices)
+}
+
+#[inline]
+fn four_state_to_two_state(buf: &mut Vec<u8>) {
+    let result_len = usize_div_ceil(buf.len(), 2);
+    let is_uneven = result_len * 2 > buf.len();
+    for ii in 0..result_len {
+        let (msb, lsb) = if is_uneven {
+            if ii == 0 {
+                (0u8, buf[0])
+            } else {
+                (buf[ii * 2 - 1], buf[ii * 2])
+            }
+        } else {
+            (buf[ii * 2], buf[ii * 2 + 1])
+        };
+        buf[ii] = compress_four_state_to_two_state(msb, lsb);
+    }
+    buf.truncate(result_len);
+}
+
+#[inline]
+fn compress_four_state_to_two_state(msb: u8, lsb: u8) -> u8 {
+    (msb & (1 << 6)) << 1 | // msb[6] -> out[7]
+    (msb & (1 << 4)) << 2 | // msb[4] -> out[6]
+    (msb & (1 << 2)) << 3 | // msb[2] -> out[5]
+    (msb & (1 << 0)) << 4 | // msb[0] -> out[4]
+    (lsb & (1 << 6)) >> 3 | // lsb[6] -> out[3]
+    (lsb & (1 << 4)) >> 2 | // lsb[4] -> out[2]
+    (lsb & (1 << 2)) >> 1 | // lsb[2] -> out[1]
+    (lsb & (1 << 0)) >> 0 // lsb[0] -> out[0]
 }
 
 #[inline]
@@ -795,5 +825,13 @@ mod tests {
                 assert_eq!(out.len(), out_starting_len);
             } // great!
         }
+    }
+
+    #[test]
+    fn test_four_state_to_two_state() {
+        let mut input0 = vec![0b01010001u8, 0b00010100u8, 0b00010000u8];
+        let expected0 = [0b1101u8, 0b01100100u8];
+        four_state_to_two_state(&mut input0);
+        assert_eq!(input0, expected0);
     }
 }

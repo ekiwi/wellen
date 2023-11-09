@@ -263,6 +263,7 @@ where
         .join(", ")
 }
 
+#[derive(Debug, PartialEq)]
 enum VcdCmd {
     Date,
     Timescale,
@@ -793,14 +794,14 @@ x%i"
         let mut buf = Vec::with_capacity(128);
         let input_0 = b"$upscope $end";
         let (cmd_0, body_0) = read_command(&mut input_0.as_slice(), &mut buf).unwrap();
-        assert_eq!(cmd_0, b"upscope");
+        assert_eq!(cmd_0, VcdCmd::UpScope);
         assert!(body_0.is_empty());
 
         // test with more whitespace
         buf.clear();
         let input_1 = b" \t $upscope \n $end  \n ";
         let (cmd_1, body_1) = read_command(&mut input_1.as_slice(), &mut buf).unwrap();
-        assert_eq!(cmd_1, b"upscope");
+        assert_eq!(cmd_1, VcdCmd::UpScope);
         assert!(body_1.is_empty());
     }
 }

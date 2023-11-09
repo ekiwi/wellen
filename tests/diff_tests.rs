@@ -121,7 +121,17 @@ fn diff_hierarchy_item(ref_item: &vcd::ScopeItem, our_item: HierarchyItem, our_h
     }
 }
 
-fn diff_signals<R: BufRead>(_ref_reader: &mut vcd::Parser<R>, _our: &mut Waveform) {
+fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform) {
+    // load all signals
+    let all_signals: Vec<_> = our
+        .hierarchy()
+        .get_unique_signals_vars()
+        .iter()
+        .flatten()
+        .map(|v| v.signal_idx())
+        .collect();
+    our.load_signals(&all_signals);
+
     println!("TODO")
 }
 

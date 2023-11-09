@@ -50,13 +50,16 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
         let mut index_and_time = time_table.next().unwrap();
 
         // store signals
-        let mut signals = Vec::with_capacity(ids.len());
-        let foo = |time: u64, _handle: FstSignalHandle, _value: FstSignalValue| {
+        let mut signals = Vec::new();
+        let idx_to_pos: HashMap<usize, usize> =
+            HashMap::from_iter(ids.iter().map(|(r, _)| r.index()).enumerate());
+        let foo = |time: u64, handle: FstSignalHandle, _value: FstSignalValue| {
             // determine time index
             while *(index_and_time.1) < time {
                 index_and_time = time_table.next().unwrap();
             }
-            let _time_idx = index_and_time.0;
+            let time_idx = index_and_time.0;
+            let signal_pos = idx_to_pos[&handle.get_index()];
             todo!()
         };
 
