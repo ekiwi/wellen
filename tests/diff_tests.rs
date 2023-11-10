@@ -7,7 +7,7 @@ use waveform::{Hierarchy, HierarchyItem, ScopeType, SignalRef, TimescaleUnit, Va
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
     {
-        let wave = waveform::vcd::read(vcd_filename).expect("Failed to load VCD");
+        let wave = waveform::vcd::read_single_thread(vcd_filename).expect("Failed to load VCD");
         diff_test_one(vcd_filename, wave);
     }
     {
@@ -359,6 +359,29 @@ fn diff_my_hdl_sigmoid_tb() {
     run_diff_test(
         "inputs/my-hdl/sigmoid_tb.vcd",
         "inputs/my-hdl/sigmoid_tb.vcd.fst",
+    );
+}
+
+#[test]
+fn diff_my_hdl_simple_memory() {
+    run_diff_test(
+        "inputs/my-hdl/Simple_Memory.vcd",
+        "inputs/my-hdl/Simple_Memory.vcd.fst",
+    );
+}
+
+#[test]
+#[ignore] // TODO: this file has a delta cycle, i.e. the same signal (`@`) changes several times in the same cycle (20)
+fn diff_my_hdl_top() {
+    run_diff_test("inputs/my-hdl/top.vcd", "inputs/my-hdl/top.vcd.fst");
+}
+
+#[test]
+#[ignore] // TODO: add full real support
+fn diff_ncsim_ffdiv_32bit_tb() {
+    run_diff_test(
+        "inputs/ncsim/ffdiv_32bit_tb.vcd",
+        "inputs/ncsim/ffdiv_32bit_tb.vcd.fst",
     );
 }
 
