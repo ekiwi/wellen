@@ -75,14 +75,14 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
 fn convert_scope_tpe(tpe: FstScopeType) -> ScopeType {
     match tpe {
         FstScopeType::Module => ScopeType::Module,
-        _ => ScopeType::Todo,
+        other => panic!("Unsupported scope type: {:?}", other),
     }
 }
 
 fn convert_var_tpe(tpe: FstVarType) -> VarType {
     match tpe {
         FstVarType::Wire => VarType::Wire,
-        _ => VarType::Todo,
+        other => panic!("Unsupported var type: {:?}", other),
     }
 }
 

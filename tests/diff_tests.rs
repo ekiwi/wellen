@@ -72,7 +72,10 @@ fn diff_meta(ours: &Hierarchy, ref_header: &vcd::Header) {
 fn waveform_scope_type_to_string(tpe: ScopeType) -> &'static str {
     match tpe {
         ScopeType::Module => "module",
-        ScopeType::Todo => "todo",
+        ScopeType::Task => "task",
+        ScopeType::Function => "function",
+        ScopeType::Begin => "begin",
+        ScopeType::Fork => "fork",
     }
 }
 
@@ -83,7 +86,6 @@ fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
         VarType::Parameter => "parameter",
         VarType::Integer => "integer",
         VarType::String => "string",
-        VarType::Todo => "todo",
     }
 }
 
@@ -247,7 +249,7 @@ fn id_to_int(id: &[u8]) -> Option<u64> {
 
 #[test]
 #[ignore] // TODO: this file has a delta cycle, i.e. the same signal (`/`) changes twice in the same cycle (35185000)
-fn diff_aldec_SPI_Write() {
+fn diff_aldec_spi_write() {
     run_diff_test(
         "inputs/aldec/SPI_Write.vcd",
         "inputs/aldec/SPI_Write.vcd.fst",
@@ -288,8 +290,21 @@ fn diff_gtkwave_perm_current() {
 }
 
 #[test]
-fn diff_icarus_CPU() {
+fn diff_icarus_cpu() {
     run_diff_test("inputs/icarus/CPU.vcd", "inputs/icarus/CPU.vcd.fst");
+}
+
+#[test]
+fn diff_icarus_rv32_soc_tb() {
+    run_diff_test(
+        "inputs/icarus/rv32_soc_TB.vcd",
+        "inputs/icarus/rv32_soc_TB.vcd.fst",
+    );
+}
+
+#[test]
+fn diff_icarus_test1() {
+    run_diff_test("inputs/icarus/test1.vcd", "inputs/icarus/test1.vcd.fst");
 }
 
 #[test]

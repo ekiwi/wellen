@@ -116,7 +116,10 @@ impl HierarchyStringId {
 #[derive(Debug, Clone, Copy)]
 pub enum ScopeType {
     Module,
-    Todo, // placeholder tpe
+    Task,
+    Function,
+    Begin,
+    Fork,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -126,7 +129,6 @@ pub enum VarType {
     Parameter,
     Integer,
     String,
-    Todo, // placeholder tpe
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -158,7 +158,11 @@ fn convert_timescale_unit(name: &[u8]) -> TimescaleUnit {
 fn convert_scope_tpe(tpe: &[u8]) -> ScopeType {
     match tpe {
         b"module" => ScopeType::Module,
-        _ => ScopeType::Todo,
+        b"task" => ScopeType::Task,
+        b"function" => ScopeType::Function,
+        b"begin" => ScopeType::Begin,
+        b"fork" => ScopeType::Fork,
+        _ => panic!("TODO: convert {}", String::from_utf8_lossy(tpe)),
     }
 }
 
