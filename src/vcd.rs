@@ -129,7 +129,7 @@ fn parse_index(index: &[u8]) -> Option<VarIndex> {
             let inner = &index[1..(index.len() - 1)];
             let inner_str = std::str::from_utf8(inner).unwrap();
             let bit = i32::from_str_radix(inner_str, 10).unwrap();
-            Some(VarIndex { msb: bit, lsb: bit })
+            Some(VarIndex::new(bit, bit))
         }
         Some(pos) => {
             let msb_bytes = &index[1..pos];
@@ -138,7 +138,7 @@ fn parse_index(index: &[u8]) -> Option<VarIndex> {
             let lsb_bytes = &index[(pos + 1)..(index.len() - 1)];
             let lsb_str = std::str::from_utf8(lsb_bytes).unwrap();
             let lsb = i32::from_str_radix(lsb_str, 10).unwrap();
-            Some(VarIndex { msb, lsb })
+            Some(VarIndex::new(msb, lsb))
         }
     }
 }
@@ -167,6 +167,7 @@ fn convert_var_tpe(tpe: &[u8]) -> VarType {
         b"wire" => VarType::Wire,
         b"reg" => VarType::Reg,
         b"parameter" => VarType::Parameter,
+        b"integer" => VarType::Integer,
         b"string" => VarType::String,
         _ => panic!("TODO: convert {}", String::from_utf8_lossy(tpe)),
     }

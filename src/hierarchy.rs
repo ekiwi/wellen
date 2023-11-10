@@ -5,7 +5,7 @@
 // Space efficient format for a wavedump hierarchy.
 
 use bytesize::ByteSize;
-use std::num::{NonZeroU16, NonZeroU32};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 use string_interner::Symbol;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -124,6 +124,7 @@ pub enum VarType {
     Wire,
     Reg,
     Parameter,
+    Integer,
     String,
     Todo, // placeholder tpe
 }
@@ -135,9 +136,25 @@ pub enum VarDirection {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct VarIndex {
-    pub msb: i32,
-    pub lsb: i32,
+pub struct VarIndex(NonZeroU64);
+
+impl VarIndex {
+    pub(crate) fn new(msb: i32, lsb: i32) -> Self {
+        assert!(msb >= lsb);
+        assert!((lsb as u32) < u32::MAX);
+        let value = ((msb as u64) << 32) | (lsb as u64);
+        Self(NonZeroU64::new(value + 1).unwrap())
+    }
+
+    pub fn msb(&self) -> i32 {
+        let value = self.0.get() - 1;
+        (value >> 32) as i32
+    }
+
+    pub fn lsb(&self) -> i32 {
+        let value = self.0.get() - 1;
+        (value & (u32::MAX as u64)) as i32
+    }
 }
 
 /// Signal identifier in the waveform (VCD, FST, etc.) file.
@@ -755,13 +772,13 @@ mod tests {
                 + 1 // tpe
                 + 1 // direction
                 + 4 // length
-                + 12 // bit index TODO: try to save some space here!
+                + 8 // bit index
                 + std::mem::size_of::<SignalRef>() // handle
                 + std::mem::size_of::<ScopeRef>() // parent
                 + std::mem::size_of::<HierarchyItemId>() // next
         );
-        // currently this all comes out to 36 bytes (~= 4x 64-bit pointers)
-        assert_eq!(std::mem::size_of::<Var>(), 36);
+        // currently this all comes out to 32 bytes (~= 4x 64-bit pointers)
+        assert_eq!(std::mem::size_of::<Var>(), 32);
 
         // Scope
         assert_eq!(

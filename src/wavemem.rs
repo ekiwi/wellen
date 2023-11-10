@@ -682,15 +682,16 @@ fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
     // zero, x or z extend
     match value[0] {
         b'1' | b'0' => {
-            let mut zero_extended = Vec::with_capacity(len);
-            zero_extended.resize(len - value.len(), b'0');
-            zero_extended.extend_from_slice(value);
-            Some(zero_extended)
+            let mut extended = Vec::with_capacity(len);
+            extended.resize(len - value.len(), b'0');
+            extended.extend_from_slice(value);
+            Some(extended)
         }
         b'x' | b'X' | b'z' | b'Z' => {
-            let mut repeated = Vec::with_capacity(len);
-            repeated.resize(len, value[0]);
-            Some(repeated)
+            let mut extended = Vec::with_capacity(len);
+            extended.resize(len - value.len(), value[0]);
+            extended.extend_from_slice(value);
+            Some(extended)
         }
         _ => None, // failed
     }

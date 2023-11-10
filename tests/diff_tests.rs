@@ -81,6 +81,7 @@ fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
         VarType::Wire => "wire",
         VarType::Reg => "reg",
         VarType::Parameter => "parameter",
+        VarType::Integer => "integer",
         VarType::String => "string",
         VarType::Todo => "todo",
     }
@@ -117,12 +118,12 @@ fn diff_hierarchy_item(ref_item: &vcd::ScopeItem, our_item: HierarchyItem, our_h
             match ref_var.index {
                 None => assert!(our_var.index().is_none()),
                 Some(vcd::ReferenceIndex::BitSelect(bit)) => {
-                    assert_eq!(our_var.index().unwrap().msb, bit);
-                    assert_eq!(our_var.index().unwrap().lsb, bit);
+                    assert_eq!(our_var.index().unwrap().msb(), bit);
+                    assert_eq!(our_var.index().unwrap().lsb(), bit);
                 }
                 Some(vcd::ReferenceIndex::Range(msb, lsb)) => {
-                    assert_eq!(our_var.index().unwrap().msb, msb);
-                    assert_eq!(our_var.index().unwrap().lsb, lsb);
+                    assert_eq!(our_var.index().unwrap().msb(), msb);
+                    assert_eq!(our_var.index().unwrap().lsb(), lsb);
                 }
             }
         }
@@ -172,7 +173,16 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                     let prefix_len = our_value_str.len() - value.len();
                     // we are zero / x extending, so our string might be longer
                     let suffix: String = our_value_str.chars().skip(prefix_len).collect();
-                    assert_eq!(suffix, value.to_string());
+                    assert_eq!(
+                        suffix,
+                        value.to_string(),
+                        "{} ({:?}) = {} @ {} ({})",
+                        id,
+                        signal_ref,
+                        value,
+                        current_time,
+                        our_value_str
+                    );
                     let is_x_extended = suffix.chars().next().unwrap() == 'x';
                     let is_z_extended = suffix.chars().next().unwrap() == 'z';
                     for c in our_value_str.chars().take(prefix_len) {
@@ -275,6 +285,11 @@ fn diff_gtkwave_perm_current() {
         "inputs/gtkwave-analyzer/perm_current.vcd",
         "inputs/gtkwave-analyzer/perm_current.vcd.fst",
     );
+}
+
+#[test]
+fn diff_icarus_CPU() {
+    run_diff_test("inputs/icarus/CPU.vcd", "inputs/icarus/CPU.vcd.fst");
 }
 
 #[test]
