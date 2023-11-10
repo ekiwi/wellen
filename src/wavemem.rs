@@ -4,7 +4,7 @@
 //
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
-use crate::hierarchy::{Hierarchy, SignalLength, SignalRef};
+use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time};
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
 use bytesize::ByteSize;
@@ -17,7 +17,7 @@ pub struct Reader {
 }
 
 impl SignalSource for Reader {
-    fn load_signals(&mut self, ids: &[(SignalRef, SignalLength)]) -> Vec<Signal> {
+    fn load_signals(&mut self, ids: &[(SignalRef, SignalType)]) -> Vec<Signal> {
         let mut signals = Vec::with_capacity(ids.len());
         for (id, len) in ids.iter() {
             let sig = self.load_signal(*id, *len);
@@ -119,14 +119,14 @@ impl Reader {
         }
     }
 
-    fn load_signal(&self, id: SignalRef, len: SignalLength) -> Signal {
+    fn load_signal(&self, id: SignalRef, tpe: SignalType) -> Signal {
         let meta = self.collect_signal_meta_data(id);
         let mut time_indices: Vec<u32> = Vec::new();
         let mut data_bytes: Vec<u8> = Vec::new();
         let mut strings: Vec<String> = Vec::new();
         for (time_idx_offset, data_block, meta_data) in meta.blocks.into_iter() {
-            match len {
-                SignalLength::Variable => {
+            match tpe {
+                SignalType::String => {
                     let (mut new_strings, mut new_time_indices) = match meta_data.compression {
                         SignalCompression::Compressed(uncompressed_len) => {
                             let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
@@ -139,7 +139,7 @@ impl Reader {
                     time_indices.append(&mut new_time_indices);
                     strings.append(&mut new_strings);
                 }
-                SignalLength::Fixed(signal_len) => {
+                SignalType::BitVector(signal_len, _) => {
                     let (mut new_data, mut new_time_indices) = match meta_data.compression {
                         SignalCompression::Compressed(uncompressed_len) => {
                             let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
@@ -160,15 +160,18 @@ impl Reader {
                     time_indices.append(&mut new_time_indices);
                     data_bytes.append(&mut new_data);
                 }
+                SignalType::Real => {
+                    todo!("Implement real!")
+                }
             }
         }
 
-        match len {
-            SignalLength::Variable => {
+        match tpe {
+            SignalType::String => {
                 assert!(data_bytes.is_empty());
                 Signal::new_var_len(id, time_indices, strings)
             }
-            SignalLength::Fixed(len) => {
+            SignalType::BitVector(len, _) => {
                 assert!(strings.is_empty());
                 let (encoding, bytes_per_entry) = if meta.is_two_state {
                     (
@@ -182,6 +185,9 @@ impl Reader {
                     )
                 };
                 Signal::new_fixed_len(id, time_indices, encoding, bytes_per_entry, data_bytes)
+            }
+            SignalType::Real => {
+                todo!("Implement real!")
             }
         }
     }
@@ -369,12 +375,12 @@ impl Encoder {
     pub fn new(hierarchy: &Hierarchy) -> Self {
         let mut signals = Vec::with_capacity(hierarchy.num_unique_signals());
         for var in hierarchy.get_unique_signals_vars() {
-            let len = match var {
-                None => SignalLength::Variable, // we do not know!
-                Some(var) => var.length(),
+            let tpe = match var {
+                None => SignalType::String, // we do not know!
+                Some(var) => var.signal_tpe(),
             };
             let pos = signals.len();
-            signals.push(SignalEncoder::new(len, pos));
+            signals.push(SignalEncoder::new(tpe, pos));
         }
 
         Encoder {
@@ -541,7 +547,7 @@ impl SignalEncodingMetaData {
 #[derive(Debug, Clone)]
 struct SignalEncoder {
     data: Vec<u8>,
-    len: SignalLength,
+    tpe: SignalType,
     prev_time_idx: u16,
     is_two_state: bool,
     /// Same as the index of this encoder in a Vec<_>. Used for debugging purposes.
@@ -549,10 +555,10 @@ struct SignalEncoder {
 }
 
 impl SignalEncoder {
-    fn new(len: SignalLength, pos: usize) -> Self {
+    fn new(tpe: SignalType, pos: usize) -> Self {
         SignalEncoder {
             data: Vec::default(),
-            len,
+            tpe,
             prev_time_idx: 0,
             is_two_state: true,
             signal_idx: pos as u32,
@@ -568,8 +574,8 @@ const SKIP_COMPRESSION: bool = false;
 impl SignalEncoder {
     fn add_vcd_change(&mut self, time_index: u16, value: &[u8]) {
         let time_idx_delta = time_index - self.prev_time_idx;
-        match self.len {
-            SignalLength::Fixed(len) => {
+        match self.tpe {
+            SignalType::BitVector(len, _) => {
                 if len.get() == 1 {
                     let digit = if value.len() == 1 { value[0] } else { value[1] };
                     self.is_two_state &=
@@ -622,7 +628,7 @@ impl SignalEncoder {
                     };
                 }
             }
-            SignalLength::Variable => {
+            SignalType::String => {
                 assert!(
                     matches!(value[0], b's' | b'S'),
                     "expected a string, not {}",
@@ -632,6 +638,9 @@ impl SignalEncoder {
                 leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
                 leb128::write::unsigned(&mut self.data, (value.len() - 1) as u64).unwrap();
                 self.data.extend_from_slice(&value[1..]);
+            }
+            SignalType::Real => {
+                todo!("Implement real!")
             }
         }
         self.prev_time_idx = time_index;

@@ -192,22 +192,17 @@ impl SignalRef {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum SignalLength {
-    Variable,
-    Fixed(NonZeroU32),
+pub enum SignalType {
+    String,
+    Real,
+    BitVector(NonZeroU32, Option<VarIndex>),
 }
 
-impl Default for SignalLength {
-    fn default() -> Self {
-        SignalLength::Variable
-    }
-}
-
-impl SignalLength {
-    pub fn from_uint(len: u32) -> Self {
+impl SignalType {
+    pub fn from_uint(len: u32, index: Option<VarIndex>) -> Self {
         match NonZeroU32::new(len) {
-            None => SignalLength::Variable,
-            Some(value) => SignalLength::Fixed(value),
+            None => SignalType::String,
+            Some(value) => SignalType::BitVector(value, index),
         }
     }
 }
@@ -215,10 +210,9 @@ impl SignalLength {
 #[derive(Debug, Clone)]
 pub struct Var {
     name: HierarchyStringId,
-    tpe: VarType,
+    var_tpe: VarType,
     direction: VarDirection,
-    length: SignalLength,
-    index: Option<VarIndex>,
+    signal_tpe: SignalType,
     signal_idx: SignalRef,
     parent: Option<ScopeRef>,
     next: Option<HierarchyItemId>,
@@ -247,34 +241,44 @@ impl Var {
     }
 
     pub fn var_type(&self) -> VarType {
-        self.tpe
+        self.var_tpe
     }
     pub fn direction(&self) -> VarDirection {
         self.direction
     }
     pub fn index(&self) -> Option<VarIndex> {
-        self.index
+        match &self.signal_tpe {
+            SignalType::BitVector(_, index) => *index,
+            _ => None,
+        }
     }
     pub fn signal_idx(&self) -> SignalRef {
         self.signal_idx
     }
-    pub fn length(&self) -> SignalLength {
-        self.length
+    pub fn length(&self) -> Option<u32> {
+        match &self.signal_tpe {
+            SignalType::String => None,
+            SignalType::Real => None,
+            SignalType::BitVector(len, _) => Some(len.get()),
+        }
     }
     pub fn is_real(&self) -> bool {
-        todo!()
+        matches!(self.signal_tpe, SignalType::Real)
     }
     pub fn is_string(&self) -> bool {
-        todo!()
+        matches!(self.signal_tpe, SignalType::String)
     }
     pub fn is_bit_vector(&self) -> bool {
-        true
+        matches!(self.signal_tpe, SignalType::BitVector(_, _))
     }
     pub fn is_1bit(&self) -> bool {
-        match self.length {
-            SignalLength::Fixed(l) => l.get() == 1,
+        match self.length() {
+            Some(l) => l == 1,
             _ => false,
         }
+    }
+    pub(crate) fn signal_tpe(&self) -> SignalType {
+        self.signal_tpe
     }
 }
 
@@ -508,9 +512,9 @@ impl Hierarchy {
 
     /// Retrieves the length of a signal identified by its id by looking up a
     /// variable that refers to the signal.
-    pub(crate) fn get_signal_length(&self, signal_idx: SignalRef) -> Option<SignalLength> {
+    pub(crate) fn get_signal_tpe(&self, signal_idx: SignalRef) -> Option<SignalType> {
         let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
-        Some(self.get(var_id).length)
+        Some(self.get(var_id).signal_tpe)
     }
 }
 
@@ -713,19 +717,19 @@ impl HierarchyBuilder {
         self.handle_to_node[handle_idx] = Some(var_id);
 
         // for strings, the length is always flexible
-        let length = match tpe {
-            VarType::String => SignalLength::Variable,
-            _ => SignalLength::from_uint(raw_length),
+        let signal_tpe = match tpe {
+            VarType::String => SignalType::String,
+            VarType::Real => SignalType::Real,
+            _ => SignalType::from_uint(raw_length, index),
         };
 
         // now we can build the node data structure and store it
         let node = Var {
             parent,
             name: self.add_string(name),
-            tpe,
+            var_tpe: tpe,
             direction,
-            length,
-            index,
+            signal_tpe,
             signal_idx,
             next: None,
         };
@@ -780,20 +784,23 @@ mod tests {
         // unfortunately this one is pretty big
         assert_eq!(std::mem::size_of::<HierarchyItemId>(), 8);
 
+        // 4 byte length, 8 byte index + tag + padding
+        assert_eq!(std::mem::size_of::<SignalType>(), 16);
+
         // Var
         assert_eq!(
             std::mem::size_of::<Var>(),
             std::mem::size_of::<HierarchyStringId>() // name
                 + 1 // tpe
                 + 1 // direction
-                + 4 // length
-                + 8 // bit index
+                + 16 // signal tpe
                 + std::mem::size_of::<SignalRef>() // handle
                 + std::mem::size_of::<ScopeRef>() // parent
                 + std::mem::size_of::<HierarchyItemId>() // next
+                + 4 // padding
         );
-        // currently this all comes out to 32 bytes (~= 4x 64-bit pointers)
-        assert_eq!(std::mem::size_of::<Var>(), 32);
+        // currently this all comes out to 40 bytes (~= 5x 64-bit pointers)
+        assert_eq!(std::mem::size_of::<Var>(), 40);
 
         // Scope
         assert_eq!(

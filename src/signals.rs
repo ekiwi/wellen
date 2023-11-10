@@ -2,7 +2,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use crate::hierarchy::{Hierarchy, SignalLength, SignalRef};
+use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -206,7 +206,7 @@ impl Waveform {
     pub fn load_signals(&mut self, ids: &[SignalRef]) {
         let ids_with_len = ids
             .iter()
-            .map(|i| (*i, self.hierarchy.get_signal_length(*i).unwrap()))
+            .map(|i| (*i, self.hierarchy.get_signal_tpe(*i).unwrap()))
             .collect::<Vec<_>>();
         let signals = self.source.load_signals(&ids_with_len);
         // the signal source must always return the correct number of signals!
@@ -303,7 +303,7 @@ impl SignalChangeData {
 pub(crate) trait SignalSource {
     /// Loads new signals.
     /// Many implementations take advantage of loading multiple signals at a time.
-    fn load_signals(&mut self, ids: &[(SignalRef, SignalLength)]) -> Vec<Signal>;
+    fn load_signals(&mut self, ids: &[(SignalRef, SignalType)]) -> Vec<Signal>;
     /// Returns the global time table which stores the time at each value change.
     fn get_time_table(&self) -> Vec<Time>;
 }

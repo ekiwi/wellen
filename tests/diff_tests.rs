@@ -3,9 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use std::io::{BufRead, BufReader};
-use waveform::{
-    Hierarchy, HierarchyItem, ScopeType, SignalLength, SignalRef, TimescaleUnit, VarType, Waveform,
-};
+use waveform::{Hierarchy, HierarchyItem, ScopeType, SignalRef, TimescaleUnit, VarType, Waveform};
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
     {
@@ -127,8 +125,8 @@ fn diff_hierarchy_item(ref_item: &vcd::ScopeItem, our_item: HierarchyItem, our_h
                 waveform_var_type_to_string(our_var.var_type())
             );
             match our_var.length() {
-                SignalLength::Variable => {} // nothing to check
-                SignalLength::Fixed(size) => assert_eq!(ref_var.size, size.get()),
+                None => {} // nothing to check
+                Some(size) => assert_eq!(ref_var.size, size),
             }
             match ref_var.index {
                 None => assert!(our_var.index().is_none()),
@@ -352,6 +350,15 @@ fn diff_model_sim_cpu_design() {
     run_diff_test(
         "inputs/model-sim/CPU_Design.msim.vcd",
         "inputs/model-sim/CPU_Design.msim.vcd.fst",
+    );
+}
+
+#[test]
+#[ignore] // TODO: add real support
+fn diff_my_hdl_sigmoid_tb() {
+    run_diff_test(
+        "inputs/my-hdl/sigmoid_tb.vcd",
+        "inputs/my-hdl/sigmoid_tb.vcd.fst",
     );
 }
 

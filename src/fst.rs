@@ -37,7 +37,7 @@ impl<R: BufRead + Seek> FstWaveDatabase<R> {
 }
 
 impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
-    fn load_signals(&mut self, ids: &[(SignalRef, SignalLength)]) -> Vec<Signal> {
+    fn load_signals(&mut self, ids: &[(SignalRef, SignalType)]) -> Vec<Signal> {
         // create a FST filter
         let fst_ids = ids
             .iter()
