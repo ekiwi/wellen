@@ -354,7 +354,7 @@ fn diff_model_sim_cpu_design() {
 }
 
 #[test]
-#[ignore] // TODO: add real support
+#[ignore] // TODO: this file declares a `real` signal and then emits strings ... :(
 fn diff_my_hdl_sigmoid_tb() {
     run_diff_test(
         "inputs/my-hdl/sigmoid_tb.vcd",

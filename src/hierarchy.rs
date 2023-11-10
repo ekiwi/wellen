@@ -613,6 +613,7 @@ impl HierarchyBuilder {
         }
     }
 
+    #[allow(dead_code)]
     pub fn print_statistics(&self) {
         println!("Duplicate strings: {}", self.duplicate_string_count);
         println!(

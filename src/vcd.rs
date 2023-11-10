@@ -562,7 +562,7 @@ fn read_single_stream_of_values<'a>(
     loop {
         if let Some((pos, cmd)) = reader.next() {
             if (pos + offset) > stop_pos {
-                if let BodyCmd::Time(value) = cmd {
+                if let BodyCmd::Time(_) = cmd {
                     break; // stop before the next time value when we go beyond the stop position
                 }
             }

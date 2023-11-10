@@ -640,7 +640,19 @@ impl SignalEncoder {
                 self.data.extend_from_slice(&value[1..]);
             }
             SignalType::Real => {
-                todo!("Implement real!")
+                assert!(
+                    matches!(value[0], b'r' | b'R'),
+                    "expected a real, not {}",
+                    String::from_utf8_lossy(value)
+                );
+                // parse float
+                let float_value = std::str::from_utf8(&value[1..])
+                    .unwrap()
+                    .parse::<f64>()
+                    .unwrap();
+                // write var-length time index + fixed little endian float bytes
+                leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
+                self.data.extend_from_slice(&float_value.to_le_bytes());
             }
         }
         self.prev_time_idx = time_index;
