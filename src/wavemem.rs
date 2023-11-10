@@ -413,6 +413,9 @@ impl Encoder {
             !self.time_table.is_empty(),
             "We need a call to time_change first!"
         );
+        if id == 32 {
+            println!();
+        }
         let time_idx = (self.time_table.len() - 1) as u16;
         self.signals[id as usize].add_vcd_change(time_idx, value);
         self.has_new_data = true;
@@ -831,6 +834,13 @@ mod tests {
         );
         // write some X/Z
         do_test_try_write_4_state(b"xz01".as_slice(), Some([0b10110001].as_slice()), false);
+
+        // write a long value
+        do_test_try_write_4_state(
+            b"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100010000001110110011".as_slice(),
+           Some([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b0101, 0b01, 0, 0b0101, 0b01000101, 0b0101].as_slice()),
+           true,
+        );
     }
 
     fn do_test_try_write_4_state(value: &[u8], expected: Option<&[u8]>, is_two_state: bool) {
@@ -860,5 +870,16 @@ mod tests {
         let expected0 = [0b1101u8, 0b01100100u8];
         four_state_to_two_state(&mut input0);
         assert_eq!(input0, expected0);
+
+        // example from the try_write_4_state test
+        let mut input1 = vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0b0101, 0b01, 0, 0b0101, 0b01000101, 0b0101,
+        ];
+        let expected1 = [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b110001, 0b11, 0b10110011,
+        ];
+        four_state_to_two_state(&mut input1);
+        assert_eq!(input1, expected1);
     }
 }
