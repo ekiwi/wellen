@@ -86,6 +86,19 @@ fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
         VarType::Parameter => "parameter",
         VarType::Integer => "integer",
         VarType::String => "string",
+        VarType::Event => "event",
+        VarType::Real => "real",
+        VarType::Supply0 => "supply0",
+        VarType::Supply1 => "supply1",
+        VarType::Time => "time",
+        VarType::Tri => "tri",
+        VarType::TriAnd => "triand",
+        VarType::TriOr => "trior",
+        VarType::TriReg => "trireg",
+        VarType::Tri0 => "tri0",
+        VarType::Tri1 => "tri1",
+        VarType::WAnd => "wand",
+        VarType::WOr => "wor",
     }
 }
 
@@ -165,7 +178,16 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 let signal_ref = vcd_lib_id_to_signal_ref(id);
                 let our_value = our.get_signal_value_at(signal_ref, time_table_idx as u32);
                 let our_value_str = our_value.to_bit_string().unwrap();
-                assert_eq!(our_value_str, value.to_string());
+                assert_eq!(
+                    our_value_str,
+                    value.to_string(),
+                    "{} ({:?}) = {} @ {} ({})",
+                    id,
+                    signal_ref,
+                    value,
+                    current_time,
+                    our_value_str
+                );
             }
             vcd::Command::ChangeVector(id, value) => {
                 let signal_ref = vcd_lib_id_to_signal_ref(id);
@@ -197,7 +219,16 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                         }
                     }
                 } else {
-                    assert_eq!(our_value_str, value.to_string());
+                    assert_eq!(
+                        our_value_str,
+                        value.to_string(),
+                        "{} ({:?}) = {} @ {} ({})",
+                        id,
+                        signal_ref,
+                        value,
+                        current_time,
+                        our_value_str
+                    );
                 }
             }
             vcd::Command::ChangeReal(_, _) => {
@@ -305,6 +336,23 @@ fn diff_icarus_rv32_soc_tb() {
 #[test]
 fn diff_icarus_test1() {
     run_diff_test("inputs/icarus/test1.vcd", "inputs/icarus/test1.vcd.fst");
+}
+
+#[test]
+fn diff_model_sim_clkdiv2n_tb() {
+    run_diff_test(
+        "inputs/model-sim/clkdiv2n_tb.vcd",
+        "inputs/model-sim/clkdiv2n_tb.vcd.fst",
+    );
+}
+
+#[test]
+#[ignore] // TODO: this file has a delta cycle, i.e. the same signal (`p`) changes twice in the same cycle (20000)
+fn diff_model_sim_cpu_design() {
+    run_diff_test(
+        "inputs/model-sim/CPU_Design.msim.vcd",
+        "inputs/model-sim/CPU_Design.msim.vcd.fst",
+    );
 }
 
 #[test]

@@ -124,10 +124,23 @@ pub enum ScopeType {
 
 #[derive(Debug, Clone, Copy)]
 pub enum VarType {
-    Wire,
-    Reg,
-    Parameter,
+    Event,
     Integer,
+    Parameter,
+    Real,
+    Reg,
+    Supply0,
+    Supply1,
+    Time,
+    Tri,
+    TriAnd,
+    TriOr,
+    TriReg,
+    Tri0,
+    Tri1,
+    WAnd,
+    Wire,
+    WOr,
     String,
 }
 
