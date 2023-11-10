@@ -246,7 +246,7 @@ fn id_to_int(id: &[u8]) -> Option<u64> {
 }
 
 #[test]
-#[ignore]
+#[ignore] // TODO: this file has a delta cycle, i.e. the same signal (`/`) changes twice in the same cycle (35185000)
 fn diff_aldec_SPI_Write() {
     run_diff_test(
         "inputs/aldec/SPI_Write.vcd",
