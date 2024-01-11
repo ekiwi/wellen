@@ -236,6 +236,10 @@ impl Waveform {
         let offset = find_offset_from_time_table_idx(&signal.time_indices, time_table_idx);
         signal.data.get_value_at(offset)
     }
+
+    pub fn print_backend_statistics(&self) {
+        self.source.print_statistics();
+    }
 }
 
 /// Finds the index that is the same or less than the needle and returns the position of it.
@@ -306,6 +310,8 @@ pub(crate) trait SignalSource {
     fn load_signals(&mut self, ids: &[(SignalRef, SignalType)]) -> Vec<Signal>;
     /// Returns the global time table which stores the time at each value change.
     fn get_time_table(&self) -> Vec<Time>;
+    /// Print memory size / speed statistics.
+    fn print_statistics(&self);
 }
 
 #[cfg(test)]

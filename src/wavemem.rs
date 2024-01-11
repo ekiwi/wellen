@@ -39,6 +39,14 @@ impl SignalSource for Reader {
         }
         table
     }
+
+    fn print_statistics(&self) {
+        println!(
+            "[wavemem] size in memory: {}",
+            ByteSize::b(self.size_in_memory() as u64)
+        );
+        self.print_statistics();
+    }
 }
 
 impl Reader {

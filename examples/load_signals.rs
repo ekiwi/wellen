@@ -64,6 +64,7 @@ fn main() {
     };
     let load_duration = start.elapsed();
     println!("It took {:?} to load {}", load_duration, args.filename);
+    wave.print_backend_statistics();
 
     println!(
         "The hierarchy takes up at least {} of memory.",

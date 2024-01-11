@@ -70,6 +70,10 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
     fn get_time_table(&self) -> Vec<Time> {
         self.time_table.clone()
     }
+
+    fn print_statistics(&self) {
+        println!("FST backend currently has not statistics to print.");
+    }
 }
 
 fn convert_scope_tpe(tpe: FstScopeType) -> ScopeType {
