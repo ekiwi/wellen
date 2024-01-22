@@ -5,7 +5,7 @@
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
 use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
-use crate::signals::{Signal, SignalEncoding, SignalSource, Time};
+use crate::signals::{Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
 use bytesize::ByteSize;
 use std::borrow::Cow;
@@ -145,20 +145,22 @@ impl Reader {
 
             match tpe {
                 SignalType::String => {
-                    let (mut new_strings, mut new_time_indices) =
-                        load_signal_strings(&mut data.as_ref(), time_idx_offset);
-                    time_indices.append(&mut new_time_indices);
-                    strings.append(&mut new_strings);
+                    load_signal_strings(
+                        &mut data.as_ref(),
+                        time_idx_offset,
+                        &mut time_indices,
+                        &mut strings,
+                    );
                 }
                 SignalType::BitVector(signal_len, _) => {
-                    let (mut new_data, mut new_time_indices) = load_fixed_len_signal(
+                    load_fixed_len_signal(
                         &mut data.as_ref(),
                         time_idx_offset,
                         signal_len.get(),
                         meta.is_two_state,
+                        &mut time_indices,
+                        &mut data_bytes,
                     );
-                    time_indices.append(&mut new_time_indices);
-                    data_bytes.append(&mut new_data);
                 }
                 SignalType::Real => {
                     todo!("reals");
@@ -207,9 +209,9 @@ fn load_fixed_len_signal(
     time_idx_offset: u32,
     signal_len: u32,
     is_two_state: bool,
-) -> (Vec<u8>, Vec<u32>) {
-    let mut out = Vec::new();
-    let mut time_indices = Vec::new();
+    time_indices: &mut Vec<TimeTableIdx>,
+    out: &mut Vec<u8>,
+) {
     let mut last_time_idx = time_idx_offset;
 
     loop {
@@ -242,8 +244,6 @@ fn load_fixed_len_signal(
         last_time_idx += time_idx_delta;
         time_indices.push(last_time_idx)
     }
-
-    (out, time_indices)
 }
 
 #[inline]
@@ -278,9 +278,12 @@ fn compress_four_state_to_two_state(msb: u8, lsb: u8) -> u8 {
 }
 
 #[inline]
-fn load_signal_strings(data: &mut impl Read, time_idx_offset: u32) -> (Vec<String>, Vec<u32>) {
-    let mut out = Vec::new();
-    let mut time_indices = Vec::new();
+fn load_signal_strings(
+    data: &mut impl Read,
+    time_idx_offset: u32,
+    time_indices: &mut Vec<TimeTableIdx>,
+    out: &mut Vec<String>,
+) {
     let mut last_time_idx = time_idx_offset;
 
     loop {
@@ -298,7 +301,6 @@ fn load_signal_strings(data: &mut impl Read, time_idx_offset: u32) -> (Vec<Strin
         let str_value = String::from_utf8_lossy(&buf).to_string();
         out.push(str_value);
     }
-    (out, time_indices)
 }
 
 /// A block that contains all value changes in a certain time segment.
