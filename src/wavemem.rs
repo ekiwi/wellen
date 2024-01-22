@@ -8,6 +8,7 @@ use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time};
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
 use bytesize::ByteSize;
+use std::borrow::Cow;
 use std::io::Read;
 use std::num::NonZeroU32;
 
@@ -132,44 +133,35 @@ impl Reader {
         let mut time_indices: Vec<u32> = Vec::new();
         let mut data_bytes: Vec<u8> = Vec::new();
         let mut strings: Vec<String> = Vec::new();
+        let mut reals: Vec<f32> = Vec::new();
         for (time_idx_offset, data_block, meta_data) in meta.blocks.into_iter() {
+            let data = match meta_data.compression {
+                SignalCompression::Compressed(uncompressed_len) => {
+                    let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
+                    Cow::Owned(data)
+                }
+                SignalCompression::Uncompressed => Cow::Borrowed(data_block),
+            };
+
             match tpe {
                 SignalType::String => {
-                    let (mut new_strings, mut new_time_indices) = match meta_data.compression {
-                        SignalCompression::Compressed(uncompressed_len) => {
-                            let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
-                            load_signal_strings(&mut data.as_slice(), time_idx_offset)
-                        }
-                        SignalCompression::Uncompressed => {
-                            load_signal_strings(&mut data_block.clone(), time_idx_offset)
-                        }
-                    };
+                    let (mut new_strings, mut new_time_indices) =
+                        load_signal_strings(&mut data.as_ref(), time_idx_offset);
                     time_indices.append(&mut new_time_indices);
                     strings.append(&mut new_strings);
                 }
                 SignalType::BitVector(signal_len, _) => {
-                    let (mut new_data, mut new_time_indices) = match meta_data.compression {
-                        SignalCompression::Compressed(uncompressed_len) => {
-                            let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
-                            load_fixed_len_signal(
-                                &mut data.as_slice(),
-                                time_idx_offset,
-                                signal_len.get(),
-                                meta.is_two_state,
-                            )
-                        }
-                        SignalCompression::Uncompressed => load_fixed_len_signal(
-                            &mut data_block.clone(),
-                            time_idx_offset,
-                            signal_len.get(),
-                            meta.is_two_state,
-                        ),
-                    };
+                    let (mut new_data, mut new_time_indices) = load_fixed_len_signal(
+                        &mut data.as_ref(),
+                        time_idx_offset,
+                        signal_len.get(),
+                        meta.is_two_state,
+                    );
                     time_indices.append(&mut new_time_indices);
                     data_bytes.append(&mut new_data);
                 }
                 SignalType::Real => {
-                    todo!("Implement real!")
+                    todo!("reals");
                 }
             }
         }
