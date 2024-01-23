@@ -419,6 +419,133 @@ fn diff_ncsim_ffdiv_32bit_tb() {
 }
 
 #[test]
+fn diff_quartus_mips_hardware() {
+    run_diff_test(
+        "inputs/quartus/mipsHardware.vcd",
+        "inputs/quartus/mipsHardware.vcd.fst",
+    );
+}
+
+#[test]
+#[ignore] // TODO: gets stuck!
+fn diff_quartus_wave_registradores() {
+    run_diff_test(
+        "inputs/quartus/wave_registradores.vcd",
+        "inputs/quartus/wave_registradores.vcd.fst",
+    );
+}
+
+#[test]
+fn diff_questa_sim_dump() {
+    run_diff_test(
+        "inputs/questa-sim/dump.vcd",
+        "inputs/questa-sim/dump.vcd.fst",
+    );
+}
+
+#[test]
+fn diff_questa_sim_test() {
+    run_diff_test(
+        "inputs/questa-sim/test.vcd",
+        "inputs/questa-sim/test.vcd.fst",
+    );
+}
+
+#[test]
+fn diff_riviera_pro_dump() {
+    run_diff_test(
+        "inputs/riviera-pro/dump.vcd",
+        "inputs/riviera-pro/dump.vcd.fst",
+    );
+}
+
+#[test]
+#[ignore] // TODO: fails in vcd parser!
+fn diff_systemc_waveform() {
+    run_diff_test(
+        "inputs/systemc/waveform.vcd",
+        "inputs/systemc/waveform.vcd.fst",
+    );
+}
+
+#[test]
 fn diff_treadle_gcd() {
     run_diff_test("inputs/treadle/GCD.vcd", "inputs/treadle/GCD.vcd.fst");
+}
+
+#[test]
+fn diff_vcs_apb_uvm_new() {
+    run_diff_test(
+        "inputs/vcs/Apb_slave_uvm_new.vcd",
+        "inputs/vcs/Apb_slave_uvm_new.vcd.fst",
+    );
+}
+
+#[test]
+fn diff_vcs_datapath_log() {
+    run_diff_test(
+        "inputs/vcs/datapath_log.vcd",
+        "inputs/vcs/datapath_log.vcd.fst",
+    );
+}
+
+#[test]
+fn diff_vcs_processor() {
+    run_diff_test("inputs/vcs/processor.vcd", "inputs/vcs/processor.vcd.fst");
+}
+
+#[test] // TODO: takes longer than expected! (only a 14M VCD)
+fn diff_verilator_swerv1() {
+    run_diff_test(
+        "inputs/verilator/swerv1.vcd",
+        "inputs/verilator/swerv1.vcd.fst",
+    );
+}
+
+#[test]
+fn diff_verilator_vlt_dump() {
+    run_diff_test(
+        "inputs/verilator/vlt_dump.vcd",
+        "inputs/verilator/vlt_dump.vcd.fst",
+    );
+}
+
+#[test]
+fn diff_vivado_iladata() {
+    run_diff_test("inputs/vivado/iladata.vcd", "inputs/vivado/iladata.vcd.fst");
+}
+
+#[test]
+#[ignore] // TODO: triggers an assertion
+fn diff_xilinx_isim_test() {
+    run_diff_test(
+        "inputs/xilinx_isim/test.vcd",
+        "inputs/xilinx_isim/test.vcd.fst",
+    );
+}
+
+#[test] // TODO: takes longer than expected! (only a 8.7M VCD)
+fn diff_xilinx_isim_test1() {
+    run_diff_test(
+        "inputs/xilinx_isim/test1.vcd",
+        "inputs/xilinx_isim/test1.vcd.fst",
+    );
+}
+
+#[test]
+#[ignore] // TODO: triggers an assertion!
+fn diff_xilinx_isim_test2x2_regex22_string1() {
+    run_diff_test(
+        "inputs/xilinx_isim/test2x2_regex22_string1.vcd",
+        "inputs/xilinx_isim/test2x2_regex22_string1.vcd.fst",
+    );
+}
+
+#[test]
+#[ignore] // TODO: triggers an assertion!
+fn diff_scope_with_comment() {
+    run_diff_test(
+        "inputs/scope_with_comment.vcd",
+        "inputs/scope_with_comment.vcd.fst",
+    );
 }
