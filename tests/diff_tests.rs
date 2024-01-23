@@ -3,7 +3,9 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use std::io::{BufRead, BufReader};
-use waveform::{Hierarchy, HierarchyItem, ScopeType, SignalRef, TimescaleUnit, VarType, Waveform};
+use waveform::{
+    Hierarchy, HierarchyItem, ScopeType, SignalRef, SignalValue, TimescaleUnit, VarType, Waveform,
+};
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
     {
@@ -229,8 +231,14 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                     );
                 }
             }
-            vcd::Command::ChangeReal(_, _) => {
-                todo!("compare real")
+            vcd::Command::ChangeReal(id, value) => {
+                let signal_ref = vcd_lib_id_to_signal_ref(id);
+                let our_value = our.get_signal_value_at(signal_ref, time_table_idx as u32);
+                if let SignalValue::Real(our_real) = our_value {
+                    assert_eq!(our_real, value);
+                } else {
+                    panic!("Expected real value, got: {our_value:?}");
+                }
             }
             vcd::Command::ChangeString(id, value) => {
                 let signal_ref = vcd_lib_id_to_signal_ref(id);
@@ -377,7 +385,7 @@ fn diff_my_hdl_top() {
 }
 
 #[test]
-#[ignore] // TODO: add full real support
+#[ignore] // TODO: this file has a delta cycle, i.e. the same signal (`$!`) changes several times in the same cycle (145)
 fn diff_ncsim_ffdiv_32bit_tb() {
     run_diff_test(
         "inputs/ncsim/ffdiv_32bit_tb.vcd",

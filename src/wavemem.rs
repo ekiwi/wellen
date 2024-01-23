@@ -5,7 +5,7 @@
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
 use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
-use crate::signals::{Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
+use crate::signals::{Real, Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
 use bytesize::ByteSize;
 use std::borrow::Cow;
@@ -133,7 +133,6 @@ impl Reader {
         let mut time_indices: Vec<u32> = Vec::new();
         let mut data_bytes: Vec<u8> = Vec::new();
         let mut strings: Vec<String> = Vec::new();
-        let mut reals: Vec<f32> = Vec::new();
         for (time_idx_offset, data_block, meta_data) in meta.blocks.into_iter() {
             let data = match meta_data.compression {
                 SignalCompression::Compressed(uncompressed_len) => {
@@ -163,7 +162,14 @@ impl Reader {
                     );
                 }
                 SignalType::Real => {
-                    todo!("reals");
+                    load_fixed_len_signal(
+                        &mut data.as_ref(),
+                        time_idx_offset,
+                        4 * 8,
+                        false,
+                        &mut time_indices,
+                        &mut data_bytes,
+                    );
                 }
             }
         }
@@ -189,7 +195,8 @@ impl Reader {
                 Signal::new_fixed_len(id, time_indices, encoding, bytes_per_entry, data_bytes)
             }
             SignalType::Real => {
-                todo!("Implement real!")
+                assert!(strings.is_empty());
+                Signal::new_fixed_len(id, time_indices, SignalEncoding::Real, 8, data_bytes)
             }
         }
     }
@@ -651,9 +658,9 @@ impl SignalEncoder {
                     String::from_utf8_lossy(value)
                 );
                 // parse float
-                let float_value = std::str::from_utf8(&value[1..])
+                let float_value: Real = std::str::from_utf8(&value[1..])
                     .unwrap()
-                    .parse::<f64>()
+                    .parse::<Real>()
                     .unwrap();
                 // write var-length time index + fixed little endian float bytes
                 leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();

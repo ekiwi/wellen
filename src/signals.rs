@@ -6,6 +6,7 @@ use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 
+pub type Real = f64;
 pub type Time = u64;
 pub type TimeTableIdx = u32;
 
@@ -14,7 +15,7 @@ pub enum SignalValue<'a> {
     Binary(&'a [u8], u32),
     FourValue(&'a [u8], u32),
     String(&'a str),
-    Float(f64),
+    Real(Real),
 }
 
 impl<'a> Display for SignalValue<'a> {
@@ -27,7 +28,7 @@ impl<'a> Display for SignalValue<'a> {
                 write!(f, "{}", four_state_to_bit_string(data, *bits))
             }
             SignalValue::String(value) => write!(f, "{}", value),
-            SignalValue::Float(value) => write!(f, "{}", value),
+            SignalValue::Real(value) => write!(f, "{}", value),
         }
     }
 }
@@ -108,7 +109,7 @@ pub(crate) enum SignalEncoding {
     /// Fixed length ASCII string.
     FixedLength,
     /// Each value is encoded as an 8-byte f64 in little endian.
-    Float,
+    Real,
     /// Variable length string.
     VariableLength,
 }
@@ -291,8 +292,8 @@ impl SignalChangeData {
                     SignalEncoding::FixedLength => {
                         SignalValue::String(std::str::from_utf8(data).unwrap())
                     }
-                    SignalEncoding::Float => {
-                        SignalValue::Float(f64::from_le_bytes(<[u8; 8]>::try_from(data).unwrap()))
+                    SignalEncoding::Real => {
+                        SignalValue::Real(Real::from_le_bytes(<[u8; 8]>::try_from(data).unwrap()))
                     }
                     SignalEncoding::VariableLength => {
                         panic!("Variable length signals need to be variable length encoded!")
