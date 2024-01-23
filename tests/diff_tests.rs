@@ -175,9 +175,9 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 assert_eq!(current_time, time_table[time_table_idx]);
             }
             vcd::Command::ChangeScalar(id, value) => {
-                let signal_ref = vcd_lib_id_to_signal_ref(id);
-                let our_value = our.get_signal_value_at(signal_ref, time_table_idx as u32);
+                let our_value = get_value(our, id, time_table_idx);
                 let our_value_str = our_value.to_bit_string().unwrap();
+                let signal_ref = vcd_lib_id_to_signal_ref(id);
                 assert_eq!(
                     our_value_str,
                     value.to_string(),
@@ -190,9 +190,9 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 );
             }
             vcd::Command::ChangeVector(id, value) => {
-                let signal_ref = vcd_lib_id_to_signal_ref(id);
-                let our_value = our.get_signal_value_at(signal_ref, time_table_idx as u32);
+                let our_value = get_value(our, id, time_table_idx);
                 let our_value_str = our_value.to_bit_string().unwrap();
+                let signal_ref = vcd_lib_id_to_signal_ref(id);
                 if value.len() < our_value_str.len() {
                     let prefix_len = our_value_str.len() - value.len();
                     // we are zero / x extending, so our string might be longer
@@ -232,8 +232,7 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 }
             }
             vcd::Command::ChangeReal(id, value) => {
-                let signal_ref = vcd_lib_id_to_signal_ref(id);
-                let our_value = our.get_signal_value_at(signal_ref, time_table_idx as u32);
+                let our_value = get_value(our, id, time_table_idx);
                 if let SignalValue::Real(our_real) = our_value {
                     assert_eq!(our_real, value);
                 } else {
@@ -241,8 +240,7 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 }
             }
             vcd::Command::ChangeString(id, value) => {
-                let signal_ref = vcd_lib_id_to_signal_ref(id);
-                let our_value = our.get_signal_value_at(signal_ref, time_table_idx as u32);
+                let our_value = get_value(our, id, time_table_idx);
                 let our_value_str = our_value.to_string();
                 assert_eq!(our_value_str, value);
             }
@@ -251,6 +249,14 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
             other => panic!("Unhandled command: {:?}", other),
         }
     }
+}
+
+fn get_value(our: &Waveform, id: vcd::IdCode, time_table_idx: usize) -> SignalValue {
+    let signal_ref = vcd_lib_id_to_signal_ref(id);
+    let our_signal = our.get_signal(signal_ref).unwrap();
+    let our_offset = our_signal.get_offset(time_table_idx as u32);
+    assert_eq!(our_offset.elements, 1, "TODO: support deltat cycles!");
+    our_signal.get_value_at(&our_offset, 0)
 }
 
 fn vcd_lib_id_to_signal_ref(id: vcd::IdCode) -> SignalRef {

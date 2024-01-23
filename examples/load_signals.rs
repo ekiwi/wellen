@@ -82,7 +82,7 @@ fn main() {
         let start = std::time::Instant::now();
         wave.load_signals(&ids);
         let load_time = start.elapsed();
-        let bytes_in_mem = wave.get_signal_size_in_memory(var.signal_idx()).unwrap();
+        let bytes_in_mem = wave.get_signal(var.signal_idx()).unwrap().size_in_memory();
         signal_load_times.push(load_time);
         signal_sizes.push(bytes_in_mem);
     }

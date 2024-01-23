@@ -114,7 +114,7 @@ pub(crate) enum SignalEncoding {
     VariableLength,
 }
 
-pub(crate) struct Signal {
+pub struct Signal {
     idx: SignalRef,
     time_indices: Vec<TimeTableIdx>,
     data: SignalChangeData,
@@ -155,7 +155,7 @@ impl Signal {
         }
     }
 
-    pub(crate) fn size_in_memory(&self) -> usize {
+    pub fn size_in_memory(&self) -> usize {
         let base = std::mem::size_of::<Self>();
         let time = self.time_indices.len() * std::mem::size_of::<TimeTableIdx>();
         let data = match &self.data {
@@ -166,6 +166,19 @@ impl Signal {
                 .sum::<usize>(),
         };
         base + time + data
+    }
+
+    pub fn get_offset(&self, time_table_idx: TimeTableIdx) -> DataOffset {
+        find_offset_from_time_table_idx(&self.time_indices, time_table_idx)
+    }
+
+    pub fn get_time_idx_at(&self, offset: &DataOffset) -> TimeTableIdx {
+        self.time_indices[offset.start]
+    }
+
+    pub fn get_value_at(&self, offset: &DataOffset, element: usize) -> SignalValue {
+        assert!(element < offset.elements as usize);
+        self.data.get_value_at(offset.start + element)
     }
 }
 
@@ -223,19 +236,8 @@ impl Waveform {
         }
     }
 
-    pub fn get_signal_size_in_memory(&self, id: SignalRef) -> Option<usize> {
-        Some((self.signals.get(&id)?).size_in_memory())
-    }
-
-    pub fn get_signal_value_at(
-        &self,
-        signal_ref: SignalRef,
-        time_table_idx: TimeTableIdx,
-    ) -> SignalValue {
-        assert!((time_table_idx as usize) < self.time_table.len());
-        let signal: &Signal = &self.signals[&signal_ref];
-        let offset = find_offset_from_time_table_idx(&signal.time_indices, time_table_idx);
-        signal.data.get_value_at(offset)
+    pub fn get_signal(&self, id: SignalRef) -> Option<&Signal> {
+        self.signals.get(&id)
     }
 
     pub fn print_backend_statistics(&self) {
@@ -246,7 +248,31 @@ impl Waveform {
 /// Finds the index that is the same or less than the needle and returns the position of it.
 /// Note that `indices` needs to sorted from smallest to largest.
 /// Essentially implements a binary search!
-fn find_offset_from_time_table_idx(indices: &[TimeTableIdx], needle: TimeTableIdx) -> usize {
+fn find_offset_from_time_table_idx(indices: &[TimeTableIdx], needle: TimeTableIdx) -> DataOffset {
+    // find the index of a matching time
+    let res = binary_search(indices, needle);
+    let res_index = indices[res];
+
+    // find start
+    let mut start = res;
+    while start > 0 && indices[start - 1] == res_index {
+        start -= 1;
+    }
+    // find number of elements
+    let mut elements = 1;
+    while start + elements < indices.len() && indices[start + elements] == res_index {
+        elements += 1;
+    }
+
+    DataOffset {
+        start,
+        elements: elements as u16,
+        time_match: res_index == needle,
+    }
+}
+
+#[inline]
+fn binary_search(indices: &[TimeTableIdx], needle: TimeTableIdx) -> usize {
     let mut lower_idx = 0usize;
     let mut upper_idx = indices.len() - 1;
     while lower_idx <= upper_idx {
@@ -265,6 +291,15 @@ fn find_offset_from_time_table_idx(indices: &[TimeTableIdx], needle: TimeTableId
         }
     }
     lower_idx - 1
+}
+
+pub struct DataOffset {
+    /// Offset of the first data value at the time requested (or earlier).
+    pub start: usize,
+    /// Number of elements that have the same time index. This is usually 1. Greater when there are delta cycles.
+    pub elements: u16,
+    /// Indicates that the offset exactly matches the time requested. If false, then we are matching an earlier time step.
+    pub time_match: bool,
 }
 
 enum SignalChangeData {
