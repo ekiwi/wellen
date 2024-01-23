@@ -176,9 +176,9 @@ impl Signal {
         self.time_indices[offset.start]
     }
 
-    pub fn get_value_at(&self, offset: &DataOffset, element: usize) -> SignalValue {
-        assert!(element < offset.elements as usize);
-        self.data.get_value_at(offset.start + element)
+    pub fn get_value_at(&self, offset: &DataOffset, element: u16) -> SignalValue {
+        assert!(element < offset.elements);
+        self.data.get_value_at(offset.start + element as usize)
     }
 }
 

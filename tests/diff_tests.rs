@@ -2,6 +2,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use waveform::{
     Hierarchy, HierarchyItem, ScopeType, SignalRef, SignalValue, TimescaleUnit, VarType, Waveform,
@@ -165,6 +166,7 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
     // iterate over reference VCD and compare with signals in our waveform
     let mut current_time = 0;
     let mut time_table_idx = 0;
+    let mut delta_counter = HashMap::new();
     for cmd_res in ref_reader {
         match cmd_res.unwrap() {
             vcd::Command::Timestamp(new_time) => {
@@ -175,7 +177,7 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 assert_eq!(current_time, time_table[time_table_idx]);
             }
             vcd::Command::ChangeScalar(id, value) => {
-                let our_value = get_value(our, id, time_table_idx);
+                let our_value = get_value(our, id, time_table_idx, &mut delta_counter);
                 let our_value_str = our_value.to_bit_string().unwrap();
                 let signal_ref = vcd_lib_id_to_signal_ref(id);
                 assert_eq!(
@@ -190,7 +192,7 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 );
             }
             vcd::Command::ChangeVector(id, value) => {
-                let our_value = get_value(our, id, time_table_idx);
+                let our_value = get_value(our, id, time_table_idx, &mut delta_counter);
                 let our_value_str = our_value.to_bit_string().unwrap();
                 let signal_ref = vcd_lib_id_to_signal_ref(id);
                 if value.len() < our_value_str.len() {
@@ -232,7 +234,7 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 }
             }
             vcd::Command::ChangeReal(id, value) => {
-                let our_value = get_value(our, id, time_table_idx);
+                let our_value = get_value(our, id, time_table_idx, &mut delta_counter);
                 if let SignalValue::Real(our_real) = our_value {
                     assert_eq!(our_real, value);
                 } else {
@@ -240,7 +242,7 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 }
             }
             vcd::Command::ChangeString(id, value) => {
-                let our_value = get_value(our, id, time_table_idx);
+                let our_value = get_value(our, id, time_table_idx, &mut delta_counter);
                 let our_value_str = our_value.to_string();
                 assert_eq!(our_value_str, value);
             }
@@ -251,12 +253,33 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
     }
 }
 
-fn get_value(our: &Waveform, id: vcd::IdCode, time_table_idx: usize) -> SignalValue {
+fn get_value<'a>(
+    our: &'a Waveform,
+    id: vcd::IdCode,
+    time_table_idx: usize,
+    delta_counter: &mut HashMap<SignalRef, u16>,
+) -> SignalValue<'a> {
     let signal_ref = vcd_lib_id_to_signal_ref(id);
     let our_signal = our.get_signal(signal_ref).unwrap();
     let our_offset = our_signal.get_offset(time_table_idx as u32);
-    assert_eq!(our_offset.elements, 1, "TODO: support deltat cycles!");
-    our_signal.get_value_at(&our_offset, 0)
+    assert!(
+        our_offset.time_match,
+        "Was not able to find an entry for {time_table_idx}"
+    );
+    // deal with delta cycles
+    if our_offset.elements > 1 {
+        let element = delta_counter.get(&signal_ref).map(|v| *v + 1).unwrap_or(0);
+        if element == our_offset.elements - 1 {
+            // last element
+            delta_counter.remove(&signal_ref);
+        } else {
+            delta_counter.insert(signal_ref, element);
+        }
+        our_signal.get_value_at(&our_offset, element)
+    } else {
+        // no delta cycle -> just get the element and be happy!
+        our_signal.get_value_at(&our_offset, 0)
+    }
 }
 
 fn vcd_lib_id_to_signal_ref(id: vcd::IdCode) -> SignalRef {
@@ -291,7 +314,6 @@ fn id_to_int(id: &[u8]) -> Option<u64> {
 }
 
 #[test]
-#[ignore] // TODO: this file has a delta cycle, i.e. the same signal (`/`) changes twice in the same cycle (35185000)
 fn diff_aldec_spi_write() {
     run_diff_test(
         "inputs/aldec/SPI_Write.vcd",
@@ -359,7 +381,6 @@ fn diff_model_sim_clkdiv2n_tb() {
 }
 
 #[test]
-#[ignore] // TODO: this file has a delta cycle, i.e. the same signal (`p`) changes twice in the same cycle (20000)
 fn diff_model_sim_cpu_design() {
     run_diff_test(
         "inputs/model-sim/CPU_Design.msim.vcd",
@@ -385,13 +406,11 @@ fn diff_my_hdl_simple_memory() {
 }
 
 #[test]
-#[ignore] // TODO: this file has a delta cycle, i.e. the same signal (`@`) changes several times in the same cycle (20)
 fn diff_my_hdl_top() {
     run_diff_test("inputs/my-hdl/top.vcd", "inputs/my-hdl/top.vcd.fst");
 }
 
 #[test]
-#[ignore] // TODO: this file has a delta cycle, i.e. the same signal (`$!`) changes several times in the same cycle (145)
 fn diff_ncsim_ffdiv_32bit_tb() {
     run_diff_test(
         "inputs/ncsim/ffdiv_32bit_tb.vcd",
