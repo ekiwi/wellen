@@ -43,7 +43,7 @@ impl<'a> SignalValue<'a> {
         match &self {
             SignalValue::Binary(data, bits) => Some(two_state_to_bit_string(data, *bits)),
             SignalValue::FourValue(data, bits) => Some(four_state_to_bit_string(data, *bits)),
-            _ => None,
+            other => panic!("Cannot convert {other:?} to bit string"),
         }
     }
 }

@@ -179,7 +179,7 @@ impl Reader {
                 assert!(strings.is_empty());
                 let encoding = SignalEncoding::BitVector(meta.max_states, len.get());
                 let bytes_per_entry =
-                    usize_div_ceil(len.get() as usize, 8 / meta.max_states.bits()) as u32;
+                    usize_div_ceil(len.get() as usize, meta.max_states.bits_in_a_byte()) as u32;
                 Signal::new_fixed_len(id, time_indices, encoding, bytes_per_entry, data_bytes)
             }
             SignalType::Real => {
@@ -252,7 +252,7 @@ fn load_fixed_len_signal(
                 // the lower 2 bits of the time idx delta encode how many state bits are encoded in the local signal
                 let local_encoding =
                     States::try_from_primitive((time_idx_delta_raw & 0x3) as u8).unwrap();
-                let num_bytes = usize_div_ceil(other_len as usize, local_encoding.bits());
+                let num_bytes = usize_div_ceil(other_len as usize, local_encoding.bits_in_a_byte());
                 let mut buf = vec![0u8; num_bytes];
                 data.read_exact(&mut buf.as_mut()).unwrap();
                 if local_encoding == signal_states {
@@ -276,7 +276,7 @@ fn expand_states(from: States, to: States, bits: u32, values: &[u8], out: &mut V
         from,
         to
     );
-    let first_value_bits = bits % from.bits() as u32;
+    let first_value_bits = bits % from.bits_in_a_byte() as u32;
 
     // the first value might expand into a different number of bytes
     let skip_n = if first_value_bits > 0 {
@@ -823,12 +823,19 @@ impl States {
         Self::try_from_primitive(num).unwrap()
     }
     /// Returns how many bits are needed in order to encode one bit of state.
+    #[inline]
     fn bits(&self) -> usize {
         match self {
             States::Two => 1,
             States::Four => 2,
             States::Nine => 4,
         }
+    }
+
+    /// Returns how many signal bits can be encoded in a u8.
+    #[inline]
+    fn bits_in_a_byte(&self) -> usize {
+        8 / self.bits()
     }
 }
 
@@ -863,7 +870,8 @@ fn try_write_1_bit_9_state(time_index: u16, value: u8, data: &mut Vec<u8>) -> Op
     if let Some(bit_value) = bit_char_to_num(value) {
         let write_value = ((time_index as u64) << 4) + bit_value as u64;
         leb128::write::unsigned(data, write_value).unwrap();
-        Some(States::from_value(value))
+        let states = States::from_value(bit_value);
+        Some(states)
     } else {
         None
     }
