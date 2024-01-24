@@ -623,12 +623,19 @@ impl<'a> BodyReader<'a> {
         pos: usize,
         token_start: &mut Option<usize>,
         prev_token: &mut Option<&'a [u8]>,
+        search_for_end: &mut bool,
     ) -> Option<BodyCmd<'a>> {
         match *token_start {
             None => None,
             Some(start) => {
                 let token = &self.input[start..pos];
                 if token.is_empty() {
+                    return None;
+                }
+                if *search_for_end {
+                    *search_for_end = token != b"$end";
+                    // consume token and return
+                    *token_start = None;
                     return None;
                 }
                 let ret = match *prev_token {
@@ -644,7 +651,10 @@ impl<'a> BodyReader<'a> {
                                 Some(BodyCmd::Value(&token[0..1], &token[1..]))
                             }
                             _ => {
-                                if token != b"$dumpvars" && token != b"$end" {
+                                if token == b"$comment" {
+                                    // drop token, but start searching for $end in order to skip the comment
+                                    *search_for_end = true;
+                                } else if token != b"$dumpvars" && token != b"$end" {
                                     // ignore dumpvars and end command
                                     *prev_token = Some(token);
                                 }
@@ -690,6 +700,8 @@ impl<'a> Iterator for BodyReader<'a> {
         let mut prev_token: Option<&'a [u8]> = None;
         let mut pending_lines = 0;
         let mut start_pos = 0;
+        // if we encounter a $comment, we will just be searching for a $end token
+        let mut search_for_end = false;
         for (offset, b) in self.input[self.pos..].iter().enumerate() {
             let pos = self.pos + offset;
             match b {
@@ -699,7 +711,12 @@ impl<'a> Iterator for BodyReader<'a> {
                             self.lines_read += 1;
                         }
                     } else {
-                        match self.try_finish_token(pos, &mut token_start, &mut prev_token) {
+                        match self.try_finish_token(
+                            pos,
+                            &mut token_start,
+                            &mut prev_token,
+                            &mut search_for_end,
+                        ) {
                             None => {
                                 if *b == b'\n' {
                                     pending_lines += 1;
@@ -732,7 +749,12 @@ impl<'a> Iterator for BodyReader<'a> {
         // update final position
         self.pos = self.input.len();
         // check to see if there is a final token at the end
-        match self.try_finish_token(self.pos, &mut token_start, &mut prev_token) {
+        match self.try_finish_token(
+            self.pos,
+            &mut token_start,
+            &mut prev_token,
+            &mut search_for_end,
+        ) {
             None => {}
             Some(cmd) => {
                 return Some((start_pos, cmd));

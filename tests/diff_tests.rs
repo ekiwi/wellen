@@ -261,8 +261,9 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 let our_value_str = our_value.to_string();
                 assert_eq!(our_value_str, value);
             }
-            vcd::Command::Begin(_) => {} // ignore
-            vcd::Command::End(_) => {}   // ignore
+            vcd::Command::Begin(_) => {}   // ignore
+            vcd::Command::End(_) => {}     // ignore
+            vcd::Command::Comment(_) => {} // ignore
             other => panic!("Unhandled command: {:?}", other),
         }
     }
@@ -477,7 +478,6 @@ fn diff_riviera_pro_dump() {
 }
 
 #[test]
-#[ignore] // TODO: fails in vcd parser!
 fn diff_systemc_waveform() {
     run_diff_test(
         "inputs/systemc/waveform.vcd",
