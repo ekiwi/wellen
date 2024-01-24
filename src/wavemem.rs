@@ -644,6 +644,7 @@ struct SignalEncoder {
     prev_time_idx: u16,
     max_states: States,
     /// Same as the index of this encoder in a Vec<_>. Used for debugging purposes.
+    #[allow(unused)]
     signal_idx: u32,
 }
 

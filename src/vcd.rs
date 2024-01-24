@@ -520,7 +520,21 @@ fn read_values(
             .par_iter()
             .map(|(start, len)| {
                 let is_first = *start == 0;
-                read_single_stream_of_values(&input[*start..], *len - 1, is_first, hierarchy)
+                // check to see if the chunk start on a new line
+                let starts_on_new_line = if is_first {
+                    true
+                } else {
+                    let before = input[*start - 1];
+                    // TODO: deal with \n\r
+                    before == b'\n'
+                };
+                read_single_stream_of_values(
+                    &input[*start..],
+                    *len - 1,
+                    is_first,
+                    starts_on_new_line,
+                    hierarchy,
+                )
             })
             .collect();
 
@@ -532,7 +546,7 @@ fn read_values(
         }
         Box::new(encoder.finish())
     } else {
-        let encoder = read_single_stream_of_values(input, input.len() - 1, true, hierarchy);
+        let encoder = read_single_stream_of_values(input, input.len() - 1, true, true, hierarchy);
         Box::new(encoder.finish())
     }
 }
@@ -541,11 +555,12 @@ fn read_single_stream_of_values<'a>(
     input: &[u8],
     stop_pos: usize,
     is_first: bool,
+    starts_on_new_line: bool,
     hierarchy: &Hierarchy,
 ) -> crate::wavemem::Encoder {
     let mut encoder = crate::wavemem::Encoder::new(hierarchy);
 
-    let (input2, offset) = if is_first {
+    let (input2, offset) = if starts_on_new_line {
         (input, 0)
     } else {
         advance_to_first_newline(input)
@@ -562,7 +577,7 @@ fn read_single_stream_of_values<'a>(
     loop {
         if let Some((pos, cmd)) = reader.next() {
             if (pos + offset) > stop_pos {
-                if let BodyCmd::Time(_) = cmd {
+                if let BodyCmd::Time(_to) = cmd {
                     break; // stop before the next time value when we go beyond the stop position
                 }
             }

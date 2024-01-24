@@ -118,6 +118,7 @@ pub(crate) enum SignalEncoding {
 }
 
 pub struct Signal {
+    #[allow(unused)]
     idx: SignalRef,
     time_indices: Vec<TimeTableIdx>,
     data: SignalChangeData,
