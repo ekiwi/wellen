@@ -523,15 +523,18 @@ impl Encoder {
         self.finish_block();
         // ensure that the other encoder is also done
         other.finish_block();
-        // make sure the timeline fits
-        let us_end_time = self.blocks.last().unwrap().end_time();
-        let other_start = other.blocks.first().unwrap().start_time;
-        assert!(
-            us_end_time <= other_start,
-            "Can only append encoders in chronological order!"
-        );
-        // append all blocks from the other encoder
-        self.blocks.append(&mut other.blocks);
+        // if the other encoder has no blocks, there is nothing for us to do
+        if let Some(other_first_block) = other.blocks.first() {
+            // make sure the timeline fits
+            let us_end_time = self.blocks.last().unwrap().end_time();
+            let other_start = other_first_block.start_time;
+            assert!(
+                us_end_time <= other_start,
+                "Can only append encoders in chronological order!"
+            );
+            // append all blocks from the other encoder
+            self.blocks.append(&mut other.blocks);
+        }
     }
 
     fn finish_block(&mut self) {
@@ -671,7 +674,7 @@ impl SignalEncoder {
                     _ => value,
                 };
                 if len == 0 {
-                    assert_eq!(value_bits, b"0", "0-bit value should always be zero!");
+                    assert!(value == b"0" || value == b"x", "0-bit value should always be zero or x, not: {}!", String::from_utf8_lossy(value_bits));
                 } else if len == 1 {
                     let states =
                         try_write_1_bit_9_state(time_idx_delta, value_bits[0], &mut self.data)
