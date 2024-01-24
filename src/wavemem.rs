@@ -668,12 +668,7 @@ impl SignalEncoder {
             SignalType::BitVector(len, _) => {
                 let value_bits: &[u8] = match value[0] {
                     b'b' | b'B' => &value[1..],
-                    b'1' | b'0' => value,
-                    _ => panic!(
-                        "expected a bit vector, not {} for signal of size {}",
-                        String::from_utf8_lossy(value),
-                        len.get()
-                    ),
+                    _ => value,
                 };
                 if len.get() == 1 {
                     let states =
