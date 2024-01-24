@@ -654,7 +654,10 @@ impl<'a> BodyReader<'a> {
                                 if token == b"$comment" {
                                     // drop token, but start searching for $end in order to skip the comment
                                     *search_for_end = true;
-                                } else if token != b"$dumpvars" && token != b"$end" && token != b"$dumpoff"{
+                                } else if token != b"$dumpvars"
+                                    && token != b"$end"
+                                    && token != b"$dumpoff"
+                                {
                                     // ignore dumpvars, dumpoff and end command
                                     *prev_token = Some(token);
                                 }

@@ -200,7 +200,8 @@ pub enum SignalType {
 impl SignalType {
     pub fn from_uint(len: u32, index: Option<VarIndex>) -> Self {
         match NonZeroU32::new(len) {
-            None => SignalType::String,
+            // a zero length signal should be represented as a 1-bit signal
+            None => SignalType::BitVector(NonZeroU32::new(1).unwrap(), index),
             Some(value) => SignalType::BitVector(value, index),
         }
     }

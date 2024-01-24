@@ -142,7 +142,13 @@ fn diff_hierarchy_item(ref_item: &vcd::ScopeItem, our_item: HierarchyItem, our_h
             );
             match our_var.length() {
                 None => {} // nothing to check
-                Some(size) => assert_eq!(ref_var.size, size),
+                Some(size) => {
+                    if ref_var.size == 0 {
+                        assert_eq!(1, size)
+                    } else {
+                        assert_eq!(ref_var.size, size)
+                    }
+                }
             }
             match ref_var.index {
                 None => assert!(our_var.index().is_none()),
@@ -549,7 +555,6 @@ fn diff_xilinx_isim_test1() {
 }
 
 #[test]
-#[ignore] // TODO: triggers an assertion!
 fn diff_xilinx_isim_test2x2_regex22_string1() {
     run_diff_test(
         "inputs/xilinx_isim/test2x2_regex22_string1.vcd",
