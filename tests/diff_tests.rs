@@ -533,7 +533,6 @@ fn diff_vivado_iladata() {
 }
 
 #[test]
-#[ignore] // TODO: triggers an assertion
 fn diff_xilinx_isim_test() {
     run_diff_test(
         "inputs/xilinx_isim/test.vcd",

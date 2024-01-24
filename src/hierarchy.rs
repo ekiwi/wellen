@@ -155,7 +155,6 @@ pub struct VarIndex(NonZeroU64);
 
 impl VarIndex {
     pub(crate) fn new(msb: i32, lsb: i32) -> Self {
-        assert!(msb >= lsb);
         assert!((lsb as u32) < u32::MAX);
         let value = ((msb as u64) << 32) | (lsb as u64);
         Self(NonZeroU64::new(value + 1).unwrap())
