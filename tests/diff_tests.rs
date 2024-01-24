@@ -563,7 +563,6 @@ fn diff_xilinx_isim_test2x2_regex22_string1() {
 }
 
 #[test]
-#[ignore] // TODO: triggers an assertion!
 fn diff_scope_with_comment() {
     run_diff_test(
         "inputs/scope_with_comment.vcd",
