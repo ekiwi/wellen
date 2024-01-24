@@ -43,6 +43,18 @@ fn read_bytes_internal(bytes: &[u8], multi_threaded: bool) -> Result<Waveform> {
     Ok(Waveform::new(hierarchy, wave_mem))
 }
 
+// fn print_stats() {
+//     println!(
+//         "The full VCD data takes up  {} bytes in memory.",
+//         ByteSize::b(wave_mem.size_in_memory() as u64)
+//     );
+//     println!(
+//         "The size of the VCD file is {} bytes on disk.",
+//         ByteSize::b((input_size - header_len) as u64)
+//     );
+//     wave_mem.print_statistics();
+// }
+
 fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
     let start = input.stream_position().unwrap();
     let mut h = HierarchyBuilder::default();
