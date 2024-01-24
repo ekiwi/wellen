@@ -3,6 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
+use crate::wavemem::States;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -14,6 +15,7 @@ pub type TimeTableIdx = u32;
 pub enum SignalValue<'a> {
     Binary(&'a [u8], u32),
     FourValue(&'a [u8], u32),
+    NineValue(&'a [u8], u32),
     String(&'a str),
     Real(Real),
 }
@@ -26,6 +28,9 @@ impl<'a> Display for SignalValue<'a> {
             }
             SignalValue::FourValue(data, bits) => {
                 write!(f, "{}", four_state_to_bit_string(data, *bits))
+            }
+            SignalValue::NineValue(data, bits) => {
+                write!(f, "{}", nine_state_to_bit_string(data, *bits))
             }
             SignalValue::String(value) => write!(f, "{}", value),
             SignalValue::Real(value) => write!(f, "{}", value),
@@ -99,19 +104,17 @@ fn four_state_to_bit_string(data: &[u8], bits: u32) -> String {
     out
 }
 
+fn nine_state_to_bit_string(_data: &[u8], _bits: u32) -> String {
+    todo!("make work");
+}
+
 /// Specifies the encoding of a signal.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum SignalEncoding {
-    /// Each bit is encoded as a single bit.
-    Binary(u32),
-    /// Each bit is encoded as two bits.
-    FourValue(u32),
-    /// Fixed length ASCII string.
-    FixedLength,
+    /// Bitvector of length N (u32) with 2, 4 or 9 states
+    BitVector(States, u32),
     /// Each value is encoded as an 8-byte f64 in little endian.
     Real,
-    /// Variable length string.
-    VariableLength,
 }
 
 pub struct Signal {
@@ -322,16 +325,17 @@ impl SignalChangeData {
                 let start = offset * (*width as usize);
                 let data = &bytes[start..(start + (*width as usize))];
                 match encoding {
-                    SignalEncoding::Binary(bits) => SignalValue::Binary(data, *bits),
-                    SignalEncoding::FourValue(bits) => SignalValue::FourValue(data, *bits),
-                    SignalEncoding::FixedLength => {
-                        SignalValue::String(std::str::from_utf8(data).unwrap())
+                    SignalEncoding::BitVector(States::Two, bits) => {
+                        SignalValue::Binary(data, *bits)
+                    }
+                    SignalEncoding::BitVector(States::Four, bits) => {
+                        SignalValue::FourValue(data, *bits)
+                    }
+                    SignalEncoding::BitVector(States::Nine, bits) => {
+                        SignalValue::NineValue(data, *bits)
                     }
                     SignalEncoding::Real => {
                         SignalValue::Real(Real::from_le_bytes(<[u8; 8]>::try_from(data).unwrap()))
-                    }
-                    SignalEncoding::VariableLength => {
-                        panic!("Variable length signals need to be variable length encoded!")
                     }
                 }
             }

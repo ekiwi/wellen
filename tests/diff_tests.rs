@@ -335,7 +335,6 @@ fn diff_ghdl_alu() {
 }
 
 #[test]
-#[ignore] // TODO: this test requires VHDL 9-state support
 fn diff_ghdl_idea() {
     run_diff_test("inputs/ghdl/idea.vcd", "inputs/ghdl/idea.vcd.fst");
 }

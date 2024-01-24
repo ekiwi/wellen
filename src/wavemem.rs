@@ -8,6 +8,7 @@ use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
 use crate::signals::{Real, Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
 use bytesize::ByteSize;
+use num_enum::TryFromPrimitive;
 use std::borrow::Cow;
 use std::io::Read;
 use std::num::NonZeroU32;
@@ -117,15 +118,12 @@ impl Reader {
             }
             time_idx_offset += block.time_table.len() as u32;
         }
-        let is_two_state = blocks
+        let max_states = blocks
             .iter()
-            .map(|b| b.2.is_two_state)
-            .reduce(|a, b| a && b)
-            .unwrap_or(false);
-        SignalMetaData {
-            is_two_state,
-            blocks,
-        }
+            .map(|b| b.2.max_states)
+            .reduce(States::join)
+            .unwrap_or(States::Nine);
+        SignalMetaData { max_states, blocks }
     }
 
     fn load_signal(&self, id: SignalRef, tpe: SignalType) -> Signal {
@@ -156,17 +154,15 @@ impl Reader {
                         &mut data.as_ref(),
                         time_idx_offset,
                         signal_len.get(),
-                        meta.is_two_state,
+                        meta.max_states,
                         &mut time_indices,
                         &mut data_bytes,
                     );
                 }
                 SignalType::Real => {
-                    load_fixed_len_signal(
+                    load_reals(
                         &mut data.as_ref(),
                         time_idx_offset,
-                        4 * 8,
-                        false,
                         &mut time_indices,
                         &mut data_bytes,
                     );
@@ -181,17 +177,9 @@ impl Reader {
             }
             SignalType::BitVector(len, _) => {
                 assert!(strings.is_empty());
-                let (encoding, bytes_per_entry) = if meta.is_two_state {
-                    (
-                        SignalEncoding::Binary(len.get()),
-                        usize_div_ceil(len.get() as usize, 8) as u32,
-                    )
-                } else {
-                    (
-                        SignalEncoding::FourValue(len.get()),
-                        usize_div_ceil(len.get() as usize, 4) as u32,
-                    )
-                };
+                let encoding = SignalEncoding::BitVector(meta.max_states, len.get());
+                let bytes_per_entry =
+                    usize_div_ceil(len.get() as usize, 8 / meta.max_states.bits()) as u32;
                 Signal::new_fixed_len(id, time_indices, encoding, bytes_per_entry, data_bytes)
             }
             SignalType::Real => {
@@ -205,9 +193,33 @@ impl Reader {
 /// Data about a single signal inside a Reader.
 /// Only used internally by `collect_signal_meta_data`
 struct SignalMetaData<'a> {
-    is_two_state: bool,
+    max_states: States,
     /// For every block that contains the signal: time_idx_offset, data and meta-data
     blocks: Vec<(u32, &'a [u8], SignalEncodingMetaData)>,
+}
+
+#[inline]
+fn load_reals(
+    data: &mut impl Read,
+    time_idx_offset: u32,
+    time_indices: &mut Vec<TimeTableIdx>,
+    out: &mut Vec<u8>,
+) {
+    let mut last_time_idx = time_idx_offset;
+
+    loop {
+        // read time index
+        let time_idx_delta = match leb128::read::unsigned(data) {
+            Ok(value) => value as u32,
+            Err(_) => break, // presumably there is no more data to be read
+        };
+        // read 8 bytes of reald
+        let mut buf = vec![0u8; 8];
+        data.read_exact(&mut buf.as_mut()).unwrap();
+        out.append(&mut buf);
+        last_time_idx += time_idx_delta;
+        time_indices.push(last_time_idx)
+    }
 }
 
 #[inline]
@@ -215,7 +227,7 @@ fn load_fixed_len_signal(
     data: &mut impl Read,
     time_idx_offset: u32,
     signal_len: u32,
-    is_two_state: bool,
+    signal_states: States,
     time_indices: &mut Vec<TimeTableIdx>,
     out: &mut Vec<u8>,
 ) {
@@ -230,22 +242,26 @@ fn load_fixed_len_signal(
         // now the decoding depends on the size and whether it is two state
         let time_idx_delta = match signal_len {
             1 => {
-                let value = (time_idx_delta_raw & 0x3) as u8;
-                // for a 1-bit signal we do not need to distinguish between 2 and 4 state!
+                let value = (time_idx_delta_raw & 0xf) as u8;
+                // for a 1-bit signal we do not need to distinguish between 2 and 4 and 9 states!
                 out.push(value);
                 // time delta is encoded together with the value
-                time_idx_delta_raw >> 2
+                time_idx_delta_raw >> 4
             }
-            other => {
-                let num_bytes = usize_div_ceil(other as usize, 4);
+            other_len => {
+                // the lower 2 bits of the time idx delta encode how many state bits are encoded in the local signal
+                let local_encoding =
+                    States::try_from_primitive((time_idx_delta_raw & 0x3) as u8).unwrap();
+                let num_bytes = usize_div_ceil(other_len as usize, local_encoding.bits());
                 let mut buf = vec![0u8; num_bytes];
                 data.read_exact(&mut buf.as_mut()).unwrap();
-                if is_two_state {
-                    four_state_to_two_state(&mut buf);
+                if local_encoding == signal_states {
+                    out.append(&mut buf);
+                } else {
+                    expand_states(local_encoding, signal_states, other_len, &buf, out);
                 }
-                out.append(&mut buf);
                 //
-                time_idx_delta_raw
+                time_idx_delta_raw >> 2
             }
         };
         last_time_idx += time_idx_delta;
@@ -253,35 +269,97 @@ fn load_fixed_len_signal(
     }
 }
 
-#[inline]
-fn four_state_to_two_state(buf: &mut Vec<u8>) {
-    let result_len = usize_div_ceil(buf.len(), 2);
-    let is_uneven = result_len * 2 > buf.len();
-    for ii in 0..result_len {
-        let (msb, lsb) = if is_uneven {
-            if ii == 0 {
-                (0u8, buf[0])
-            } else {
-                (buf[ii * 2 - 1], buf[ii * 2])
-            }
-        } else {
-            (buf[ii * 2], buf[ii * 2 + 1])
-        };
-        buf[ii] = compress_four_state_to_two_state(msb, lsb);
+fn expand_states(from: States, to: States, bits: u32, values: &[u8], out: &mut Vec<u8>) {
+    assert!(
+        from.bits() < to.bits(),
+        "Can only expand, not convert from {:?} to {:?}",
+        from,
+        to
+    );
+    let first_value_bits = bits % from.bits() as u32;
+
+    // the first value might expand into a different number of bytes
+    let skip_n = if first_value_bits > 0 {
+        match (from, to) {
+            (States::Two, States::Four) => expand_2_to_4(first_value_bits, values[0], out),
+            (States::Two, States::Nine) => expand_2_to_9(first_value_bits, values[0], out),
+            (States::Four, States::Nine) => expand_4_to_9(first_value_bits, values[0], out),
+            _ => panic!("Invalid combination {:?} to {:?}", from, to),
+        }
+        1
+    } else {
+        0
+    };
+
+    for value in values.iter().skip(skip_n) {
+        match (from, to) {
+            (States::Two, States::Four) => expand_2_to_4(8, *value, out),
+            (States::Two, States::Nine) => expand_2_to_9(8, *value, out),
+            (States::Four, States::Nine) => expand_4_to_9(4, *value, out),
+            _ => panic!("Invalid combination {:?} to {:?}", from, to),
+        }
     }
-    buf.truncate(result_len);
 }
 
 #[inline]
-fn compress_four_state_to_two_state(msb: u8, lsb: u8) -> u8 {
-    (msb & (1 << 6)) << 1 | // msb[6] -> out[7]
-    (msb & (1 << 4)) << 2 | // msb[4] -> out[6]
-    (msb & (1 << 2)) << 3 | // msb[2] -> out[5]
-    (msb & (1 << 0)) << 4 | // msb[0] -> out[4]
-    (lsb & (1 << 6)) >> 3 | // lsb[6] -> out[3]
-    (lsb & (1 << 4)) >> 2 | // lsb[4] -> out[2]
-    (lsb & (1 << 2)) >> 1 | // lsb[2] -> out[1]
-    (lsb & (1 << 0)) >> 0 // lsb[0] -> out[0]
+fn expand_2_to_4(bits: u32, value: u8, out: &mut Vec<u8>) {
+    debug_assert!(bits > 0 && bits <= 8);
+    if bits > 4 {
+        out.push(
+            (value & (1 << 7)) >> 1 | // value[7] -> out[6]
+            (value & (1 << 6)) >> 2 | // value[6] -> out[4]
+            (value & (1 << 5)) >> 3 | // value[5] -> out[2]
+            (value & (1 << 4)) >> 4, // value[4] -> out[0]
+        );
+    }
+    out.push(
+        (value & (1 << 3)) << 3 | // value[3] -> out[6]
+        (value & (1 << 2)) << 2 | // value[2] -> out[4]
+        (value & (1 << 1)) << 1 | // value[1] -> out[2]
+        (value & (1 << 0)) << 0, // value[0] -> out[0]
+    );
+}
+
+#[inline]
+fn expand_2_to_9(bits: u32, value: u8, out: &mut Vec<u8>) {
+    debug_assert!(bits > 0 && bits <= 8);
+    if bits > 6 {
+        out.push(
+            (value & (1 << 7)) >> 3 | // value[7] -> out[4]
+                (value & (1 << 6)) >> 6, // value[6] -> out[0]
+        );
+    }
+    if bits > 4 {
+        out.push(
+            (value & (1 << 5)) >> 1 | // value[5] -> out[4]
+                (value & (1 << 4)) >> 4, // value[4] -> out[0]
+        );
+    }
+    if bits > 2 {
+        out.push(
+            (value & (1 << 3)) << 1 | // value[3] -> out[4]
+                (value & (1 << 2)) >> 2, // value[2] -> out[0]
+        );
+    }
+    out.push(
+        (value & (1 << 1)) << 3 | // value[1] -> out[4]
+            (value & (1 << 0)), // value[0] -> out[0]
+    );
+}
+
+#[inline]
+fn expand_4_to_9(bits: u32, value: u8, out: &mut Vec<u8>) {
+    debug_assert!(bits > 0 && bits <= 4);
+    if bits > 2 {
+        out.push(
+            (value & (3 << 6)) >> 2 | // value[7:6] -> out[5:4]
+                (value & (3 << 4)) >> 4, // value[5:4] -> out[1:0]
+        );
+    }
+    out.push(
+        (value & (3 << 2)) << 2 | // value[3:2] -> out[5:4]
+            (value & (3 << 0)), // value[1:0] -> out[1:0]
+    );
 }
 
 #[inline]
@@ -500,7 +578,7 @@ enum SignalCompression {
 #[derive(Debug, Clone, PartialEq)]
 struct SignalEncodingMetaData {
     compression: SignalCompression,
-    is_two_state: bool,
+    max_states: States,
 }
 
 /// We divide the decompressed size by this number and round up.
@@ -508,29 +586,29 @@ struct SignalEncodingMetaData {
 const SIGNAL_DECOMPRESSED_LEN_DIV: u32 = 32;
 
 impl SignalEncodingMetaData {
-    fn uncompressed(is_two_state: bool) -> Self {
+    fn uncompressed(max_states: States) -> Self {
         SignalEncodingMetaData {
             compression: SignalCompression::Uncompressed,
-            is_two_state,
+            max_states,
         }
     }
 
-    fn compressed(is_two_state: bool, uncompressed_len: usize) -> Self {
+    fn compressed(max_states: States, uncompressed_len: usize) -> Self {
         // turn the length into a value that we can actually encode
         let uncompressed_len_approx =
             u32_div_ceil(uncompressed_len as u32, SIGNAL_DECOMPRESSED_LEN_DIV)
                 * SIGNAL_DECOMPRESSED_LEN_DIV;
         SignalEncodingMetaData {
             compression: SignalCompression::Compressed(uncompressed_len_approx as usize),
-            is_two_state,
+            max_states,
         }
     }
 
     fn decode(data: u64) -> Self {
-        let is_two_state = data & 1 == 1;
-        let is_compressed = (data >> 1) & 1 == 1;
+        let max_states = States::try_from_primitive((data & 3) as u8).unwrap();
+        let is_compressed = (data >> 2) & 1 == 1;
         let compression = if is_compressed {
-            let decompressed_len_bits = ((data >> 2) & u32::MAX as u64) as u32;
+            let decompressed_len_bits = ((data >> 3) & u32::MAX as u64) as u32;
             let decompressed_len = decompressed_len_bits * SIGNAL_DECOMPRESSED_LEN_DIV;
             SignalCompression::Compressed(decompressed_len as usize)
         } else {
@@ -538,7 +616,7 @@ impl SignalEncodingMetaData {
         };
         SignalEncodingMetaData {
             compression,
-            is_two_state,
+            max_states,
         }
     }
     fn encode(&self) -> u64 {
@@ -547,10 +625,10 @@ impl SignalEncodingMetaData {
                 let decompressed_len_bits =
                     u32_div_ceil((*decompressed_len) as u32, SIGNAL_DECOMPRESSED_LEN_DIV);
                 let data =
-                    ((decompressed_len_bits as u64) << 2) | (1 << 1) | (self.is_two_state as u64);
+                    ((decompressed_len_bits as u64) << 3) | (1 << 2) | (self.max_states as u64);
                 data
             }
-            SignalCompression::Uncompressed => self.is_two_state as u64,
+            SignalCompression::Uncompressed => self.max_states as u64,
         }
     }
 }
@@ -561,7 +639,7 @@ struct SignalEncoder {
     data: Vec<u8>,
     tpe: SignalType,
     prev_time_idx: u16,
-    is_two_state: bool,
+    max_states: States,
     /// Same as the index of this encoder in a Vec<_>. Used for debugging purposes.
     signal_idx: u32,
 }
@@ -572,7 +650,7 @@ impl SignalEncoder {
             data: Vec::default(),
             tpe,
             prev_time_idx: 0,
-            is_two_state: true,
+            max_states: States::Two, // we start out assuming we are dealing with a two state signal
             signal_idx: pos as u32,
         }
     }
@@ -588,38 +666,41 @@ impl SignalEncoder {
         let time_idx_delta = time_index - self.prev_time_idx;
         match self.tpe {
             SignalType::BitVector(len, _) => {
+                let value_bits: &[u8] = match value[0] {
+                    b'b' | b'B' => &value[1..],
+                    b'1' | b'0' => value,
+                    _ => panic!(
+                        "expected a bit vector, not {} for signal of size {}",
+                        String::from_utf8_lossy(value),
+                        len.get()
+                    ),
+                };
                 if len.get() == 1 {
-                    let digit = if value.len() == 1 { value[0] } else { value[1] };
-                    self.is_two_state &=
-                        try_write_1_bit_4_state(time_idx_delta, digit, &mut self.data)
+                    let states =
+                        try_write_1_bit_9_state(time_idx_delta, value_bits[0], &mut self.data)
                             .unwrap_or_else(|| {
                                 panic!(
                                     "Failed to parse four state value: {} for signal of size 1",
                                     String::from_utf8_lossy(value)
                                 )
                             });
+                    self.max_states = States::join(self.max_states, states);
                 } else {
-                    let value_bits: &[u8] = match value[0] {
-                        b'b' | b'B' => &value[1..],
-                        b'1' | b'0' => value,
-                        _ => panic!(
-                            "expected a bit vector, not {} for signal of size {}",
-                            String::from_utf8_lossy(value),
-                            len.get()
-                        ),
-                    };
-                    // write time delta
-                    leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
+                    let states = check_states(value_bits).unwrap_or_else(|| {
+                        panic!(
+                            "Bit-vector contains invalid character. Only 2, 4 and 9-state signals are supported: {}",
+                            String::from_utf8_lossy(value)
+                        )
+                    });
+                    self.max_states = States::join(self.max_states, states);
+
+                    // write time delta + num-states meta-data
+                    let time_and_meta = (time_idx_delta as u64) << 2 | (states as u64);
+                    leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
                     // write actual data
                     let bits = len.get() as usize;
-                    if value_bits.len() == bits {
-                        self.is_two_state &= try_write_4_state(value_bits, &mut self.data)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "Failed to parse four state value: {}",
-                                    String::from_utf8_lossy(value)
-                                )
-                            });
+                    let data_to_write = if value_bits.len() == bits {
+                        Cow::Borrowed(value_bits)
                     } else {
                         let expanded = expand_special_vector_cases(value_bits, bits)
                             .unwrap_or_else(|| {
@@ -630,14 +711,9 @@ impl SignalEncoder {
                                 )
                             });
                         assert_eq!(expanded.len(), bits);
-                        self.is_two_state &= try_write_4_state(&expanded, &mut self.data)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "Failed to parse four state value: {}",
-                                    String::from_utf8_lossy(value)
-                                )
-                            });
+                        Cow::Owned(expanded)
                     };
+                    write_n_state(states, &data_to_write, &mut self.data);
                 }
             }
             SignalType::String => {
@@ -684,22 +760,16 @@ impl SignalEncoder {
 
         // is there so little data that compression does not make sense?
         if data.len() < MIN_SIZE_TO_COMPRESS || SKIP_COMPRESSION {
-            return Some((
-                data,
-                SignalEncodingMetaData::uncompressed(self.is_two_state),
-            ));
+            return Some((data, SignalEncodingMetaData::uncompressed(self.max_states)));
         }
         // attempt a compression
         let compressed = lz4_flex::compress(&data);
         if (compressed.len() + 1) >= data.len() {
-            Some((
-                data,
-                SignalEncodingMetaData::uncompressed(self.is_two_state),
-            ))
+            Some((data, SignalEncodingMetaData::uncompressed(self.max_states)))
         } else {
             Some((
                 compressed,
-                SignalEncodingMetaData::compressed(self.is_two_state, data.len()),
+                SignalEncodingMetaData::compressed(self.max_states, data.len()),
             ))
         }
     }
@@ -730,56 +800,92 @@ fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
     }
 }
 
+#[repr(u8)]
+#[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq)]
+pub(crate) enum States {
+    Two = 0,
+    Four = 1,
+    Nine = 2,
+}
+
+impl States {
+    fn from_value(value: u8) -> Self {
+        if value <= 1 {
+            States::Two
+        } else if value <= 3 {
+            States::Four
+        } else {
+            States::Nine
+        }
+    }
+    fn join(a: Self, b: Self) -> Self {
+        let num = std::cmp::max(a as u8, b as u8);
+        Self::try_from_primitive(num).unwrap()
+    }
+    /// Returns how many bits are needed in order to encode one bit of state.
+    fn bits(&self) -> usize {
+        match self {
+            States::Two => 1,
+            States::Four => 2,
+            States::Nine => 4,
+        }
+    }
+}
+
+fn check_states(value: &[u8]) -> Option<States> {
+    let mut union = 0;
+    for cc in value.iter() {
+        union |= bit_char_to_num(*cc)?;
+    }
+    Some(States::from_value(union))
+}
+
 #[inline]
-fn four_state_to_num(value: u8) -> Option<u8> {
+fn bit_char_to_num(value: u8) -> Option<u8> {
     match value {
-        b'0' | b'1' => Some(value - b'0'),
-        b'x' | b'X' => Some(2),
-        b'z' | b'Z' => Some(3),
+        // Value shared with 2 and 4-state logic
+        b'0' | b'1' => Some(value - b'0'), // strong 0 / strong 1
+        // Values shared with Verilog 4-state logic
+        b'x' | b'X' => Some(2), // strong o or 1 (unknown)
+        b'z' | b'Z' => Some(3), // high impedance
+        // Values unique to the IEEE Standard Logic Type
+        b'h' | b'H' => Some(4), // weak 1
+        b'u' | b'U' => Some(5), // uninitialized
+        b'w' | b'W' => Some(6), // weak 0 or 1 (unknown)
+        b'l' | b'L' => Some(7), // weak 1
+        b'-' => Some(8),        // don't care
         _ => None,
     }
 }
 
 #[inline]
-fn try_write_1_bit_4_state(time_index: u16, value: u8, data: &mut Vec<u8>) -> Option<bool> {
-    if let Some(bit_value) = four_state_to_num(value) {
-        let write_value = ((time_index as u64) << 2) + bit_value as u64;
+fn try_write_1_bit_9_state(time_index: u16, value: u8, data: &mut Vec<u8>) -> Option<States> {
+    if let Some(bit_value) = bit_char_to_num(value) {
+        let write_value = ((time_index as u64) << 4) + bit_value as u64;
         leb128::write::unsigned(data, write_value).unwrap();
-        Some(bit_value <= 1)
+        Some(States::from_value(value))
     } else {
         None
     }
 }
 
 #[inline]
-fn try_write_4_state(value: &[u8], data: &mut Vec<u8>) -> Option<bool> {
-    let bits = value.len() * 2;
-    let bit_values = value.iter().map(|b| four_state_to_num(*b));
+fn write_n_state(states: States, value: &[u8], data: &mut Vec<u8>) {
+    debug_assert!(states.bits() == 1 || states.bits() == 2 || states.bits() == 4);
+    let bits = value.len() * states.bits();
+    let bit_values = value.iter().map(|b| bit_char_to_num(*b).unwrap());
     let mut working_byte = 0u8;
-    let mut is_two_state = true;
-    for (ii, digit_option) in bit_values.enumerate() {
-        let bit_id = bits - (ii * 2) - 2;
-        if let Some(value) = digit_option {
-            is_two_state &= value <= 1;
-            working_byte = (working_byte << 2) + value;
-            // Is there old data to push?
-            // we use the bit_id here instead of just testing ii % 4 == 0
-            // because for e.g. a 7-bit signal, the push needs to happen after 3 iterations!
-            if bit_id % 8 == 0 {
-                data.push(working_byte);
-                working_byte = 0;
-            }
-        } else {
-            // remove added data
-            let total_bytes = usize_div_ceil(bits, 8);
-            let bytes_pushed = total_bytes - 1 - (bit_id / 8);
-            for _ in 0..bytes_pushed {
-                data.pop();
-            }
-            return None;
+    for (ii, value) in bit_values.enumerate() {
+        let bit_id = bits - (ii * states.bits()) - states.bits();
+        working_byte = (working_byte << states.bits()) + value;
+        // Is there old data to push?
+        // we use the bit_id here instead of just testing ii % 4 == 0
+        // because for e.g. a 7-bit signal, the push needs to happen after 3 iterations!
+        if bit_id % 8 == 0 {
+            data.push(working_byte);
+            working_byte = 0;
         }
     }
-    Some(is_two_state)
 }
 
 #[cfg(test)]
@@ -788,10 +894,12 @@ mod tests {
 
     #[test]
     fn test_meta_data_encoding() {
-        do_test_meta_data_round_trip(SignalEncodingMetaData::uncompressed(false));
-        do_test_meta_data_round_trip(SignalEncodingMetaData::uncompressed(true));
-        do_test_meta_data_round_trip(SignalEncodingMetaData::compressed(false, 12345));
-        do_test_meta_data_round_trip(SignalEncodingMetaData::compressed(true, 12345));
+        do_test_meta_data_round_trip(SignalEncodingMetaData::uncompressed(States::Two));
+        do_test_meta_data_round_trip(SignalEncodingMetaData::uncompressed(States::Four));
+        do_test_meta_data_round_trip(SignalEncodingMetaData::uncompressed(States::Nine));
+        do_test_meta_data_round_trip(SignalEncodingMetaData::compressed(States::Two, 12345));
+        do_test_meta_data_round_trip(SignalEncodingMetaData::compressed(States::Four, 12345));
+        do_test_meta_data_round_trip(SignalEncodingMetaData::compressed(States::Nine, 12345));
     }
 
     fn do_test_meta_data_round_trip(data: SignalEncodingMetaData) {
@@ -855,40 +963,35 @@ mod tests {
     fn do_test_try_write_4_state(value: &[u8], expected: Option<&[u8]>, is_two_state: bool) {
         let mut out = vec![5u8, 7u8];
         let out_starting_len = out.len();
-
-        match (try_write_4_state(value, &mut out), expected) {
-            (Some(actual_two_state), Some(expect)) => {
+        let identified_state = check_states(value).unwrap();
+        if is_two_state {
+            assert_eq!(identified_state, States::Two);
+        }
+        write_n_state(States::Four, value, &mut out);
+        match expected {
+            None => {}
+            Some(expect) => {
                 assert_eq!(&out[out_starting_len..], expect);
-                assert_eq!(actual_two_state, is_two_state);
             }
-            (None, Some(expect)) => {
-                panic!("Expected: {expect:?}, but got error");
-            }
-            (Some(_), None) => {
-                panic!("Expected error, but got: {out:?}")
-            }
-            (None, None) => {
-                assert_eq!(out.len(), out_starting_len);
-            } // great!
         }
     }
 
-    #[test]
-    fn test_four_state_to_two_state() {
-        let mut input0 = vec![0b01010001u8, 0b00010100u8, 0b00010000u8];
-        let expected0 = [0b1101u8, 0b01100100u8];
-        four_state_to_two_state(&mut input0);
-        assert_eq!(input0, expected0);
-
-        // example from the try_write_4_state test
-        let mut input1 = vec![
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0b0101, 0b01, 0, 0b0101, 0b01000101, 0b0101,
-        ];
-        let expected1 = [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b110001, 0b11, 0b10110011,
-        ];
-        four_state_to_two_state(&mut input1);
-        assert_eq!(input1, expected1);
-    }
+    // #[test]
+    // fn test_four_state_to_two_state() {
+    //     let mut input0 = vec![0b01010001u8, 0b00010100u8, 0b00010000u8];
+    //     let expected0 = [0b1101u8, 0b01100100u8];
+    //     four_state_to_two_state(&mut input0);
+    //     assert_eq!(input0, expected0);
+    //
+    //     // example from the try_write_4_state test
+    //     let mut input1 = vec![
+    //         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    //         0, 0, 0, 0, 0b0101, 0b01, 0, 0b0101, 0b01000101, 0b0101,
+    //     ];
+    //     let expected1 = [
+    //         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b110001, 0b11, 0b10110011,
+    //     ];
+    //     four_state_to_two_state(&mut input1);
+    //     assert_eq!(input1, expected1);
+    // }
 }
