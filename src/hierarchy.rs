@@ -150,7 +150,7 @@ pub enum VarDirection {
     Todo, // placeholder tpe
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct VarIndex(NonZeroU64);
 
 impl VarIndex {
@@ -190,19 +190,16 @@ impl SignalRef {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SignalType {
     String,
     Real,
-    BitVector(NonZeroU32, Option<VarIndex>),
+    BitVector(u32, Option<VarIndex>),
 }
 
 impl SignalType {
     pub fn from_uint(len: u32, index: Option<VarIndex>) -> Self {
-        match NonZeroU32::new(len) {
-            None => SignalType::String,
-            Some(value) => SignalType::BitVector(value, index),
-        }
+        SignalType::BitVector(len, index)
     }
 }
 
@@ -258,7 +255,7 @@ impl Var {
         match &self.signal_tpe {
             SignalType::String => None,
             SignalType::Real => None,
-            SignalType::BitVector(len, _) => Some(len.get()),
+            SignalType::BitVector(len, _) => Some(*len),
         }
     }
     pub fn is_real(&self) -> bool {

@@ -153,7 +153,7 @@ impl Reader {
                     load_fixed_len_signal(
                         &mut data.as_ref(),
                         time_idx_offset,
-                        signal_len.get(),
+                        signal_len,
                         meta.max_states,
                         &mut time_indices,
                         &mut data_bytes,
@@ -177,9 +177,9 @@ impl Reader {
             }
             SignalType::BitVector(len, _) => {
                 assert!(strings.is_empty());
-                let encoding = SignalEncoding::BitVector(meta.max_states, len.get());
+                let encoding = SignalEncoding::BitVector(meta.max_states, len);
                 let bytes_per_entry =
-                    usize_div_ceil(len.get() as usize, meta.max_states.bits_in_a_byte()) as u32;
+                    usize_div_ceil(len as usize, meta.max_states.bits_in_a_byte()) as u32;
                 Signal::new_fixed_len(id, time_indices, encoding, bytes_per_entry, data_bytes)
             }
             SignalType::Real => {
@@ -670,7 +670,9 @@ impl SignalEncoder {
                     b'b' | b'B' => &value[1..],
                     _ => value,
                 };
-                if len.get() == 1 {
+                if len == 0 {
+                    assert_eq!(value_bits, b"0", "0-bit value should always be zero!");
+                } else if len == 1 {
                     let states =
                         try_write_1_bit_9_state(time_idx_delta, value_bits[0], &mut self.data)
                             .unwrap_or_else(|| {
@@ -693,7 +695,7 @@ impl SignalEncoder {
                     let time_and_meta = (time_idx_delta as u64) << 2 | (states as u64);
                     leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
                     // write actual data
-                    let bits = len.get() as usize;
+                    let bits = len as usize;
                     let data_to_write = if value_bits.len() == bits {
                         Cow::Borrowed(value_bits)
                     } else {
