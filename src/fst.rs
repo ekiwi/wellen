@@ -198,6 +198,10 @@ impl SignalWriter {
 fn convert_scope_tpe(tpe: FstScopeType) -> ScopeType {
     match tpe {
         FstScopeType::Module => ScopeType::Module,
+        FstScopeType::Task => ScopeType::Task,
+        FstScopeType::Function => ScopeType::Function,
+        FstScopeType::Begin => ScopeType::Begin,
+        FstScopeType::Fork => ScopeType::Fork,
         other => panic!("Unsupported scope type: {:?}", other),
     }
 }
