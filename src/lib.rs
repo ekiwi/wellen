@@ -13,3 +13,6 @@ pub use hierarchy::{
     VarDirection, VarRef, VarType,
 };
 pub use signals::{SignalValue, Waveform};
+
+#[cfg(feature = "benchmark")]
+pub use wavemem::check_states_pub;

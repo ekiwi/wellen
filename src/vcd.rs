@@ -1,4 +1,4 @@
-// Copyright 2023 The Regents of the University of California
+// Copyright 2023-2024 The Regents of the University of California
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
@@ -42,18 +42,6 @@ fn read_bytes_internal(bytes: &[u8], multi_threaded: bool) -> Result<Waveform> {
     let wave_mem = read_values(&bytes[header_len..], multi_threaded, &hierarchy);
     Ok(Waveform::new(hierarchy, wave_mem))
 }
-
-// fn print_stats() {
-//     println!(
-//         "The full VCD data takes up  {} bytes in memory.",
-//         ByteSize::b(wave_mem.size_in_memory() as u64)
-//     );
-//     println!(
-//         "The size of the VCD file is {} bytes on disk.",
-//         ByteSize::b((input_size - header_len) as u64)
-//     );
-//     wave_mem.print_statistics();
-// }
 
 fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
     let start = input.stream_position().unwrap();

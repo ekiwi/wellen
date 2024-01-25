@@ -24,4 +24,15 @@ num_enum = "0.7.1"
 itertools = "0.11.0"
 vcd = "0.7.0"
 clap = { version = "4.4.6", features = ["derive"] }
+criterion = "0.5"
 
+[profile.release]
+debug = true
+
+[[bench]]
+name = "wavemem"
+harness = false
+
+[features]
+# makes internal functions public for benchmarking
+benchmark = []

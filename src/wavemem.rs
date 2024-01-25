@@ -1,4 +1,4 @@
-// Copyright 2023 The Regents of the University of California
+// Copyright 2023-2024 The Regents of the University of California
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 //
@@ -838,6 +838,12 @@ impl States {
     }
 }
 
+#[cfg(feature = "benchmark")]
+pub fn check_states_pub(value: &[u8]) -> Option<usize> {
+    check_states(value).map(|s| s.bits())
+}
+
+#[inline]
 fn check_states(value: &[u8]) -> Option<States> {
     let mut union = 0;
     for cc in value.iter() {

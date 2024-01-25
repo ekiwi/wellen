@@ -3,3 +3,6 @@
 /.idea/
 /proptest-regressions/
 /lcov.info
+flamegraph.svg
+perf.data
+perf.data.old
