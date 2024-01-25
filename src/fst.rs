@@ -5,7 +5,7 @@
 use crate::hierarchy::*;
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
 use crate::vcd::{parse_index, usize_div_ceil};
-use crate::wavemem::{check_states, write_n_state, States};
+use crate::wavemem::{check_states, expand_states, write_n_state, States};
 use crate::Waveform;
 use fst_native::*;
 use std::collections::HashMap;
@@ -134,8 +134,15 @@ impl SignalWriter {
                     let encode_as = if let Some(max_states) = self.max_states {
                         let combined = States::join(max_states, new_states);
                         if combined != max_states {
+                            let num_prev_entries = self.time_indices.len() - 1; // -1 to account for the new index
+                            self.data_bytes = expand_entries(
+                                max_states,
+                                combined,
+                                &self.data_bytes,
+                                num_prev_entries,
+                                len.get(),
+                            );
                             self.max_states = Some(combined);
-                            todo!("Recode existing data!");
                         }
                         combined
                     } else {
@@ -194,6 +201,18 @@ impl SignalWriter {
             }
         }
     }
+}
+
+fn expand_entries(from: States, to: States, old: &[u8], entries: usize, bits: u32) -> Vec<u8> {
+    let expansion_factor = to.bits() / from.bits();
+    debug_assert!(expansion_factor > 1);
+    let bytes_per_entry = old.len() / entries;
+    debug_assert_eq!(old.len(), bytes_per_entry * entries);
+    let mut data = Vec::with_capacity(old.len() * expansion_factor);
+    for value in old.chunks(bytes_per_entry) {
+        expand_states(from, to, bits, value, &mut data);
+    }
+    data
 }
 
 fn convert_scope_tpe(tpe: FstScopeType) -> ScopeType {

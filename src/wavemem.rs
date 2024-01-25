@@ -269,7 +269,7 @@ fn load_fixed_len_signal(
     }
 }
 
-fn expand_states(from: States, to: States, bits: u32, values: &[u8], out: &mut Vec<u8>) {
+pub(crate) fn expand_states(from: States, to: States, bits: u32, values: &[u8], out: &mut Vec<u8>) {
     assert!(
         from.bits() < to.bits(),
         "Can only expand, not convert from {:?} to {:?}",
@@ -823,7 +823,7 @@ impl States {
     }
     /// Returns how many bits are needed in order to encode one bit of state.
     #[inline]
-    fn bits(&self) -> usize {
+    pub(crate) fn bits(&self) -> usize {
         match self {
             States::Two => 1,
             States::Four => 2,
