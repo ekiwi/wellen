@@ -26,7 +26,7 @@ fn run_diff_test_internal(vcd_filename: &str, fst_filename: &str, skip_content_c
     }
     {
         let wave = waveform::fst::read(fst_filename);
-        // diff_test_one(vcd_filename, wave, skip_content_comparison);
+        diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
 }
 
@@ -34,14 +34,19 @@ fn diff_test_one(vcd_filename: &str, mut our: Waveform, skip_content_comparison:
     let mut ref_parser =
         vcd::Parser::new(BufReader::new(std::fs::File::open(vcd_filename).unwrap()));
     let ref_header = ref_parser.parse_header().unwrap();
-    diff_hierarchy(our.hierarchy(), &ref_header);
+    let mut id_map = HashMap::new();
+    diff_hierarchy(our.hierarchy(), &ref_header, &mut id_map);
     load_all_signals(&mut our);
     if !skip_content_comparison {
-        diff_signals(&mut ref_parser, &mut our);
+        diff_signals(&mut ref_parser, &mut our, &id_map);
     }
 }
 
-fn diff_hierarchy(ours: &Hierarchy, ref_header: &vcd::Header) {
+fn diff_hierarchy(
+    ours: &Hierarchy,
+    ref_header: &vcd::Header,
+    id_map: &mut HashMap<vcd::IdCode, SignalRef>,
+) {
     diff_meta(ours, ref_header);
 
     for (ref_child, our_child) in itertools::zip_eq(
@@ -51,7 +56,7 @@ fn diff_hierarchy(ours: &Hierarchy, ref_header: &vcd::Header) {
             .filter(|i| !matches!(i, vcd::ScopeItem::Comment(_))),
         ours.items(),
     ) {
-        diff_hierarchy_item(ref_child, our_child, ours);
+        diff_hierarchy_item(ref_child, our_child, ours, id_map);
     }
 }
 
@@ -124,7 +129,12 @@ fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
     }
 }
 
-fn diff_hierarchy_item(ref_item: &vcd::ScopeItem, our_item: HierarchyItem, our_hier: &Hierarchy) {
+fn diff_hierarchy_item(
+    ref_item: &vcd::ScopeItem,
+    our_item: HierarchyItem,
+    our_hier: &Hierarchy,
+    id_map: &mut HashMap<vcd::IdCode, SignalRef>,
+) {
     match (ref_item, our_item) {
         (vcd::ScopeItem::Scope(ref_scope), HierarchyItem::Scope(our_scope)) => {
             assert_eq!(ref_scope.identifier, our_scope.name(our_hier));
@@ -139,10 +149,11 @@ fn diff_hierarchy_item(ref_item: &vcd::ScopeItem, our_item: HierarchyItem, our_h
                     .filter(|i| !matches!(i, vcd::ScopeItem::Comment(_))),
                 our_scope.items(our_hier),
             ) {
-                diff_hierarchy_item(ref_child, our_child, our_hier)
+                diff_hierarchy_item(ref_child, our_child, our_hier, id_map)
             }
         }
         (vcd::ScopeItem::Var(ref_var), HierarchyItem::Var(our_var)) => {
+            id_map.insert(ref_var.code, our_var.signal_ref());
             assert_eq!(ref_var.reference, our_var.name(our_hier));
             assert_eq!(
                 ref_var.var_type.to_string(),
@@ -184,12 +195,16 @@ fn load_all_signals(our: &mut Waveform) {
         .get_unique_signals_vars()
         .iter()
         .flatten()
-        .map(|v| v.signal_idx())
+        .map(|v| v.signal_ref())
         .collect();
     our.load_signals(&all_signals);
 }
 
-fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform) {
+fn diff_signals<R: BufRead>(
+    ref_reader: &mut vcd::Parser<R>,
+    our: &mut Waveform,
+    id_map: &HashMap<vcd::IdCode, SignalRef>,
+) {
     let time_table = our.time_table();
 
     // iterate over reference VCD and compare with signals in our waveform
@@ -216,9 +231,9 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 assert_eq!(current_time.unwrap(), time_table[time_table_idx]);
             }
             vcd::Command::ChangeScalar(id, value) => {
-                let our_value = get_value(our, id, time_table_idx, &mut delta_counter);
+                let signal_ref = id_map[&id];
+                let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
                 let our_value_str = our_value.to_bit_string().unwrap();
-                let signal_ref = vcd_lib_id_to_signal_ref(id);
                 assert_eq!(
                     our_value_str,
                     value.to_string(),
@@ -226,15 +241,15 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                     id,
                     signal_ref,
                     value,
-                    current_time.unwrap(),
+                    current_time.unwrap_or(0),
                     our_value_str
                 );
             }
             vcd::Command::ChangeVector(id, value) => {
+                let signal_ref = id_map[&id];
                 assert_eq!(current_time.unwrap_or(0), time_table[time_table_idx]);
-                let our_value = get_value(our, id, time_table_idx, &mut delta_counter);
+                let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
                 let our_value_str = our_value.to_bit_string().unwrap();
-                let signal_ref = vcd_lib_id_to_signal_ref(id);
                 if value.len() < our_value_str.len() {
                     let prefix_len = our_value_str.len() - value.len();
                     // we are zero / x extending, so our string might be longer
@@ -246,7 +261,7 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                         id,
                         signal_ref,
                         value,
-                        current_time.unwrap(),
+                        current_time.unwrap_or(0),
                         our_value_str
                     );
                     let is_x_extended = suffix.chars().next().unwrap() == 'x';
@@ -274,8 +289,9 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 }
             }
             vcd::Command::ChangeReal(id, value) => {
+                let signal_ref = id_map[&id];
                 assert_eq!(current_time.unwrap_or(0), time_table[time_table_idx]);
-                let our_value = get_value(our, id, time_table_idx, &mut delta_counter);
+                let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
                 if let SignalValue::Real(our_real) = our_value {
                     assert_eq!(our_real, value);
                 } else {
@@ -283,8 +299,9 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
                 }
             }
             vcd::Command::ChangeString(id, value) => {
+                let signal_ref = id_map[&id];
                 assert_eq!(current_time.unwrap_or(0), time_table[time_table_idx]);
-                let our_value = get_value(our, id, time_table_idx, &mut delta_counter);
+                let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
                 let our_value_str = our_value.to_string();
                 assert_eq!(our_value_str, value);
             }
@@ -298,11 +315,10 @@ fn diff_signals<R: BufRead>(ref_reader: &mut vcd::Parser<R>, our: &mut Waveform)
 
 fn get_value<'a>(
     our: &'a Waveform,
-    id: vcd::IdCode,
+    signal_ref: SignalRef,
     time_table_idx: usize,
     delta_counter: &mut HashMap<SignalRef, u16>,
 ) -> SignalValue<'a> {
-    let signal_ref = vcd_lib_id_to_signal_ref(id);
     let our_signal = our.get_signal(signal_ref).unwrap();
     let our_offset = our_signal.get_offset(time_table_idx as u32);
     assert!(
@@ -323,37 +339,6 @@ fn get_value<'a>(
         // no delta cycle -> just get the element and be happy!
         our_signal.get_value_at(&our_offset, 0)
     }
-}
-
-fn vcd_lib_id_to_signal_ref(id: vcd::IdCode) -> SignalRef {
-    let num = id_to_int(id.to_string().as_bytes()).unwrap();
-    SignalRef::from_index(num as usize).unwrap()
-}
-
-const ID_CHAR_MIN: u8 = b'!';
-const ID_CHAR_MAX: u8 = b'~';
-const NUM_ID_CHARS: u64 = (ID_CHAR_MAX - ID_CHAR_MIN + 1) as u64;
-
-/// Copied from https://github.com/kevinmehall/rust-vcd, licensed under MIT
-fn id_to_int(id: &[u8]) -> Option<u64> {
-    if id.is_empty() {
-        return None;
-    }
-    let mut result = 0u64;
-    for &i in id.iter().rev() {
-        if !(ID_CHAR_MIN..=ID_CHAR_MAX).contains(&i) {
-            return None;
-        }
-        let c = ((i - ID_CHAR_MIN) as u64) + 1;
-        result = match result
-            .checked_mul(NUM_ID_CHARS)
-            .and_then(|x| x.checked_add(c))
-        {
-            None => return None,
-            Some(value) => value,
-        };
-    }
-    Some(result - 1)
 }
 
 #[test]

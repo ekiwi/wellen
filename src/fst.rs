@@ -64,6 +64,7 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
                 index_and_time = time_table.next().unwrap();
             }
             let time_idx = index_and_time.0 as TimeTableIdx;
+            debug_assert_eq!(*index_and_time.1, time);
             let signal_pos = idx_to_pos[&handle.get_index()];
             signals[signal_pos].add_change(time_idx, handle, value);
         };

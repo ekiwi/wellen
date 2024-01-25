@@ -258,7 +258,7 @@ impl Var {
             _ => None,
         }
     }
-    pub fn signal_idx(&self) -> SignalRef {
+    pub fn signal_ref(&self) -> SignalRef {
         self.signal_idx
     }
     pub fn length(&self) -> Option<u32> {

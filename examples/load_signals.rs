@@ -78,11 +78,11 @@ fn main() {
     let signal_load_start = std::time::Instant::now();
     for var in wave.hierarchy().get_unique_signals_vars().iter().flatten() {
         let _signal_name: String = var.full_name(wave.hierarchy());
-        let ids = [var.signal_idx(); 1];
+        let ids = [var.signal_ref(); 1];
         let start = std::time::Instant::now();
         wave.load_signals(&ids);
         let load_time = start.elapsed();
-        let bytes_in_mem = wave.get_signal(var.signal_idx()).unwrap().size_in_memory();
+        let bytes_in_mem = wave.get_signal(var.signal_ref()).unwrap().size_in_memory();
         signal_load_times.push(load_time);
         signal_sizes.push(bytes_in_mem);
     }
