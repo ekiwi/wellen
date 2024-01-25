@@ -134,6 +134,9 @@ impl SignalWriter {
                     let encode_as = if let Some(max_states) = self.max_states {
                         let combined = States::join(max_states, new_states);
                         if combined != max_states {
+                            // With FST we do not know how many states the signal needs, thus we first assume
+                            // the minimal number of states. If that turns out to be wrong, we go back and
+                            // expand the existing data.
                             let num_prev_entries = self.time_indices.len() - 1; // -1 to account for the new index
                             self.data_bytes = expand_entries(
                                 max_states,
