@@ -27,7 +27,7 @@ fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
             .map(|v| v.name(hierarchy).bytes().len())
             .sum::<usize>();
     // to compute full names efficiently, we do need to save a 16-bit parent pointer which takes some space
-    let parent_overhead = std::mem::size_of::<u16>() * total_num_elements;
+    let _parent_overhead = std::mem::size_of::<u16>() * total_num_elements;
     let full_size = hierarchy
         .iter_scopes()
         .map(|s| s.full_name(hierarchy).bytes().len())
@@ -77,7 +77,7 @@ fn main() {
     let mut signal_sizes = Vec::new();
     let signal_load_start = std::time::Instant::now();
     for var in wave.hierarchy().get_unique_signals_vars().iter().flatten() {
-        let signal_name: String = var.full_name(wave.hierarchy());
+        let _signal_name: String = var.full_name(wave.hierarchy());
         let ids = [var.signal_idx(); 1];
         let start = std::time::Instant::now();
         wave.load_signals(&ids);

@@ -817,7 +817,7 @@ impl States {
             States::Nine
         }
     }
-    fn join(a: Self, b: Self) -> Self {
+    pub(crate) fn join(a: Self, b: Self) -> Self {
         let num = std::cmp::max(a as u8, b as u8);
         Self::try_from_primitive(num).unwrap()
     }
@@ -833,7 +833,7 @@ impl States {
 
     /// Returns how many signal bits can be encoded in a u8.
     #[inline]
-    fn bits_in_a_byte(&self) -> usize {
+    pub(crate) fn bits_in_a_byte(&self) -> usize {
         8 / self.bits()
     }
 }
@@ -844,7 +844,7 @@ pub fn check_states_pub(value: &[u8]) -> Option<usize> {
 }
 
 #[inline]
-fn check_states(value: &[u8]) -> Option<States> {
+pub(crate) fn check_states(value: &[u8]) -> Option<States> {
     let mut union = 0;
     for cc in value.iter() {
         union |= bit_char_to_num(*cc)?;
@@ -883,7 +883,7 @@ fn try_write_1_bit_9_state(time_index: u16, value: u8, data: &mut Vec<u8>) -> Op
 }
 
 #[inline]
-fn write_n_state(states: States, value: &[u8], data: &mut Vec<u8>) {
+pub(crate) fn write_n_state(states: States, value: &[u8], data: &mut Vec<u8>) {
     debug_assert!(states.bits() == 1 || states.bits() == 2 || states.bits() == 4);
     let bits = value.len() * states.bits();
     let bit_values = value.iter().map(|b| bit_char_to_num(*b).unwrap());

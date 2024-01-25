@@ -4,8 +4,8 @@
 
 use crate::hierarchy::*;
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
-use crate::vcd::parse_index;
-use crate::wavemem::States;
+use crate::vcd::{parse_index, usize_div_ceil};
+use crate::wavemem::{check_states, write_n_state, States};
 use crate::Waveform;
 use fst_native::*;
 use std::collections::HashMap;
@@ -90,7 +90,6 @@ struct SignalWriter {
     strings: Vec<String>,
     time_indices: Vec<TimeTableIdx>,
     max_states: Option<States>,
-    first_states: Option<States>,
 }
 
 impl SignalWriter {
@@ -103,7 +102,6 @@ impl SignalWriter {
             strings: Vec::new(),
             time_indices: Vec::new(),
             max_states: None,
-            first_states: None,
         }
     }
 
@@ -121,12 +119,34 @@ impl SignalWriter {
         match value {
             FstSignalValue::String(value) => match self.tpe {
                 SignalType::String => {
-                    self.strings.push(value);
+                    self.strings
+                        .push(String::from_utf8_lossy(value).to_string());
                 }
                 SignalType::BitVector(len, _) => {
-                    println!("TODO: bv<{}> {value}", len.get());
+                    debug_assert_eq!(value.len(), len.get() as usize);
+                    let new_states = check_states(value).unwrap_or_else(|| {
+                        panic!(
+                            "Unexpected signal value: {}",
+                            String::from_utf8_lossy(value)
+                        )
+                    });
+                    let encode_as = if let Some(max_states) = self.max_states {
+                        let combined = States::join(max_states, new_states);
+                        if combined != max_states {
+                            self.max_states = Some(combined);
+                            todo!("Recode existing data!");
+                        }
+                        combined
+                    } else {
+                        self.max_states = Some(new_states);
+                        new_states
+                    };
+                    write_n_state(encode_as, value, &mut self.data_bytes);
                 }
-                SignalType::Real => panic!("Expecting reals, but go: {}", value),
+                SignalType::Real => panic!(
+                    "Expecting reals, but go: {}",
+                    String::from_utf8_lossy(value)
+                ),
             },
             FstSignalValue::Real(value) => {
                 debug_assert_eq!(self.tpe, SignalType::Real);
@@ -153,7 +173,23 @@ impl SignalWriter {
             }
             SignalType::BitVector(len, _) => {
                 debug_assert!(self.strings.is_empty());
-                todo!()
+                let states = if let Some(max_states) = self.max_states {
+                    debug_assert!(!self.data_bytes.is_empty());
+                    max_states
+                } else {
+                    debug_assert!(self.data_bytes.is_empty());
+                    States::Two
+                };
+                let encoding = SignalEncoding::BitVector(states, len.get());
+                let bytes_per_entry =
+                    usize_div_ceil(len.get() as usize, states.bits_in_a_byte()) as u32;
+                Signal::new_fixed_len(
+                    self.id,
+                    self.time_indices,
+                    encoding,
+                    bytes_per_entry,
+                    self.data_bytes,
+                )
             }
         }
     }
