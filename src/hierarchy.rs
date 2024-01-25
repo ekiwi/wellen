@@ -142,6 +142,12 @@ pub enum VarType {
     Wire,
     WOr,
     String,
+    // only supported by FST:
+    Port,
+    Bit,
+    Logic,
+    Int,
+    Enum,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -4,6 +4,7 @@
 
 use crate::hierarchy::*;
 use crate::signals::{Signal, SignalSource, Time};
+use crate::vcd::parse_index;
 use crate::Waveform;
 use fst_native::*;
 use std::collections::HashMap;
@@ -86,7 +87,35 @@ fn convert_scope_tpe(tpe: FstScopeType) -> ScopeType {
 fn convert_var_tpe(tpe: FstVarType) -> VarType {
     match tpe {
         FstVarType::Wire => VarType::Wire,
-        other => panic!("Unsupported var type: {:?}", other),
+        FstVarType::Event => VarType::Event,
+        FstVarType::Integer => VarType::Integer,
+        FstVarType::Parameter => VarType::Parameter,
+        FstVarType::Real => VarType::Real,
+        FstVarType::RealParameter => VarType::Parameter,
+        FstVarType::Reg => VarType::Reg,
+        FstVarType::Supply0 => VarType::Supply0,
+        FstVarType::Supply1 => VarType::Supply1,
+        FstVarType::Time => VarType::Time,
+        FstVarType::Tri => VarType::Tri,
+        FstVarType::TriAnd => VarType::TriAnd,
+        FstVarType::TriOr => VarType::TriOr,
+        FstVarType::TriReg => VarType::TriReg,
+        FstVarType::Tri0 => VarType::Tri0,
+        FstVarType::Tri1 => VarType::Tri1,
+        FstVarType::Wand => VarType::WAnd,
+        FstVarType::Wor => VarType::WOr,
+        FstVarType::Port => VarType::Port,
+        FstVarType::SparseArray => todo!("Implement support for SparseArray type!"),
+        FstVarType::RealTime => todo!("Implement support for RealTime type!"),
+        FstVarType::GenericString => VarType::String,
+        FstVarType::Bit => VarType::Bit,
+        FstVarType::Logic => VarType::Logic,
+        FstVarType::Int => VarType::Int,
+        FstVarType::ShortInt => VarType::Int,
+        FstVarType::LongInt => VarType::Int,
+        FstVarType::Byte => VarType::Int,
+        FstVarType::Enum => VarType::Enum,
+        FstVarType::ShortReal => VarType::Real,
     }
 }
 
@@ -151,12 +180,19 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 handle,
                 ..
             } => {
+                // the fst name often contains the variable name + the index
+                let (var_name, index) = if let Some((prefix, suffix)) = name.split_once(' ') {
+                    (prefix.to_string(), parse_index(suffix.as_bytes()))
+                } else {
+                    (name, None)
+                };
+
                 h.add_var(
-                    name,
+                    var_name,
                     convert_var_tpe(tpe),
                     convert_var_direction(direction),
                     length,
-                    None,
+                    index,
                     SignalRef::from_index(handle.get_index()).unwrap(),
                 );
             }

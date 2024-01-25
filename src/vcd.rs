@@ -105,7 +105,7 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
     ((end - start) as usize, hierarchy)
 }
 
-fn parse_index(index: &[u8]) -> Option<VarIndex> {
+pub(crate) fn parse_index(index: &[u8]) -> Option<VarIndex> {
     if index.len() < 3 {
         return None;
     }
