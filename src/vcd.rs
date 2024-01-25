@@ -45,7 +45,7 @@ fn read_bytes_internal(bytes: &[u8], multi_threaded: bool) -> Result<Waveform> {
 
 fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
     let start = input.stream_position().unwrap();
-    let mut h = HierarchyBuilder::default();
+    let mut h = HierarchyBuilder::new(FileType::Vcd);
 
     let foo = |cmd: HeaderCmd| match cmd {
         HeaderCmd::Scope(tpe, name) => {

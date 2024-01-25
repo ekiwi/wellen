@@ -436,17 +436,25 @@ struct HierarchyMetaData {
     date: String,
     version: String,
     comments: Vec<String>,
+    file_type: FileType,
 }
 
-impl Default for HierarchyMetaData {
-    fn default() -> Self {
+impl HierarchyMetaData {
+    fn new(file_type: FileType) -> Self {
         HierarchyMetaData {
             timescale: None,
             date: "".to_string(),
             version: "".to_string(),
             comments: Vec::default(),
+            file_type,
         }
     }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum FileType {
+    Vcd,
+    Fst,
 }
 
 // public implementation
@@ -508,6 +516,9 @@ impl Hierarchy {
     }
     pub fn timescale(&self) -> Option<Timescale> {
         self.meta.timescale
+    }
+    pub fn file_type(&self) -> FileType {
+        self.meta.file_type
     }
 }
 
@@ -586,8 +597,8 @@ pub struct HierarchyBuilder {
     duplicate_string_size: usize,
 }
 
-impl Default for HierarchyBuilder {
-    fn default() -> Self {
+impl HierarchyBuilder {
+    pub(crate) fn new(file_type: FileType) -> Self {
         // we start with a fake entry in the scope stack to keep track of multiple items in the top scope
         let scope_stack = vec![ScopeStackEntry {
             scope_id: usize::MAX,
@@ -600,7 +611,7 @@ impl Default for HierarchyBuilder {
             scope_stack,
             strings: StringInterner::default(),
             handle_to_node: Vec::default(),
-            meta: HierarchyMetaData::default(),
+            meta: HierarchyMetaData::new(file_type),
             duplicate_string_count: 0,
             duplicate_string_size: 0,
         }

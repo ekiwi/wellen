@@ -275,7 +275,7 @@ fn convert_timescale(exponent: i8) -> Timescale {
 }
 
 fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
-    let mut h = HierarchyBuilder::default();
+    let mut h = HierarchyBuilder::new(FileType::Fst);
     // load meta-data
     let fst_header = reader.get_header();
     h.set_version(fst_header.version.trim().to_string());

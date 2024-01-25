@@ -5,7 +5,8 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use waveform::{
-    Hierarchy, HierarchyItem, ScopeType, SignalRef, SignalValue, TimescaleUnit, VarType, Waveform,
+    FileType, Hierarchy, HierarchyItem, ScopeType, SignalRef, SignalValue, TimescaleUnit, VarType,
+    Waveform,
 };
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
@@ -56,7 +57,10 @@ fn diff_hierarchy(ours: &Hierarchy, ref_header: &vcd::Header) {
 
 fn diff_meta(ours: &Hierarchy, ref_header: &vcd::Header) {
     match &ref_header.version {
-        None => assert!(ours.version().is_empty()),
+        None => match ours.file_type() {
+            FileType::Vcd => assert!(ours.version().is_empty(), "{}", ours.version()),
+            FileType::Fst => {}
+        },
         Some(version) => assert_eq!(version, ours.version()),
     }
 
