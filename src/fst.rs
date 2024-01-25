@@ -3,8 +3,9 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::*;
-use crate::signals::{Signal, SignalSource, Time};
+use crate::signals::{Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
 use crate::vcd::parse_index;
+use crate::wavemem::States;
 use crate::Waveform;
 use fst_native::*;
 use std::collections::HashMap;
@@ -51,21 +52,24 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
         let mut index_and_time = time_table.next().unwrap();
 
         // store signals
-        let signals = Vec::new();
+        let mut signals = ids
+            .iter()
+            .map(|(id, tpe)| SignalWriter::new(*id, *tpe))
+            .collect::<Vec<_>>();
         let idx_to_pos: HashMap<usize, usize> =
             HashMap::from_iter(ids.iter().map(|(r, _)| r.index()).enumerate());
-        let foo = |time: u64, handle: FstSignalHandle, _value: FstSignalValue| {
+        let foo = |time: u64, handle: FstSignalHandle, value: FstSignalValue| {
             // determine time index
             while *(index_and_time.1) < time {
                 index_and_time = time_table.next().unwrap();
             }
-            let _time_idx = index_and_time.0;
-            let _signal_pos = idx_to_pos[&handle.get_index()];
-            todo!("Add better interface to FST library that lets us read one signal at a time")
+            let time_idx = index_and_time.0 as TimeTableIdx;
+            let signal_pos = idx_to_pos[&handle.get_index()];
+            signals[signal_pos].add_change(time_idx, handle, value);
         };
 
         self.reader.read_signals(&filter, foo).unwrap();
-        signals
+        signals.into_iter().map(|w| w.finish()).collect()
     }
 
     fn get_time_table(&self) -> Vec<Time> {
@@ -74,6 +78,84 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
 
     fn print_statistics(&self) {
         println!("FST backend currently has not statistics to print.");
+    }
+}
+
+struct SignalWriter {
+    tpe: SignalType,
+    id: SignalRef,
+    /// used to check that everything is going well
+    handle: FstSignalHandle,
+    data_bytes: Vec<u8>,
+    strings: Vec<String>,
+    time_indices: Vec<TimeTableIdx>,
+    max_states: Option<States>,
+    first_states: Option<States>,
+}
+
+impl SignalWriter {
+    fn new(id: SignalRef, tpe: SignalType) -> Self {
+        Self {
+            tpe,
+            id,
+            handle: FstSignalHandle::from_index(id.index()),
+            data_bytes: Vec::new(),
+            strings: Vec::new(),
+            time_indices: Vec::new(),
+            max_states: None,
+            first_states: None,
+        }
+    }
+
+    fn add_change(
+        &mut self,
+        time_idx: TimeTableIdx,
+        handle: FstSignalHandle,
+        value: FstSignalValue,
+    ) {
+        debug_assert_eq!(handle, self.handle);
+        if let Some(prev_idx) = self.time_indices.last() {
+            debug_assert!(*prev_idx <= time_idx);
+        }
+        self.time_indices.push(time_idx);
+        match value {
+            FstSignalValue::String(value) => match self.tpe {
+                SignalType::String => {
+                    self.strings.push(value);
+                }
+                SignalType::BitVector(len, _) => {
+                    println!("TODO: bv<{}> {value}", len.get());
+                }
+                SignalType::Real => panic!("Expecting reals, but go: {}", value),
+            },
+            FstSignalValue::Real(value) => {
+                debug_assert_eq!(self.tpe, SignalType::Real);
+                self.data_bytes.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+    }
+
+    fn finish(self) -> Signal {
+        match self.tpe {
+            SignalType::String => {
+                debug_assert!(self.data_bytes.is_empty());
+                Signal::new_var_len(self.id, self.time_indices, self.strings)
+            }
+            SignalType::Real => {
+                debug_assert!(self.strings.is_empty());
+                Signal::new_fixed_len(
+                    self.id,
+                    self.time_indices,
+                    SignalEncoding::Real,
+                    8,
+                    self.data_bytes,
+                )
+            }
+            SignalType::BitVector(len, _) => {
+                debug_assert!(self.strings.is_empty());
+                todo!()
+            }
+        }
     }
 }
 

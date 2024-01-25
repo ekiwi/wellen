@@ -18,15 +18,14 @@ fn run_load_test(vcd_filename: &str, fst_filename: &str) {
     run_diff_test_internal(vcd_filename, fst_filename, true);
 }
 
-fn run_diff_test_internal(vcd_filename: &str, _fst_filename: &str, skip_content_comparison: bool) {
+fn run_diff_test_internal(vcd_filename: &str, fst_filename: &str, skip_content_comparison: bool) {
     {
         let wave = waveform::vcd::read(vcd_filename).expect("Failed to load VCD");
         diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
     {
-        println!("TODO: test FST")
-        // let wave = waveform::fst::read(fst_filename);
-        // diff_test_one(vcd_filename, wave);
+        let wave = waveform::fst::read(fst_filename);
+        diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
 }
 
@@ -113,6 +112,11 @@ fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
         VarType::Tri1 => "tri1",
         VarType::WAnd => "wand",
         VarType::WOr => "wor",
+        VarType::Port => "port",
+        VarType::Bit => "bit",
+        VarType::Logic => "logic",
+        VarType::Int => "int",
+        VarType::Enum => "enum",
     }
 }
 

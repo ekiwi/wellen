@@ -156,7 +156,7 @@ pub enum VarDirection {
     Todo, // placeholder tpe
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct VarIndex(NonZeroU64);
 
 impl VarIndex {
@@ -196,7 +196,7 @@ impl SignalRef {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SignalType {
     String,
     Real,

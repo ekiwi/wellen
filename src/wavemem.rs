@@ -128,7 +128,7 @@ impl Reader {
 
     fn load_signal(&self, id: SignalRef, tpe: SignalType) -> Signal {
         let meta = self.collect_signal_meta_data(id);
-        let mut time_indices: Vec<u32> = Vec::new();
+        let mut time_indices: Vec<TimeTableIdx> = Vec::new();
         let mut data_bytes: Vec<u8> = Vec::new();
         let mut strings: Vec<String> = Vec::new();
         for (time_idx_offset, data_block, meta_data) in meta.blocks.into_iter() {
