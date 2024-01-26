@@ -337,42 +337,47 @@ impl Scope {
     }
 
     pub fn items<'a>(&'a self, hierarchy: &'a Hierarchy) -> HierarchyItemIterator<'a> {
-        let start = self.child.map(|c| hierarchy.get_item(c));
-        HierarchyItemIterator::new(hierarchy, start)
+        HierarchyItemIterator::new(hierarchy, self.child)
     }
 
-    pub fn vars<'a>(&'a self, hierarchy: &'a Hierarchy) -> HierarchyVarIterator<'a> {
-        HierarchyVarIterator {
-            underlying: self.items(hierarchy),
+    pub fn vars<'a>(&'a self, hierarchy: &'a Hierarchy) -> HierarchyVarRefIterator<'a> {
+        HierarchyVarRefIterator {
+            underlying: HierarchyItemIdIterator::new(hierarchy, self.child),
+        }
+    }
+
+    pub fn scopes<'a>(&'a self, hierarchy: &'a Hierarchy) -> HierarchyScopeRefIterator<'a> {
+        HierarchyScopeRefIterator {
+            underlying: HierarchyItemIdIterator::new(hierarchy, self.child),
         }
     }
 }
 
-pub struct HierarchyItemIterator<'a> {
+struct HierarchyItemIdIterator<'a> {
     hierarchy: &'a Hierarchy,
-    item: Option<HierarchyItem<'a>>,
+    item: Option<HierarchyItemId>,
     is_first: bool,
 }
 
-impl<'a> HierarchyItemIterator<'a> {
-    fn new(hierarchy: &'a Hierarchy, item: Option<HierarchyItem<'a>>) -> Self {
-        HierarchyItemIterator {
+impl<'a> HierarchyItemIdIterator<'a> {
+    fn new(hierarchy: &'a Hierarchy, item: Option<HierarchyItemId>) -> Self {
+        Self {
             hierarchy,
             item,
             is_first: true,
         }
     }
 
-    fn get_next(item: HierarchyItem) -> Option<HierarchyItemId> {
-        match item {
+    fn get_next(&self, item: HierarchyItemId) -> Option<HierarchyItemId> {
+        match self.hierarchy.get_item(item) {
             HierarchyItem::Scope(scope) => scope.next,
             HierarchyItem::Var(var) => var.next,
         }
     }
 }
 
-impl<'a> Iterator for HierarchyItemIterator<'a> {
-    type Item = HierarchyItem<'a>;
+impl<'a> Iterator for HierarchyItemIdIterator<'a> {
+    type Item = HierarchyItemId;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.item {
@@ -382,40 +387,66 @@ impl<'a> Iterator for HierarchyItemIterator<'a> {
                     self.is_first = false;
                     Some(item)
                 } else {
-                    match Self::get_next(item) {
-                        None => {
-                            self.item = None;
-                            None
-                        }
-                        Some(HierarchyItemId::Scope(scope_id)) => {
-                            let new_scope = self.hierarchy.get(scope_id);
-                            self.item = Some(HierarchyItem::Scope(new_scope));
-                            Some(HierarchyItem::Scope(new_scope))
-                        }
-                        Some(HierarchyItemId::Var(var_id)) => {
-                            let var = self.hierarchy.get(var_id);
-                            self.item = Some(HierarchyItem::Var(var));
-                            Some(HierarchyItem::Var(var))
-                        }
-                    }
+                    self.item = self.get_next(item);
+                    self.item
                 }
             }
         }
     }
 }
 
-pub struct HierarchyVarIterator<'a> {
-    underlying: HierarchyItemIterator<'a>,
+pub struct HierarchyItemIterator<'a> {
+    inner: HierarchyItemIdIterator<'a>,
 }
 
-impl<'a> Iterator for HierarchyVarIterator<'a> {
-    type Item = &'a Var;
+impl<'a> HierarchyItemIterator<'a> {
+    fn new(hierarchy: &'a Hierarchy, item: Option<HierarchyItemId>) -> Self {
+        Self {
+            inner: HierarchyItemIdIterator::new(hierarchy, item),
+        }
+    }
+}
+
+impl<'a> Iterator for HierarchyItemIterator<'a> {
+    type Item = HierarchyItem<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner
+            .next()
+            .map(|item_id| self.inner.hierarchy.get_item(item_id))
+    }
+}
+
+pub struct HierarchyVarRefIterator<'a> {
+    underlying: HierarchyItemIdIterator<'a>,
+}
+
+impl<'a> Iterator for HierarchyVarRefIterator<'a> {
+    type Item = VarRef;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.underlying.next() {
                 None => return None,
-                Some(HierarchyItem::Var(var)) => return Some(var),
+                Some(HierarchyItemId::Var(var)) => return Some(var),
+                Some(_) => {} // continue
+            }
+        }
+    }
+}
+
+pub struct HierarchyScopeRefIterator<'a> {
+    underlying: HierarchyItemIdIterator<'a>,
+}
+
+impl<'a> Iterator for HierarchyScopeRefIterator<'a> {
+    type Item = ScopeRef;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.underlying.next() {
+                None => return None,
+                Some(HierarchyItemId::Scope(scope)) => return Some(scope),
                 Some(_) => {} // continue
             }
         }
@@ -471,8 +502,21 @@ impl Hierarchy {
 
     /// Returns an iterator over all top-level scopes and variables.
     pub fn items(&self) -> HierarchyItemIterator {
-        let start = self.first_item.map(|id| self.get_item(id));
-        HierarchyItemIterator::new(&self, start)
+        HierarchyItemIterator::new(&self, self.first_item)
+    }
+
+    /// Returns an iterator over references to all top-level scopes.
+    pub fn scopes(&self) -> HierarchyScopeRefIterator {
+        HierarchyScopeRefIterator {
+            underlying: HierarchyItemIdIterator::new(&self, self.first_item),
+        }
+    }
+
+    /// Returns an iterator over references to all top-level variables.
+    pub fn vars(&self) -> HierarchyVarRefIterator {
+        HierarchyVarRefIterator {
+            underlying: HierarchyItemIdIterator::new(&self, self.first_item),
+        }
     }
 
     /// Returns the first scope that was declared in the underlying file.
@@ -519,6 +563,33 @@ impl Hierarchy {
     }
     pub fn file_type(&self) -> FileType {
         self.meta.file_type
+    }
+
+    pub fn lookup_scope<N: AsRef<str>>(&self, names: &[N]) -> Option<ScopeRef> {
+        let prefix = names.first()?.as_ref();
+        let mut scope = self.scopes().find(|s| self.get(*s).name(&self) == prefix)?;
+        for name in names.iter().skip(1) {
+            scope = self
+                .get(scope)
+                .scopes(&self)
+                .find(|s| self.get(*s).name(&self) == name.as_ref())?;
+        }
+        Some(scope)
+    }
+
+    pub fn lookup_var<N: AsRef<str>>(&self, names: &[N]) -> Option<VarRef> {
+        match names {
+            [] => None,
+            [name] => self
+                .vars()
+                .find(|v| self.get(*v).name(&self) == name.as_ref()),
+            [scopes @ .., name] => {
+                let scope = self.get(self.lookup_scope(scopes)?);
+                scope
+                    .vars(&self)
+                    .find(|v| self.get(*v).name(&self) == name.as_ref())
+            }
+        }
     }
 }
 
