@@ -12,7 +12,7 @@ pub use hierarchy::{
     FileType, GetItem, Hierarchy, HierarchyItem, Scope, ScopeRef, ScopeType, SignalRef, Timescale,
     TimescaleUnit, Var, VarDirection, VarRef, VarType,
 };
-pub use signals::{SignalValue, Waveform};
+pub use signals::{Real, SignalValue, Time, TimeTableIdx, Waveform};
 
 #[cfg(feature = "benchmark")]
 pub use wavemem::check_states_pub;
