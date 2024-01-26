@@ -577,13 +577,12 @@ impl Hierarchy {
         Some(scope)
     }
 
-    pub fn lookup_var<N: AsRef<str>>(&self, names: &[N]) -> Option<VarRef> {
-        match names {
-            [] => None,
-            [name] => self
+    pub fn lookup_var<N: AsRef<str>>(&self, path: &[N], name: &N) -> Option<VarRef> {
+        match path {
+            [] => self
                 .vars()
                 .find(|v| self.get(*v).name(&self) == name.as_ref()),
-            [scopes @ .., name] => {
+            scopes => {
                 let scope = self.get(self.lookup_scope(scopes)?);
                 scope
                     .vars(&self)
