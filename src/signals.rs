@@ -24,13 +24,13 @@ impl<'a> Display for SignalValue<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
             SignalValue::Binary(data, bits) => {
-                write!(f, "{}", two_state_to_bit_string(data, *bits))
+                write!(f, "{}", n_state_to_bit_string(States::Two, data, *bits))
             }
             SignalValue::FourValue(data, bits) => {
-                write!(f, "{}", four_state_to_bit_string(data, *bits))
+                write!(f, "{}", n_state_to_bit_string(States::Four, data, *bits))
             }
             SignalValue::NineValue(data, bits) => {
-                write!(f, "{}", nine_state_to_bit_string(data, *bits))
+                write!(f, "{}", n_state_to_bit_string(States::Nine, data, *bits))
             }
             SignalValue::String(value) => write!(f, "{}", value),
             SignalValue::Real(value) => write!(f, "{}", value),
@@ -41,71 +41,60 @@ impl<'a> Display for SignalValue<'a> {
 impl<'a> SignalValue<'a> {
     pub fn to_bit_string(&self) -> Option<String> {
         match &self {
-            SignalValue::Binary(data, bits) => Some(two_state_to_bit_string(data, *bits)),
-            SignalValue::FourValue(data, bits) => Some(four_state_to_bit_string(data, *bits)),
+            SignalValue::Binary(data, bits) => {
+                Some(n_state_to_bit_string(States::Two, data, *bits))
+            }
+            SignalValue::FourValue(data, bits) => {
+                Some(n_state_to_bit_string(States::Four, data, *bits))
+            }
+            SignalValue::NineValue(data, bits) => {
+                Some(n_state_to_bit_string(States::Nine, data, *bits))
+            }
             other => panic!("Cannot convert {other:?} to bit string"),
         }
     }
 }
 
-fn two_state_to_bit_string(data: &[u8], bits: u32) -> String {
+const TWO_STATE_LOOKUP: [char; 2] = ['0', '1'];
+const FOUR_STATE_LOOKUP: [char; 4] = ['0', '1', 'x', 'z'];
+const NINE_STATE_LOOKUP: [char; 9] = ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-'];
+
+#[inline]
+fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
+    let lookup = match states {
+        States::Two => TWO_STATE_LOOKUP.as_slice(),
+        States::Four => FOUR_STATE_LOOKUP.as_slice(),
+        States::Nine => NINE_STATE_LOOKUP.as_slice(),
+    };
+    let bits_per_byte = states.bits_in_a_byte() as u32;
+    let states_bits = states.bits() as u32;
+    let mask = (1u8 << states_bits) - 1;
+
     let mut out = String::with_capacity(bits as usize);
     if bits == 0 {
         return out;
     }
 
-    // the first byte might not contain a full 8 bits
-    let byte0_bits = bits - ((bits / 8) * 8);
+    // the first byte might not contain a full N bits
+    let byte0_bits = bits - ((bits / bits_per_byte) * bits_per_byte);
     let byte0_is_special = byte0_bits > 0;
     if byte0_is_special {
         let byte0 = data[0];
         for ii in (0..byte0_bits).rev() {
-            let value = (byte0 >> ii) & 1;
-            let char = ['0', '1'][value as usize];
+            let value = (byte0 >> (ii * states_bits)) & mask;
+            let char = lookup[value as usize];
             out.push(char);
         }
     }
 
     for byte in data.iter().skip(if byte0_is_special { 1 } else { 0 }) {
-        for ii in (0..8).rev() {
-            let value = (byte >> ii) & 1;
-            let char = ['0', '1'][value as usize];
+        for ii in (0..bits_per_byte).rev() {
+            let value = (byte >> (ii * states_bits)) & mask;
+            let char = lookup[value as usize];
             out.push(char);
         }
     }
     out
-}
-
-fn four_state_to_bit_string(data: &[u8], bits: u32) -> String {
-    let mut out = String::with_capacity(bits as usize);
-    if bits == 0 {
-        return out;
-    }
-
-    // the first byte might not contain a full 4 bits
-    let byte0_bits = bits - ((bits / 4) * 4);
-    let byte0_is_special = byte0_bits > 0;
-    if byte0_is_special {
-        let byte = data[0];
-        for ii in (0..byte0_bits).rev() {
-            let value = (byte >> (ii * 2)) & 3;
-            let char = ['0', '1', 'x', 'z'][value as usize];
-            out.push(char);
-        }
-    }
-
-    for byte in data.iter().skip(if byte0_is_special { 1 } else { 0 }) {
-        for ii in (0..4).rev() {
-            let value = (byte >> (ii * 2)) & 3;
-            let char = ['0', '1', 'x', 'z'][value as usize];
-            out.push(char);
-        }
-    }
-    out
-}
-
-fn nine_state_to_bit_string(_data: &[u8], _bits: u32) -> String {
-    todo!("make work");
 }
 
 /// Specifies the encoding of a signal.
