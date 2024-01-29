@@ -6,10 +6,12 @@ use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
 use crate::wavemem::States;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
+use std::num::NonZeroU32;
 
 pub type Real = f64;
 pub type Time = u64;
 pub type TimeTableIdx = u32;
+pub type NonZeroTimeTableIdx = NonZeroU32;
 
 #[derive(Debug, Clone, Copy)]
 pub enum SignalValue<'a> {
@@ -257,10 +259,18 @@ fn find_offset_from_time_table_idx(indices: &[TimeTableIdx], needle: TimeTableId
         elements += 1;
     }
 
+    // find next index
+    let next_index = if start + elements < indices.len() {
+        NonZeroTimeTableIdx::new(indices[start + elements])
+    } else {
+        None
+    };
+
     DataOffset {
         start,
         elements: elements as u16,
         time_match: res_index == needle,
+        next_index,
     }
 }
 
@@ -293,6 +303,8 @@ pub struct DataOffset {
     pub elements: u16,
     /// Indicates that the offset exactly matches the time requested. If false, then we are matching an earlier time step.
     pub time_match: bool,
+    /// Indicates the time table index of the next change.
+    pub next_index: Option<NonZeroTimeTableIdx>,
 }
 
 enum SignalChangeData {
