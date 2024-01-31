@@ -102,8 +102,14 @@ fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
 /// Specifies the encoding of a signal.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum SignalEncoding {
-    /// Bitvector of length N (u32) with 2, 4 or 9 states
-    BitVector(States, u32),
+    /// Bitvector of length N (u32) with 2, 4 or 9 states.
+    /// If `meta_byte` is `true`, each sequence of data bytes is preceded by a meta-byte indicating whether the states
+    /// are reduced by 1 (Four -> Two, Nine -> Four) or by 2 (Nine -> Two).
+    BitVector {
+        max_states: States,
+        bits: u32,
+        meta_byte: bool,
+    },
     /// Each value is encoded as an 8-byte f64 in little endian.
     Real,
 }
@@ -212,17 +218,25 @@ impl Waveform {
         &self.time_table
     }
 
-    pub fn load_signals(&mut self, ids: &[SignalRef]) {
+    fn load_signals_internal(&mut self, ids: &[SignalRef], multi_threaded: bool) {
         let ids_with_len = ids
             .iter()
             .map(|i| (*i, self.hierarchy.get_signal_tpe(*i).unwrap()))
             .collect::<Vec<_>>();
-        let signals = self.source.load_signals(&ids_with_len);
+        let signals = self.source.load_signals(&ids_with_len, multi_threaded);
         // the signal source must always return the correct number of signals!
         assert_eq!(signals.len(), ids.len());
         for (id, signal) in ids.iter().zip(signals.into_iter()) {
             self.signals.insert(*id, signal);
         }
+    }
+
+    pub fn load_signals(&mut self, ids: &[SignalRef]) {
+        self.load_signals_internal(ids, false)
+    }
+
+    pub fn load_signals_multi_threaded(&mut self, ids: &[SignalRef]) {
+        self.load_signals_internal(ids, true)
     }
 
     pub fn unload_signals(&mut self, ids: &[SignalRef]) {
@@ -349,7 +363,11 @@ impl SignalChangeData {
 pub(crate) trait SignalSource {
     /// Loads new signals.
     /// Many implementations take advantage of loading multiple signals at a time.
-    fn load_signals(&mut self, ids: &[(SignalRef, SignalType)]) -> Vec<Signal>;
+    fn load_signals(
+        &mut self,
+        ids: &[(SignalRef, SignalType)],
+        multi_threaded: bool,
+    ) -> Vec<Signal>;
     /// Returns the global time table which stores the time at each value change.
     fn get_time_table(&self) -> Vec<Time>;
     /// Print memory size / speed statistics.

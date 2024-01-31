@@ -9,6 +9,7 @@ use crate::signals::{Real, Signal, SignalEncoding, SignalSource, Time, TimeTable
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
 use bytesize::ByteSize;
 use num_enum::TryFromPrimitive;
+use rayon::prelude::*;
 use std::borrow::Cow;
 use std::io::Read;
 use std::num::NonZeroU32;
@@ -19,13 +20,20 @@ pub struct Reader {
 }
 
 impl SignalSource for Reader {
-    fn load_signals(&mut self, ids: &[(SignalRef, SignalType)]) -> Vec<Signal> {
-        let mut signals = Vec::with_capacity(ids.len());
-        for (id, len) in ids.iter() {
-            let sig = self.load_signal(*id, *len);
-            signals.push(sig);
+    fn load_signals(
+        &mut self,
+        ids: &[(SignalRef, SignalType)],
+        multi_threaded: bool,
+    ) -> Vec<Signal> {
+        if multi_threaded {
+            ids.par_iter()
+                .map(|(id, len)| self.load_signal(*id, *len))
+                .collect::<Vec<_>>()
+        } else {
+            ids.iter()
+                .map(|(id, len)| self.load_signal(*id, *len))
+                .collect::<Vec<_>>()
         }
-        signals
     }
 
     fn get_time_table(&self) -> Vec<Time> {
