@@ -4,6 +4,7 @@
 
 use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
 use crate::wavemem::States;
+use num_enum::TryFromPrimitive;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroU32;
@@ -102,8 +103,14 @@ fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
 /// Specifies the encoding of a signal.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum SignalEncoding {
-    /// Bitvector of length N (u32) with 2, 4 or 9 states
-    BitVector(States, u32),
+    /// Bitvector of length N (u32) with 2, 4 or 9 states.
+    /// If `meta_byte` is `true`, each sequence of data bytes is preceded by a meta-byte indicating whether the states
+    /// are reduced by 1 (Four -> Two, Nine -> Four) or by 2 (Nine -> Two).
+    BitVector {
+        max_states: States,
+        bits: u32,
+        meta_byte: bool,
+    },
     /// Each value is encoded as an 8-byte f64 in little endian.
     Real,
 }
@@ -123,7 +130,7 @@ impl Signal {
         width: u32,
         bytes: Vec<u8>,
     ) -> Self {
-        assert_eq!(time_indices.len(), bytes.len() / width as usize);
+        debug_assert_eq!(time_indices.len(), bytes.len() / width as usize);
         let data = SignalChangeData::FixedLength {
             encoding,
             width,
@@ -212,17 +219,25 @@ impl Waveform {
         &self.time_table
     }
 
-    pub fn load_signals(&mut self, ids: &[SignalRef]) {
+    fn load_signals_internal(&mut self, ids: &[SignalRef], multi_threaded: bool) {
         let ids_with_len = ids
             .iter()
             .map(|i| (*i, self.hierarchy.get_signal_tpe(*i).unwrap()))
             .collect::<Vec<_>>();
-        let signals = self.source.load_signals(&ids_with_len);
+        let signals = self.source.load_signals(&ids_with_len, multi_threaded);
         // the signal source must always return the correct number of signals!
         assert_eq!(signals.len(), ids.len());
         for (id, signal) in ids.iter().zip(signals.into_iter()) {
             self.signals.insert(*id, signal);
         }
+    }
+
+    pub fn load_signals(&mut self, ids: &[SignalRef]) {
+        self.load_signals_internal(ids, false)
+    }
+
+    pub fn load_signals_multi_threaded(&mut self, ids: &[SignalRef]) {
+        self.load_signals_internal(ids, true)
     }
 
     pub fn unload_signals(&mut self, ids: &[SignalRef]) {
@@ -325,20 +340,42 @@ impl SignalChangeData {
                 bytes,
             } => {
                 let start = offset * (*width as usize);
-                let data = &bytes[start..(start + (*width as usize))];
+                let raw_data = &bytes[start..(start + (*width as usize))];
                 match encoding {
-                    SignalEncoding::BitVector(States::Two, bits) => {
-                        SignalValue::Binary(data, *bits)
+                    SignalEncoding::BitVector {
+                        max_states,
+                        bits,
+                        meta_byte,
+                    } => {
+                        let data = if *meta_byte { &raw_data[1..] } else { raw_data };
+                        match max_states {
+                            States::Two => {
+                                debug_assert!(!meta_byte);
+                                // if the max state is 2, then all entries must be binary
+                                SignalValue::Binary(data, *bits)
+                            }
+                            States::Four | States::Nine => {
+                                // otherwise the actual number of states is encoded in the meta data
+                                let meta_value = (raw_data[0] >> 6) & 0x3;
+                                let states = States::try_from_primitive(meta_value).unwrap();
+                                let ratio = states.bits_in_a_byte() / max_states.bits_in_a_byte();
+                                let signal_bytes = match ratio {
+                                    1 => data,
+                                    2 => &data[(data.len() / 2)..],
+                                    4 => &data[(data.len() / 4 * 3)..],
+                                    other => unreachable!("Ratio of: {other}"),
+                                };
+                                match states {
+                                    States::Two => SignalValue::Binary(signal_bytes, *bits),
+                                    States::Four => SignalValue::FourValue(signal_bytes, *bits),
+                                    States::Nine => SignalValue::NineValue(signal_bytes, *bits),
+                                }
+                            }
+                        }
                     }
-                    SignalEncoding::BitVector(States::Four, bits) => {
-                        SignalValue::FourValue(data, *bits)
-                    }
-                    SignalEncoding::BitVector(States::Nine, bits) => {
-                        SignalValue::NineValue(data, *bits)
-                    }
-                    SignalEncoding::Real => {
-                        SignalValue::Real(Real::from_le_bytes(<[u8; 8]>::try_from(data).unwrap()))
-                    }
+                    SignalEncoding::Real => SignalValue::Real(Real::from_le_bytes(
+                        <[u8; 8]>::try_from(raw_data).unwrap(),
+                    )),
                 }
             }
             SignalChangeData::VariableLength(strings) => SignalValue::String(&strings[offset]),
@@ -349,7 +386,11 @@ impl SignalChangeData {
 pub(crate) trait SignalSource {
     /// Loads new signals.
     /// Many implementations take advantage of loading multiple signals at a time.
-    fn load_signals(&mut self, ids: &[(SignalRef, SignalType)]) -> Vec<Signal>;
+    fn load_signals(
+        &mut self,
+        ids: &[(SignalRef, SignalType)],
+        multi_threaded: bool,
+    ) -> Vec<Signal>;
     /// Returns the global time table which stores the time at each value change.
     fn get_time_table(&self) -> Vec<Time>;
     /// Print memory size / speed statistics.
