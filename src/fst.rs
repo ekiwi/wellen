@@ -156,7 +156,18 @@ impl SignalWriter {
                         self.max_states = Some(new_states);
                         new_states
                     };
-                    write_n_state(encode_as, value, &mut self.data_bytes);
+
+                    // mark
+                    let has_meta_byte = value.len() % encode_as.bits_in_a_byte() == 0;
+                    let meta_data = (encode_as as u8) << 6;
+                    let remaining_meta_data = if has_meta_byte {
+                        self.data_bytes.push(meta_data);
+                        None
+                    } else {
+                        Some(meta_data)
+                    };
+
+                    write_n_state(encode_as, value, &mut self.data_bytes, remaining_meta_data);
                 }
                 SignalType::Real => panic!(
                     "Expecting reals, but go: {}",

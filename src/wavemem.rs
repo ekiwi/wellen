@@ -720,7 +720,7 @@ impl SignalEncoder {
                         assert_eq!(expanded.len(), bits);
                         Cow::Owned(expanded)
                     };
-                    write_n_state(states, &data_to_write, &mut self.data);
+                    write_n_state(states, &data_to_write, &mut self.data, None);
                 }
             }
             SignalType::String => {
@@ -891,11 +891,17 @@ fn try_write_1_bit_9_state(time_index: u16, value: u8, data: &mut Vec<u8>) -> Op
 }
 
 #[inline]
-pub(crate) fn write_n_state(states: States, value: &[u8], data: &mut Vec<u8>) {
+pub(crate) fn write_n_state(
+    states: States,
+    value: &[u8],
+    data: &mut Vec<u8>,
+    meta_data: Option<u8>,
+) {
     debug_assert!(states.bits() == 1 || states.bits() == 2 || states.bits() == 4);
     let bits = value.len() * states.bits();
     let bit_values = value.iter().map(|b| bit_char_to_num(*b).unwrap());
     let mut working_byte = 0u8;
+    let mut first_push = true;
     for (ii, value) in bit_values.enumerate() {
         let bit_id = bits - (ii * states.bits()) - states.bits();
         working_byte = (working_byte << states.bits()) + value;
@@ -903,6 +909,14 @@ pub(crate) fn write_n_state(states: States, value: &[u8], data: &mut Vec<u8>) {
         // we use the bit_id here instead of just testing ii % 4 == 0
         // because for e.g. a 7-bit signal, the push needs to happen after 3 iterations!
         if bit_id % 8 == 0 {
+            // this allows us to add some meta-data to the first byte.
+            if let Some(meta_data) = meta_data {
+                debug_assert_eq!(meta_data & (0b11 << 6), meta_data);
+                if first_push {
+                    first_push = false;
+                    working_byte |= meta_data;
+                }
+            }
             data.push(working_byte);
             working_byte = 0;
         }

@@ -4,6 +4,7 @@
 
 use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
 use crate::wavemem::States;
+use num_enum::TryFromPrimitive;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroU32;
@@ -339,20 +340,37 @@ impl SignalChangeData {
                 bytes,
             } => {
                 let start = offset * (*width as usize);
-                let data = &bytes[start..(start + (*width as usize))];
+                let raw_data = &bytes[start..(start + (*width as usize))];
                 match encoding {
-                    SignalEncoding::BitVector(States::Two, bits) => {
-                        SignalValue::Binary(data, *bits)
+                    SignalEncoding::BitVector {
+                        max_states,
+                        bits,
+                        meta_byte,
+                    } => {
+                        let data = if *meta_byte { &raw_data[1..] } else { raw_data };
+                        match max_states {
+                            States::Two => {
+                                debug_assert!(!meta_byte);
+                                // if the max state is 2, then all entries must be binary
+                                SignalValue::Binary(data, *bits)
+                            }
+                            States::Four | States::Nine => {
+                                // otherwise the actual number of states is encoded in the meta data
+                                let meta_value = (raw_data[0] >> 6) & 0x3;
+                                let states = States::try_from_primitive(meta_value).unwrap();
+                                let ratio = states.bits_in_a_byte() / max_states.bits_in_a_byte();
+                                let signal_bytes = &data[(data.len() / ratio)..];
+                                match states {
+                                    States::Two => SignalValue::Binary(signal_bytes, *bits),
+                                    States::Four => SignalValue::FourValue(signal_bytes, *bits),
+                                    States::Nine => SignalValue::NineValue(signal_bytes, *bits),
+                                }
+                            }
+                        }
                     }
-                    SignalEncoding::BitVector(States::Four, bits) => {
-                        SignalValue::FourValue(data, *bits)
-                    }
-                    SignalEncoding::BitVector(States::Nine, bits) => {
-                        SignalValue::NineValue(data, *bits)
-                    }
-                    SignalEncoding::Real => {
-                        SignalValue::Real(Real::from_le_bytes(<[u8; 8]>::try_from(data).unwrap()))
-                    }
+                    SignalEncoding::Real => SignalValue::Real(Real::from_le_bytes(
+                        <[u8; 8]>::try_from(raw_data).unwrap(),
+                    )),
                 }
             }
             SignalChangeData::VariableLength(strings) => SignalValue::String(&strings[offset]),
