@@ -217,7 +217,8 @@ fn read_header(
         let parsed = match cmd {
             VcdCmd::Scope => {
                 let tokens = find_tokens(body);
-                HeaderCmd::Scope(tokens[0], tokens[1])
+                let name = tokens.get(1).cloned().unwrap_or(&[] as &[u8]);
+                HeaderCmd::Scope(tokens[0], name)
             }
             VcdCmd::Var => {
                 let tokens = find_tokens(body);

@@ -33,7 +33,14 @@ fn run_diff_test_internal(vcd_filename: &str, fst_filename: &str, skip_content_c
 fn diff_test_one(vcd_filename: &str, mut our: Waveform, skip_content_comparison: bool) {
     let mut ref_parser =
         vcd::Parser::new(BufReader::new(std::fs::File::open(vcd_filename).unwrap()));
-    let ref_header = ref_parser.parse_header().unwrap();
+    let ref_header = match ref_parser.parse_header() {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            println!("WARN: skipping difftest because file cannot be parsed by the (3rd party!) rust vcd library");
+            println!("{e:?}");
+            return;
+        }
+    };
     let mut id_map = HashMap::new();
     diff_hierarchy(our.hierarchy(), &ref_header, &mut id_map);
     load_all_signals(&mut our);
@@ -513,7 +520,6 @@ fn diff_surfer_spade() {
 }
 
 #[test]
-#[ignore] // VCD parser stumbles over empty scope
 fn diff_surfer_verilator_empty_scope() {
     run_diff_test(
         "inputs/surfer/verilator_empty_scope.vcd",
