@@ -4,6 +4,7 @@
 //
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
+use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
 use crate::signals::{Real, Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
@@ -180,15 +181,24 @@ impl Reader {
 
         match tpe {
             SignalType::String => {
-                assert!(data_bytes.is_empty());
+                debug_assert!(data_bytes.is_empty());
                 Signal::new_var_len(id, time_indices, strings)
             }
             SignalType::BitVector(len, _) => {
-                assert!(strings.is_empty());
-                let encoding = SignalEncoding::BitVector(meta.max_states, len.get());
-                let bytes_per_entry =
-                    usize_div_ceil(len.get() as usize, meta.max_states.bits_in_a_byte()) as u32;
-                Signal::new_fixed_len(id, time_indices, encoding, bytes_per_entry, data_bytes)
+                debug_assert!(strings.is_empty());
+                let (bytes, meta_byte) = get_len_and_meta(meta.max_states, len.get());
+                let encoding = SignalEncoding::BitVector {
+                    max_states: meta.max_states,
+                    bits: len.get(),
+                    meta_byte,
+                };
+                Signal::new_fixed_len(
+                    id,
+                    time_indices,
+                    encoding,
+                    get_bytes_per_entry(bytes, meta_byte) as u32,
+                    data_bytes,
+                )
             }
             SignalType::Real => {
                 assert!(strings.is_empty());
@@ -234,12 +244,13 @@ fn load_reals(
 fn load_fixed_len_signal(
     data: &mut impl Read,
     time_idx_offset: u32,
-    signal_len: u32,
+    bits: u32,
     signal_states: States,
     time_indices: &mut Vec<TimeTableIdx>,
     out: &mut Vec<u8>,
 ) {
     let mut last_time_idx = time_idx_offset;
+    let (len, has_meta) = get_len_and_meta(signal_states, bits);
 
     loop {
         // read time index
@@ -248,7 +259,7 @@ fn load_fixed_len_signal(
             Err(_) => break, // presumably there is no more data to be read
         };
         // now the decoding depends on the size and whether it is two state
-        let time_idx_delta = match signal_len {
+        let time_idx_delta = match bits {
             1 => {
                 let value = (time_idx_delta_raw & 0xf) as u8;
                 // for a 1-bit signal we do not need to distinguish between 2 and 4 and 9 states!
@@ -263,10 +274,28 @@ fn load_fixed_len_signal(
                 let num_bytes = usize_div_ceil(other_len as usize, local_encoding.bits_in_a_byte());
                 let mut buf = vec![0u8; num_bytes];
                 data.read_exact(&mut buf.as_mut()).unwrap();
+                // append data
+                let meta_data = (local_encoding as u8) << 6;
+                if has_meta {
+                    out.push(meta_data)
+                }
                 if local_encoding == signal_states {
-                    out.append(&mut buf);
+                    // same encoding as the maximum
+                    if has_meta {
+                        out.append(&mut buf);
+                    } else {
+                        out.push(meta_data | buf[0]);
+                        out.extend_from_slice(&buf[1..]);
+                    }
                 } else {
-                    expand_states(local_encoding, signal_states, other_len, &buf, out);
+                    // smaller encoding than the maximum
+                    let (local_len, _) = get_len_and_meta(local_encoding, bits);
+                    if has_meta {
+                        push_zeros(out, len - local_len - 1);
+                    } else {
+                        push_zeros(out, len - local_len);
+                    }
+                    out.append(&mut buf);
                 }
                 //
                 time_idx_delta_raw >> 2
@@ -275,99 +304,6 @@ fn load_fixed_len_signal(
         last_time_idx += time_idx_delta;
         time_indices.push(last_time_idx)
     }
-}
-
-pub(crate) fn expand_states(from: States, to: States, bits: u32, values: &[u8], out: &mut Vec<u8>) {
-    assert!(
-        from.bits() < to.bits(),
-        "Can only expand, not convert from {:?} to {:?}",
-        from,
-        to
-    );
-    let first_value_bits = bits % from.bits_in_a_byte() as u32;
-
-    // the first value might expand into a different number of bytes
-    let skip_n = if first_value_bits > 0 {
-        match (from, to) {
-            (States::Two, States::Four) => expand_2_to_4(first_value_bits, values[0], out),
-            (States::Two, States::Nine) => expand_2_to_9(first_value_bits, values[0], out),
-            (States::Four, States::Nine) => expand_4_to_9(first_value_bits, values[0], out),
-            _ => panic!("Invalid combination {:?} to {:?}", from, to),
-        }
-        1
-    } else {
-        0
-    };
-
-    for value in values.iter().skip(skip_n) {
-        match (from, to) {
-            (States::Two, States::Four) => expand_2_to_4(8, *value, out),
-            (States::Two, States::Nine) => expand_2_to_9(8, *value, out),
-            (States::Four, States::Nine) => expand_4_to_9(4, *value, out),
-            _ => panic!("Invalid combination {:?} to {:?}", from, to),
-        }
-    }
-}
-
-#[inline]
-fn expand_2_to_4(bits: u32, value: u8, out: &mut Vec<u8>) {
-    debug_assert!(bits > 0 && bits <= 8);
-    if bits > 4 {
-        out.push(
-            (value & (1 << 7)) >> 1 | // value[7] -> out[6]
-            (value & (1 << 6)) >> 2 | // value[6] -> out[4]
-            (value & (1 << 5)) >> 3 | // value[5] -> out[2]
-            (value & (1 << 4)) >> 4, // value[4] -> out[0]
-        );
-    }
-    out.push(
-        (value & (1 << 3)) << 3 | // value[3] -> out[6]
-        (value & (1 << 2)) << 2 | // value[2] -> out[4]
-        (value & (1 << 1)) << 1 | // value[1] -> out[2]
-        (value & (1 << 0)) << 0, // value[0] -> out[0]
-    );
-}
-
-#[inline]
-fn expand_2_to_9(bits: u32, value: u8, out: &mut Vec<u8>) {
-    debug_assert!(bits > 0 && bits <= 8);
-    if bits > 6 {
-        out.push(
-            (value & (1 << 7)) >> 3 | // value[7] -> out[4]
-                (value & (1 << 6)) >> 6, // value[6] -> out[0]
-        );
-    }
-    if bits > 4 {
-        out.push(
-            (value & (1 << 5)) >> 1 | // value[5] -> out[4]
-                (value & (1 << 4)) >> 4, // value[4] -> out[0]
-        );
-    }
-    if bits > 2 {
-        out.push(
-            (value & (1 << 3)) << 1 | // value[3] -> out[4]
-                (value & (1 << 2)) >> 2, // value[2] -> out[0]
-        );
-    }
-    out.push(
-        (value & (1 << 1)) << 3 | // value[1] -> out[4]
-            (value & (1 << 0)), // value[0] -> out[0]
-    );
-}
-
-#[inline]
-fn expand_4_to_9(bits: u32, value: u8, out: &mut Vec<u8>) {
-    debug_assert!(bits > 0 && bits <= 4);
-    if bits > 2 {
-        out.push(
-            (value & (3 << 6)) >> 2 | // value[7:6] -> out[5:4]
-                (value & (3 << 4)) >> 4, // value[5:4] -> out[1:0]
-        );
-    }
-    out.push(
-        (value & (3 << 2)) << 2 | // value[3:2] -> out[5:4]
-            (value & (3 << 0)), // value[1:0] -> out[1:0]
-    );
 }
 
 #[inline]
@@ -815,6 +751,12 @@ pub(crate) enum States {
     Nine = 2,
 }
 
+impl Default for States {
+    fn default() -> Self {
+        States::Two
+    }
+}
+
 impl States {
     fn from_value(value: u8) -> Self {
         if value <= 1 {
@@ -1002,7 +944,7 @@ mod tests {
         if is_two_state {
             assert_eq!(identified_state, States::Two);
         }
-        write_n_state(States::Four, value, &mut out);
+        write_n_state(States::Four, value, &mut out, None);
         match expected {
             None => {}
             Some(expect) => {

@@ -4,8 +4,8 @@
 
 use crate::hierarchy::*;
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
-use crate::vcd::{parse_index, usize_div_ceil};
-use crate::wavemem::{check_states, expand_states, write_n_state, States};
+use crate::vcd::parse_index;
+use crate::wavemem::{check_states, write_n_state, States};
 use crate::Waveform;
 use fst_native::*;
 use std::collections::HashMap;
@@ -94,7 +94,7 @@ struct SignalWriter {
     data_bytes: Vec<u8>,
     strings: Vec<String>,
     time_indices: Vec<TimeTableIdx>,
-    max_states: Option<States>,
+    max_states: States,
 }
 
 impl SignalWriter {
@@ -106,7 +106,7 @@ impl SignalWriter {
             data_bytes: Vec::new(),
             strings: Vec::new(),
             time_indices: Vec::new(),
-            max_states: None,
+            max_states: States::default(),
         }
     }
 
@@ -135,31 +135,26 @@ impl SignalWriter {
                             String::from_utf8_lossy(value)
                         )
                     });
-                    let encode_as = if let Some(max_states) = self.max_states {
-                        let combined = States::join(max_states, new_states);
-                        if combined != max_states {
-                            // With FST we do not know how many states the signal needs, thus we first assume
-                            // the minimal number of states. If that turns out to be wrong, we go back and
-                            // expand the existing data.
-                            let num_prev_entries = self.time_indices.len() - 1; // -1 to account for the new index
-                            self.data_bytes = expand_entries(
-                                max_states,
-                                combined,
-                                &self.data_bytes,
-                                num_prev_entries,
-                                len.get(),
-                            );
-                            self.max_states = Some(combined);
-                        }
-                        combined
-                    } else {
-                        self.max_states = Some(new_states);
-                        new_states
-                    };
+
+                    let combined = States::join(self.max_states, new_states);
+                    if combined != self.max_states {
+                        // With FST we do not know how many states the signal needs, thus we first assume
+                        // the minimal number of states. If that turns out to be wrong, we go back and
+                        // expand the existing data.
+                        let num_prev_entries = self.time_indices.len() - 1; // -1 to account for the new index
+                        self.data_bytes = expand_entries(
+                            self.max_states,
+                            combined,
+                            &self.data_bytes,
+                            num_prev_entries,
+                            len.get(),
+                        );
+                        self.max_states = combined;
+                    }
 
                     // mark
-                    let has_meta_byte = value.len() % encode_as.bits_in_a_byte() == 0;
-                    let meta_data = (encode_as as u8) << 6;
+                    let has_meta_byte = value.len() % self.max_states.bits_in_a_byte() == 0;
+                    let meta_data = (self.max_states as u8) << 6;
                     let remaining_meta_data = if has_meta_byte {
                         self.data_bytes.push(meta_data);
                         None
@@ -167,7 +162,7 @@ impl SignalWriter {
                         Some(meta_data)
                     };
 
-                    write_n_state(encode_as, value, &mut self.data_bytes, remaining_meta_data);
+                    write_n_state(new_states, value, &mut self.data_bytes, remaining_meta_data);
                 }
                 SignalType::Real => panic!(
                     "Expecting reals, but go: {}",
@@ -199,21 +194,17 @@ impl SignalWriter {
             }
             SignalType::BitVector(len, _) => {
                 debug_assert!(self.strings.is_empty());
-                let states = if let Some(max_states) = self.max_states {
-                    debug_assert!(!self.data_bytes.is_empty());
-                    max_states
-                } else {
-                    debug_assert!(self.data_bytes.is_empty());
-                    States::Two
+                let (bytes, meta_byte) = get_len_and_meta(self.max_states, len.get());
+                let encoding = SignalEncoding::BitVector {
+                    max_states: self.max_states,
+                    bits: len.get(),
+                    meta_byte,
                 };
-                let encoding = SignalEncoding::BitVector(states, len.get());
-                let bytes_per_entry =
-                    usize_div_ceil(len.get() as usize, states.bits_in_a_byte()) as u32;
                 Signal::new_fixed_len(
                     self.id,
                     self.time_indices,
                     encoding,
-                    bytes_per_entry,
+                    get_bytes_per_entry(bytes, meta_byte) as u32,
                     self.data_bytes,
                 )
             }
@@ -221,16 +212,65 @@ impl SignalWriter {
     }
 }
 
+#[inline]
+pub(crate) fn get_len_and_meta(states: States, bits: u32) -> (usize, bool) {
+    let len = (bits as usize).div_ceil(states.bits_in_a_byte());
+    let has_meta = (states != States::Two) && ((bits as usize) % states.bits_in_a_byte() == 0);
+    (len, has_meta)
+}
+
+#[inline]
+pub(crate) fn get_bytes_per_entry(len: usize, has_meta: bool) -> usize {
+    if has_meta {
+        len + 1
+    } else {
+        len
+    }
+}
+
+const META_MASK: u8 = 3 << 6;
+
 fn expand_entries(from: States, to: States, old: &[u8], entries: usize, bits: u32) -> Vec<u8> {
-    let expansion_factor = to.bits() / from.bits();
-    debug_assert!(expansion_factor > 1);
-    let bytes_per_entry = old.len() / entries;
-    debug_assert_eq!(old.len(), bytes_per_entry * entries);
-    let mut data = Vec::with_capacity(old.len() * expansion_factor);
-    for value in old.chunks(bytes_per_entry) {
-        expand_states(from, to, bits, value, &mut data);
+    let (from_len, from_meta) = get_len_and_meta(from, bits);
+    let from_bytes_per_entry = get_bytes_per_entry(from_len, from_meta);
+    let (to_len, to_meta) = get_len_and_meta(to, bits);
+    let to_bytes_per_entry = get_bytes_per_entry(to_len, to_meta);
+    debug_assert!(
+        !from_meta || to_meta,
+        "meta-bytes are only added, never removed when expanding!"
+    );
+    let padding_len = if !to_meta {
+        to_len - from_len - 1 // subtract one to account for meta data
+    } else {
+        to_len - from_len
+    };
+
+    let mut data = Vec::with_capacity(entries * to_bytes_per_entry);
+    for value in old.chunks(from_bytes_per_entry) {
+        // meta handling
+        let meta_data = if from == States::Two {
+            (States::Two as u8) << 6
+        } else {
+            value[0] & META_MASK
+        };
+        // we can always push the meta byte, just need to adjust the padding
+        data.push(meta_data);
+        push_zeros(&mut data, padding_len);
+        // copy over the actual values
+        if from_meta {
+            data.push(value[0] & !META_MASK);
+            data.extend_from_slice(&value[1..]);
+        } else {
+            data.extend_from_slice(value);
+        }
     }
     data
+}
+
+pub(crate) fn push_zeros(vec: &mut Vec<u8>, len: usize) {
+    for _ in 0..len {
+        vec.push(0);
+    }
 }
 
 fn convert_scope_tpe(tpe: FstScopeType) -> ScopeType {
