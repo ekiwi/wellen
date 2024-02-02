@@ -612,6 +612,8 @@ struct BodyReader<'a> {
     lines_read: usize,
 }
 
+const ASCII_ZERO: &[u8] = b"0";
+
 impl<'a> BodyReader<'a> {
     fn new(input: &'a [u8]) -> Self {
         BodyReader {
@@ -655,6 +657,10 @@ impl<'a> BodyReader<'a> {
                                 Some(BodyCmd::Value(&token[0..1], &token[1..]))
                             }
                             _ => {
+                                if token == b"$dumpall" {
+                                    // interpret dumpall as indicating timestep zero
+                                    return Some(BodyCmd::Time(ASCII_ZERO));
+                                }
                                 if token == b"$comment" {
                                     // drop token, but start searching for $end in order to skip the comment
                                     *search_for_end = true;
@@ -662,7 +668,7 @@ impl<'a> BodyReader<'a> {
                                     && token != b"$end"
                                     && token != b"$dumpoff"
                                 {
-                                    // ignore dumpvars, dumpoff and end command
+                                    // ignore dumpvars, dumpoff, and end command
                                     *prev_token = Some(token);
                                 }
                                 None
