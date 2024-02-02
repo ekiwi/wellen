@@ -130,7 +130,7 @@ impl Signal {
         width: u32,
         bytes: Vec<u8>,
     ) -> Self {
-        assert_eq!(time_indices.len(), bytes.len() / width as usize);
+        debug_assert_eq!(time_indices.len(), bytes.len() / width as usize);
         let data = SignalChangeData::FixedLength {
             encoding,
             width,

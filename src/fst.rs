@@ -128,41 +128,58 @@ impl SignalWriter {
                         .push(String::from_utf8_lossy(value).to_string());
                 }
                 SignalType::BitVector(len, _) => {
-                    debug_assert_eq!(value.len(), len.get() as usize);
-                    let new_states = check_states(value).unwrap_or_else(|| {
+                    let bits = len.get();
+                    debug_assert_eq!(value.len(), bits as usize);
+                    let local_encoding = check_states(value).unwrap_or_else(|| {
                         panic!(
                             "Unexpected signal value: {}",
                             String::from_utf8_lossy(value)
                         )
                     });
 
-                    let combined = States::join(self.max_states, new_states);
-                    if combined != self.max_states {
+                    let signal_states = States::join(self.max_states, local_encoding);
+                    if signal_states != self.max_states {
                         // With FST we do not know how many states the signal needs, thus we first assume
                         // the minimal number of states. If that turns out to be wrong, we go back and
                         // expand the existing data.
                         let num_prev_entries = self.time_indices.len() - 1; // -1 to account for the new index
                         self.data_bytes = expand_entries(
                             self.max_states,
-                            combined,
+                            signal_states,
                             &self.data_bytes,
                             num_prev_entries,
-                            len.get(),
+                            bits,
                         );
-                        self.max_states = combined;
+                        self.max_states = signal_states;
                     }
 
-                    // mark
-                    let has_meta_byte = value.len() % self.max_states.bits_in_a_byte() == 0;
-                    let meta_data = (self.max_states as u8) << 6;
-                    let remaining_meta_data = if has_meta_byte {
-                        self.data_bytes.push(meta_data);
-                        None
-                    } else {
-                        Some(meta_data)
-                    };
+                    let (len, has_meta) = get_len_and_meta(signal_states, bits);
+                    let meta_data = (local_encoding as u8) << 6;
 
-                    write_n_state(new_states, value, &mut self.data_bytes, remaining_meta_data);
+                    if local_encoding == signal_states {
+                        // same encoding as the maximum
+                        if has_meta {
+                            self.data_bytes.push(meta_data);
+                            write_n_state(local_encoding, value, &mut self.data_bytes, None);
+                        } else {
+                            write_n_state(
+                                local_encoding,
+                                value,
+                                &mut self.data_bytes,
+                                Some(meta_data),
+                            );
+                        }
+                    } else {
+                        // smaller encoding than the maximum
+                        self.data_bytes.push(meta_data);
+                        let (local_len, _) = get_len_and_meta(local_encoding, bits);
+                        if has_meta {
+                            push_zeros(&mut self.data_bytes, len - local_len);
+                        } else {
+                            push_zeros(&mut self.data_bytes, len - local_len - 1);
+                        }
+                        write_n_state(local_encoding, value, &mut self.data_bytes, None);
+                    }
                 }
                 SignalType::Real => panic!(
                     "Expecting reals, but go: {}",

@@ -276,12 +276,10 @@ fn load_fixed_len_signal(
                 data.read_exact(&mut buf.as_mut()).unwrap();
                 // append data
                 let meta_data = (local_encoding as u8) << 6;
-                if has_meta {
-                    out.push(meta_data)
-                }
                 if local_encoding == signal_states {
                     // same encoding as the maximum
                     if has_meta {
+                        out.push(meta_data);
                         out.append(&mut buf);
                     } else {
                         out.push(meta_data | buf[0]);
@@ -289,11 +287,12 @@ fn load_fixed_len_signal(
                     }
                 } else {
                     // smaller encoding than the maximum
+                    out.push(meta_data);
                     let (local_len, _) = get_len_and_meta(local_encoding, bits);
                     if has_meta {
-                        push_zeros(out, len - local_len - 1);
-                    } else {
                         push_zeros(out, len - local_len);
+                    } else {
+                        push_zeros(out, len - local_len - 1);
                     }
                     out.append(&mut buf);
                 }
@@ -848,9 +847,9 @@ pub(crate) fn write_n_state(
         let bit_id = bits - (ii * states.bits()) - states.bits();
         working_byte = (working_byte << states.bits()) + value;
         // Is there old data to push?
-        // we use the bit_id here instead of just testing ii % 4 == 0
+        // we use the bit_id here instead of just testing ii % bits_in_a_byte == 0
         // because for e.g. a 7-bit signal, the push needs to happen after 3 iterations!
-        if bit_id % 8 == 0 {
+        if bit_id % states.bits_in_a_byte() == 0 {
             // this allows us to add some meta-data to the first byte.
             if let Some(meta_data) = meta_data {
                 debug_assert_eq!(meta_data & (0b11 << 6), meta_data);
