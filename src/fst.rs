@@ -155,9 +155,10 @@ impl SignalWriter {
 
                     let (len, has_meta) = get_len_and_meta(signal_states, bits);
                     let meta_data = (local_encoding as u8) << 6;
+                    let (local_len, local_has_meta) = get_len_and_meta(local_encoding, bits);
 
-                    if local_encoding == signal_states {
-                        // same encoding as the maximum
+                    if local_len == len && local_has_meta == has_meta {
+                        // same meta-data location and length as the maximum
                         if has_meta {
                             self.data_bytes.push(meta_data);
                             write_n_state(local_encoding, value, &mut self.data_bytes, None);
@@ -247,10 +248,15 @@ pub(crate) fn get_bytes_per_entry(len: usize, has_meta: bool) -> usize {
 
 const META_MASK: u8 = 3 << 6;
 
-fn expand_entries(from: States, to: States, old: &[u8], entries: usize, bits: u32) -> Vec<u8> {
+fn expand_entries(from: States, to: States, old: &Vec<u8>, entries: usize, bits: u32) -> Vec<u8> {
     let (from_len, from_meta) = get_len_and_meta(from, bits);
     let from_bytes_per_entry = get_bytes_per_entry(from_len, from_meta);
     let (to_len, to_meta) = get_len_and_meta(to, bits);
+
+    if from_len == to_len && from_meta == to_meta {
+        return old.clone(); // no change necessary
+    }
+
     let to_bytes_per_entry = get_bytes_per_entry(to_len, to_meta);
     debug_assert!(
         !from_meta || to_meta,
