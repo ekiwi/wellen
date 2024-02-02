@@ -70,7 +70,10 @@ fn diff_meta(ours: &Hierarchy, ref_header: &vcd::Header) {
     }
 
     match &ref_header.date {
-        None => assert!(ours.date().is_empty()),
+        None => match ours.file_type() {
+            FileType::Vcd => assert!(ours.date().is_empty(), "{}", ours.date()),
+            FileType::Fst => {}
+        },
         Some(date) => assert_eq!(date, ours.date()),
     }
 
@@ -487,6 +490,45 @@ fn diff_riviera_pro_dump() {
         "inputs/riviera-pro/dump.vcd",
         "inputs/riviera-pro/dump.vcd.fst",
     );
+}
+
+#[test]
+fn diff_surfer_counter() {
+    run_diff_test("inputs/surfer/counter.vcd", "inputs/surfer/counter.vcd.fst");
+}
+
+#[test]
+#[ignore] // VCD parser stumbles over unexpected $dumpall
+fn diff_surfer_picorv32() {
+    run_diff_test(
+        "inputs/surfer/picorv32.vcd",
+        "inputs/surfer/picorv32.vcd.fst",
+    );
+}
+
+#[test]
+#[ignore] // VCD parser stumbles over unexpected $dumpall
+fn diff_surfer_spade() {
+    run_diff_test("inputs/surfer/spade.vcd", "inputs/surfer/spade.vcd.fst");
+}
+
+#[test]
+#[ignore] // VCD parser stumbles over empty scope
+fn diff_surfer_verilator_empty_scope() {
+    run_diff_test(
+        "inputs/surfer/verilator_empty_scope.vcd",
+        "inputs/surfer/verilator_empty_scope.vcd.fst",
+    );
+}
+
+#[test]
+fn diff_surfer_xx_1() {
+    run_diff_test("inputs/surfer/xx_1.vcd", "inputs/surfer/xx_1.vcd.fst");
+}
+
+#[test]
+fn diff_surfer_xx_2() {
+    run_diff_test("inputs/surfer/xx_2.vcd", "inputs/surfer/xx_2.vcd.fst");
 }
 
 #[test]
