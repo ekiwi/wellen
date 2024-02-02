@@ -262,8 +262,9 @@ fn load_fixed_len_signal(
         let time_idx_delta = match bits {
             1 => {
                 let value = (time_idx_delta_raw & 0xf) as u8;
-                // for a 1-bit signal we do not need to distinguish between 2 and 4 and 9 states!
-                out.push(value);
+                let states = States::from_value(value);
+                let meta_data = (states as u8) << 6;
+                out.push(value | meta_data);
                 // time delta is encoded together with the value
                 time_idx_delta_raw >> 4
             }
@@ -274,10 +275,12 @@ fn load_fixed_len_signal(
                 let num_bytes = usize_div_ceil(other_len as usize, local_encoding.bits_in_a_byte());
                 let mut buf = vec![0u8; num_bytes];
                 data.read_exact(&mut buf.as_mut()).unwrap();
+                let (local_len, local_has_meta) = get_len_and_meta(local_encoding, bits);
+
                 // append data
                 let meta_data = (local_encoding as u8) << 6;
-                if local_encoding == signal_states {
-                    // same encoding as the maximum
+                if local_len == len && local_has_meta == has_meta {
+                    // same meta-data location and length as the maximum
                     if has_meta {
                         out.push(meta_data);
                         out.append(&mut buf);
@@ -288,7 +291,6 @@ fn load_fixed_len_signal(
                 } else {
                     // smaller encoding than the maximum
                     out.push(meta_data);
-                    let (local_len, _) = get_len_and_meta(local_encoding, bits);
                     if has_meta {
                         push_zeros(out, len - local_len);
                     } else {
