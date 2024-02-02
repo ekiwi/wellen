@@ -846,7 +846,6 @@ pub(crate) fn write_n_state(
     let mut first_push = true;
     for (ii, value) in bit_values.enumerate() {
         let bit_id = bits - (ii * states_bits) - states_bits;
-        println!("ii={ii}, bits={bits}, states_bits={states_bits}, ");
         working_byte = (working_byte << states_bits) + value;
         // Is there old data to push?
         // we use the bit_id here instead of just testing ii % bits_in_a_byte == 0

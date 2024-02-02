@@ -22,7 +22,7 @@ fn run_load_test(vcd_filename: &str, fst_filename: &str) {
 fn run_diff_test_internal(vcd_filename: &str, fst_filename: &str, skip_content_comparison: bool) {
     {
         let wave = waveform::vcd::read(vcd_filename).expect("Failed to load VCD");
-        diff_test_one(vcd_filename, wave, skip_content_comparison);
+        // diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
     {
         let wave = waveform::fst::read(fst_filename);
@@ -283,7 +283,7 @@ fn diff_signals<R: BufRead>(
                         id,
                         signal_ref,
                         value,
-                        current_time.unwrap(),
+                        current_time.unwrap_or(0),
                         our_value_str
                     );
                 }

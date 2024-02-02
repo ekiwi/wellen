@@ -359,7 +359,12 @@ impl SignalChangeData {
                                 let meta_value = (raw_data[0] >> 6) & 0x3;
                                 let states = States::try_from_primitive(meta_value).unwrap();
                                 let ratio = states.bits_in_a_byte() / max_states.bits_in_a_byte();
-                                let signal_bytes = &data[(data.len() / ratio)..];
+                                let signal_bytes = match ratio {
+                                    1 => data,
+                                    2 => &data[(data.len() / 2)..],
+                                    4 => &data[(data.len() / 4 * 3)..],
+                                    other => unreachable!("Ratio of: {other}"),
+                                };
                                 match states {
                                     States::Two => SignalValue::Binary(signal_bytes, *bits),
                                     States::Four => SignalValue::FourValue(signal_bytes, *bits),
