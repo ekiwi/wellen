@@ -122,6 +122,18 @@ pub struct Signal {
     data: SignalChangeData,
 }
 
+impl Debug for Signal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Signal({:?}, {} changes, {:?})",
+            self.idx,
+            self.time_indices.len(),
+            self.data
+        )
+    }
+}
+
 impl Signal {
     pub(crate) fn new_fixed_len(
         idx: SignalRef,
@@ -171,6 +183,10 @@ impl Signal {
     }
 
     pub fn get_offset(&self, time_table_idx: TimeTableIdx) -> DataOffset {
+        debug_assert!(
+            !self.time_indices.is_empty(),
+            "Cannot query signal with empty time_indices: {self:?}"
+        );
         find_offset_from_time_table_idx(&self.time_indices, time_table_idx)
     }
 
@@ -259,6 +275,8 @@ impl Waveform {
 /// Note that `indices` needs to sorted from smallest to largest.
 /// Essentially implements a binary search!
 fn find_offset_from_time_table_idx(indices: &[TimeTableIdx], needle: TimeTableIdx) -> DataOffset {
+    debug_assert!(!indices.is_empty(), "empty time table");
+
     // find the index of a matching time
     let res = binary_search(indices, needle);
     let res_index = indices[res];
@@ -291,6 +309,7 @@ fn find_offset_from_time_table_idx(indices: &[TimeTableIdx], needle: TimeTableId
 
 #[inline]
 fn binary_search(indices: &[TimeTableIdx], needle: TimeTableIdx) -> usize {
+    debug_assert!(!indices.is_empty(), "empty time table!");
     let mut lower_idx = 0usize;
     let mut upper_idx = indices.len() - 1;
     while lower_idx <= upper_idx {
@@ -329,6 +348,25 @@ enum SignalChangeData {
         bytes: Vec<u8>,
     },
     VariableLength(Vec<String>),
+}
+
+impl Debug for SignalChangeData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SignalChangeData::FixedLength {
+                encoding, bytes, ..
+            } => {
+                write!(
+                    f,
+                    "SignalChangeData({encoding:?}, {} data bytes)",
+                    bytes.len()
+                )
+            }
+            SignalChangeData::VariableLength(values) => {
+                write!(f, "SignalChangeData({} strings)", values.len())
+            }
+        }
+    }
 }
 
 impl SignalChangeData {
