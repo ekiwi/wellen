@@ -3,7 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use waveform::check_states_pub;
+use wellen::check_states_pub;
 
 fn criterion_benchmark(c: &mut Criterion) {
     let input = b"xx1010101UUuuHHHh";
