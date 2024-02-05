@@ -4,9 +4,7 @@
 //
 // Space efficient format for a wavedump hierarchy.
 
-use bytesize::ByteSize;
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
-use string_interner::Symbol;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Timescale {
@@ -102,8 +100,8 @@ pub struct HierarchyStringId(NonZeroU32);
 
 impl HierarchyStringId {
     #[inline]
-    fn from_interner(sym: StringInternerSym) -> Self {
-        let value = (sym.to_usize() as u32) + 1;
+    fn from_index(index: usize) -> Self {
+        let value = (index + 1) as u32;
         HierarchyStringId(NonZeroU32::new(value).unwrap())
     }
 
@@ -640,31 +638,14 @@ struct ScopeStackEntry {
     last_child: Option<HierarchyItemId>,
 }
 
-type StringInternerSym = string_interner::symbol::SymbolU32;
-type StringInternerBackend = string_interner::backend::StringBackend<StringInternerSym>;
-type StringInterner = string_interner::StringInterner<StringInternerBackend>;
-
-/// we use this to get rid of all the String hashes and safe memory
-fn interner_to_vec(interner: StringInterner) -> Vec<String> {
-    let mut out = Vec::with_capacity(interner.len());
-    for (id, entry) in interner.into_iter() {
-        assert_eq!(id.to_usize(), out.len(), "cannot convert to Vec!");
-        out.push(entry.to_string());
-    }
-    out
-}
-
 pub struct HierarchyBuilder {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
     first_item: Option<HierarchyItemId>,
     scope_stack: Vec<ScopeStackEntry>,
-    strings: StringInterner,
+    strings: Vec<String>,
     handle_to_node: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
-    // some statistics
-    duplicate_string_count: usize,
-    duplicate_string_size: usize,
 }
 
 impl HierarchyBuilder {
@@ -679,46 +660,35 @@ impl HierarchyBuilder {
             scopes: Vec::default(),
             first_item: None,
             scope_stack,
-            strings: StringInterner::default(),
+            strings: Vec::default(),
             handle_to_node: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
-            duplicate_string_count: 0,
-            duplicate_string_size: 0,
         }
     }
 }
 
 impl HierarchyBuilder {
-    pub fn finish(self) -> Hierarchy {
+    pub fn finish(mut self) -> Hierarchy {
+        self.vars.shrink_to_fit();
+        self.scopes.shrink_to_fit();
+        self.strings.shrink_to_fit();
+        self.handle_to_node.shrink_to_fit();
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
             first_item: self.first_item,
-            strings: interner_to_vec(self.strings),
+            strings: self.strings,
             signal_idx_to_var: self.handle_to_node,
             meta: self.meta,
         }
     }
 
-    #[allow(dead_code)]
-    pub fn print_statistics(&self) {
-        println!("Duplicate strings: {}", self.duplicate_string_count);
-        println!(
-            "Memory saved by interning strings: {}",
-            ByteSize::b(self.duplicate_string_size as u64),
-        );
-    }
-
     fn add_string(&mut self, value: String) -> HierarchyStringId {
-        // collect some statistics
-        if self.strings.get(&value).is_some() {
-            self.duplicate_string_count += 1;
-            self.duplicate_string_size += value.as_bytes().len() + std::mem::size_of::<String>();
-        }
-
-        // do the actual interning
-        let sym = self.strings.get_or_intern(value);
-        HierarchyStringId::from_interner(sym)
+        // we assign each string a unique ID, currently we make no effort to avoid saving the same string twice
+        let sym = HierarchyStringId::from_index(self.strings.len());
+        self.strings.push(value);
+        debug_assert_eq!(self.strings.len(), sym.index() + 1);
+        sym
     }
 
     /// adds a variable or scope to the hierarchy tree
