@@ -10,7 +10,7 @@ authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]
 description = "Fast VCD and FST library for waveform viewers written in Rust."
 homepage = "https://github.com/ekiwi/wellen"
 license = "BSD-3-Clause"
-include = ["Cargo.toml", "LICENSE", "src/"]
+include = ["Cargo.toml", "LICENSE", "src/", "benches/"]
 keywords = ["vcd", "fst", "waveform", "wavedump"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
