@@ -1,4 +1,4 @@
-// Copyright 2023 The Regents of the University of California
+// Copyright 2023-2024 The Regents of the University of California
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
@@ -21,7 +21,11 @@ fn run_load_test(vcd_filename: &str, fst_filename: &str) {
 
 fn run_diff_test_internal(vcd_filename: &str, fst_filename: &str, skip_content_comparison: bool) {
     {
-        let wave = waveform::vcd::read_single_thread(vcd_filename)
+        let single_thread = waveform::vcd::LoadOptions {
+            multi_thread: false,
+            ..Default::default()
+        };
+        let wave = waveform::vcd::read_with_options(vcd_filename, single_thread)
             .expect("Failed to load VCD with a single thread");
         diff_test_one(vcd_filename, wave, skip_content_comparison);
     }

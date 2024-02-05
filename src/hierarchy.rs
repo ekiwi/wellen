@@ -636,6 +636,8 @@ impl GetItem<VarRef, Var> for Hierarchy {
 struct ScopeStackEntry {
     scope_id: usize,
     last_child: Option<HierarchyItemId>,
+    /// indicates that this scope is being flattened and all operations should be done on the parent instead
+    flattened: bool,
 }
 
 pub struct HierarchyBuilder {
@@ -654,6 +656,7 @@ impl HierarchyBuilder {
         let scope_stack = vec![ScopeStackEntry {
             scope_id: usize::MAX,
             last_child: None,
+            flattened: false,
         }];
         HierarchyBuilder {
             vars: Vec::default(),
@@ -693,7 +696,7 @@ impl HierarchyBuilder {
 
     /// adds a variable or scope to the hierarchy tree
     fn add_to_hierarchy_tree(&mut self, node_id: HierarchyItemId) -> Option<ScopeRef> {
-        let entry = self.scope_stack.last_mut().unwrap();
+        let entry = find_parent_scope(&mut self.scope_stack);
         let parent = entry.scope_id;
         let fake_top_scope_parent = parent == usize::MAX;
         match entry.last_child {
@@ -725,29 +728,38 @@ impl HierarchyBuilder {
         }
     }
 
-    pub fn add_scope(&mut self, name: String, tpe: ScopeType) {
-        let node_id = self.scopes.len();
-        let wrapped_id = HierarchyItemId::Scope(ScopeRef::from_index(node_id).unwrap());
-        if self.first_item.is_none() {
-            self.first_item = Some(wrapped_id);
+    pub fn add_scope(&mut self, name: String, tpe: ScopeType, flatten: bool) {
+        if flatten {
+            self.scope_stack.push(ScopeStackEntry {
+                scope_id: usize::MAX,
+                last_child: None,
+                flattened: true,
+            });
+        } else {
+            let node_id = self.scopes.len();
+            let wrapped_id = HierarchyItemId::Scope(ScopeRef::from_index(node_id).unwrap());
+            if self.first_item.is_none() {
+                self.first_item = Some(wrapped_id);
+            }
+            let parent = self.add_to_hierarchy_tree(wrapped_id);
+
+            // new active scope
+            self.scope_stack.push(ScopeStackEntry {
+                scope_id: node_id,
+                last_child: None,
+                flattened: false,
+            });
+
+            // now we can build the node data structure and store it
+            let node = Scope {
+                parent,
+                child: None,
+                next: None,
+                name: self.add_string(name),
+                tpe,
+            };
+            self.scopes.push(node);
         }
-        let parent = self.add_to_hierarchy_tree(wrapped_id);
-
-        // new active scope
-        self.scope_stack.push(ScopeStackEntry {
-            scope_id: node_id,
-            last_child: None,
-        });
-
-        // now we can build the node data structure and store it
-        let node = Scope {
-            parent,
-            child: None,
-            next: None,
-            name: self.add_string(name),
-            tpe,
-        };
-        self.scopes.push(node);
     }
 
     pub fn add_var(
@@ -830,6 +842,18 @@ impl HierarchyBuilder {
 
     pub fn add_comment(&mut self, comment: String) {
         self.meta.comments.push(comment);
+    }
+}
+
+/// finds the first not flattened parent scope
+fn find_parent_scope(scope_stack: &mut Vec<ScopeStackEntry>) -> &mut ScopeStackEntry {
+    let mut index = scope_stack.len() - 1;
+    loop {
+        if scope_stack[index].flattened {
+            index -= 1;
+        } else {
+            return &mut scope_stack[index];
+        }
     }
 }
 

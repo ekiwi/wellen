@@ -392,7 +392,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
     let cb = |entry: FstHierarchyEntry| {
         match entry {
             FstHierarchyEntry::Scope { tpe, name, .. } => {
-                h.add_scope(name, convert_scope_tpe(tpe));
+                h.add_scope(name, convert_scope_tpe(tpe), false);
             }
             FstHierarchyEntry::UpScope => h.pop_scope(),
             FstHierarchyEntry::Var {

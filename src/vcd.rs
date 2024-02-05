@@ -8,50 +8,60 @@ use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
 
+#[derive(Debug, Copy, Clone)]
+pub struct LoadOptions {
+    /// Indicates that VCD should be parsed using multiple threads.
+    pub multi_thread: bool,
+    /// Indicates that scopes with empty names should not be part of the hierarchy.
+    pub remove_scopes_with_empty_name: bool,
+}
+
+impl Default for LoadOptions {
+    fn default() -> Self {
+        Self {
+            multi_thread: true,
+            remove_scopes_with_empty_name: false,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct WaveformError {}
 pub type Result<T> = std::result::Result<T, WaveformError>;
 
 pub fn read(filename: &str) -> Result<Waveform> {
-    read_file_internal(filename, true)
+    read_with_options(filename, LoadOptions::default())
 }
-
-pub fn read_single_thread(filename: &str) -> Result<Waveform> {
-    read_file_internal(filename, false)
-}
-
 pub fn read_from_bytes(bytes: &[u8]) -> Result<Waveform> {
-    read_bytes_internal(bytes, true)
+    read_from_bytes_with_options(bytes, LoadOptions::default())
 }
 
-pub fn read_from_bytes_single_thread(bytes: &[u8]) -> Result<Waveform> {
-    read_bytes_internal(bytes, false)
-}
-
-fn read_file_internal(filename: &str, multi_threaded: bool) -> Result<Waveform> {
+pub fn read_with_options(filename: &str, options: LoadOptions) -> Result<Waveform> {
     // load file into memory (lazily)
     let input_file = std::fs::File::open(filename).expect("failed to open input file!");
     let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
-    let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]));
-    let wave_mem = read_values(&mmap[header_len..], multi_threaded, &hierarchy);
+    let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]), &options);
+    let wave_mem = read_values(&mmap[header_len..], &options, &hierarchy);
     Ok(Waveform::new(hierarchy, wave_mem))
 }
 
-fn read_bytes_internal(bytes: &[u8], multi_threaded: bool) -> Result<Waveform> {
-    let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&bytes));
-    let wave_mem = read_values(&bytes[header_len..], multi_threaded, &hierarchy);
+pub fn read_from_bytes_with_options(bytes: &[u8], options: LoadOptions) -> Result<Waveform> {
+    let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&bytes), &options);
+    let wave_mem = read_values(&bytes[header_len..], &options, &hierarchy);
     Ok(Waveform::new(hierarchy, wave_mem))
 }
 
-fn read_hierarchy(input: &mut (impl BufRead + Seek)) -> (usize, Hierarchy) {
+fn read_hierarchy(input: &mut (impl BufRead + Seek), options: &LoadOptions) -> (usize, Hierarchy) {
     let start = input.stream_position().unwrap();
     let mut h = HierarchyBuilder::new(FileType::Vcd);
 
     let foo = |cmd: HeaderCmd| match cmd {
         HeaderCmd::Scope(tpe, name) => {
+            let flatten = options.remove_scopes_with_empty_name && name.is_empty();
             h.add_scope(
                 std::str::from_utf8(name).unwrap().to_string(),
                 convert_scope_tpe(tpe),
+                flatten,
             );
         }
         HeaderCmd::UpScope => h.pop_scope(),
@@ -500,10 +510,10 @@ fn determine_thread_chunks(body_len: usize) -> Vec<(usize, usize)> {
 /// Reads the body of a VCD with multiple threads
 fn read_values(
     input: &[u8],
-    multi_threaded: bool,
+    options: &LoadOptions,
     hierarchy: &Hierarchy,
 ) -> Box<crate::wavemem::Reader> {
-    if multi_threaded {
+    if options.multi_thread {
         let chunks = determine_thread_chunks(input.len());
         let encoders: Vec<crate::wavemem::Encoder> = chunks
             .par_iter()
