@@ -882,4 +882,17 @@ x%i"
         assert_eq!(cmd_1, VcdCmd::UpScope);
         assert!(body_1.is_empty());
     }
+
+
+    #[test]
+    fn test_id_to_int() {
+        assert_eq!(id_to_int(b""), None);
+        assert_eq!(id_to_int(b"!"), Some(0));
+        assert_eq!(id_to_int(b"#"), Some(2));
+        assert_eq!(id_to_int(b"*"), Some(9));
+        assert_eq!(id_to_int(b"c"), Some(66));
+        assert_eq!(id_to_int(b"#%"), Some(472));
+        assert_eq!(id_to_int(b"("), Some(7));
+        assert_eq!(id_to_int(b")"), Some(8));
+    }
 }
