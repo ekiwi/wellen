@@ -21,7 +21,13 @@ fn run_load_test(vcd_filename: &str, fst_filename: &str) {
 
 fn run_diff_test_internal(vcd_filename: &str, fst_filename: &str, skip_content_comparison: bool) {
     {
-        let wave = waveform::vcd::read(vcd_filename).expect("Failed to load VCD");
+        let wave = waveform::vcd::read_single_thread(vcd_filename)
+            .expect("Failed to load VCD with a single thread");
+        diff_test_one(vcd_filename, wave, skip_content_comparison);
+    }
+    {
+        let wave =
+            waveform::vcd::read(vcd_filename).expect("Failed to load VCD with multiple threads");
         diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
     {
