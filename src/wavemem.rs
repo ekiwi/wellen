@@ -445,9 +445,6 @@ impl Encoder {
             !self.time_table.is_empty(),
             "We need a call to time_change first!"
         );
-        if id == 32 {
-            println!();
-        }
         let time_idx = (self.time_table.len() - 1) as u16;
         self.signals[id as usize].add_vcd_change(time_idx, value);
         self.has_new_data = true;
