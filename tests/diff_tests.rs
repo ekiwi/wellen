@@ -514,7 +514,6 @@ fn diff_surfer_picorv32() {
 }
 
 #[test]
-#[ignore] // VCD parser stumbles over unexpected $dumpall
 fn diff_surfer_spade() {
     run_diff_test("inputs/surfer/spade.vcd", "inputs/surfer/spade.vcd.fst");
 }
