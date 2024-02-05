@@ -4,7 +4,7 @@
 
 use bytesize::ByteSize;
 use clap::Parser;
-use waveform::*;
+use wellen::*;
 
 #[derive(Parser, Debug)]
 #[command(name = "loadfst")]
@@ -58,8 +58,8 @@ fn main() {
     let ext = args.filename.split('.').last().unwrap();
     let start = std::time::Instant::now();
     let mut wave = match ext {
-        "fst" => waveform::fst::read(&args.filename),
-        "vcd" => waveform::vcd::read(&args.filename).expect("Failed to load VCD."),
+        "fst" => wellen::fst::read(&args.filename),
+        "vcd" => wellen::vcd::read(&args.filename).expect("Failed to load VCD."),
         other => panic!("Unsupported file extension: {other}"),
     };
     let load_duration = start.elapsed();

@@ -2,7 +2,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use waveform::*;
+use wellen::*;
 
 #[test]
 fn surfer_verilator_empty_scope_flatten_scope_with_empty_name() {
