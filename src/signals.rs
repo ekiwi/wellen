@@ -330,6 +330,7 @@ fn binary_search(indices: &[TimeTableIdx], needle: TimeTableIdx) -> usize {
     lower_idx - 1
 }
 
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct DataOffset {
     /// Offset of the first data value at the time requested (or earlier).
     pub start: usize,
