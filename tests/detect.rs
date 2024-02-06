@@ -33,14 +33,18 @@ fn test_detect_file_format() {
         let filename_str = filename.to_str().unwrap();
         match format {
             FileFormat::Vcd => {
-                assert!(filename_str.ends_with(".vcd"));
+                assert!(filename_str.ends_with(".vcd"), "{filename_str}");
             }
             FileFormat::Fst => {
-                assert!(filename_str.ends_with(".fst"));
+                assert!(filename_str.ends_with(".fst"), "{filename_str}");
             }
             FileFormat::Unknown => {
-                assert!(!filename_str.ends_with(".vcd"));
-                assert!(!filename_str.ends_with(".fst"));
+                // this file ends in fst, but does not seem to be a valid fst
+                let ignore = filename_str.ends_with("libsigrok.vcd.fst");
+                if !ignore {
+                    assert!(!filename_str.ends_with(".vcd"), "{filename_str}");
+                    assert!(!filename_str.ends_with(".fst"), "{filename_str}");
+                }
             }
         }
     }

@@ -4,7 +4,7 @@
 
 [package]
 name = "wellen"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]
 description = "Fast VCD and FST library for waveform viewers written in Rust."
@@ -24,6 +24,7 @@ memmap2 = "0.9.0"
 rayon = "1.8.0"
 smallvec = "1.11.1"
 num_enum = "0.7.1"
+thiserror = "1.0.56"
 
 [dev-dependencies]
 itertools = "0.11.0"

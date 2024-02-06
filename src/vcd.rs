@@ -3,7 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::*;
-use crate::Waveform;
+use crate::{Waveform, WellenError};
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
@@ -25,9 +25,7 @@ impl Default for LoadOptions {
     }
 }
 
-#[derive(Debug)]
-pub struct WaveformError {}
-pub type Result<T> = std::result::Result<T, WaveformError>;
+pub type Result<T> = std::result::Result<T, WellenError>;
 
 pub fn read(filename: &str) -> Result<Waveform> {
     read_with_options(filename, LoadOptions::default())
@@ -40,18 +38,21 @@ pub fn read_with_options(filename: &str, options: LoadOptions) -> Result<Wavefor
     // load file into memory (lazily)
     let input_file = std::fs::File::open(filename).expect("failed to open input file!");
     let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
-    let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]), &options);
-    let wave_mem = read_values(&mmap[header_len..], &options, &hierarchy);
+    let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]), &options)?;
+    let wave_mem = read_values(&mmap[header_len..], &options, &hierarchy)?;
     Ok(Waveform::new(hierarchy, wave_mem))
 }
 
 pub fn read_from_bytes_with_options(bytes: &[u8], options: LoadOptions) -> Result<Waveform> {
-    let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&bytes), &options);
-    let wave_mem = read_values(&bytes[header_len..], &options, &hierarchy);
+    let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&bytes), &options)?;
+    let wave_mem = read_values(&bytes[header_len..], &options, &hierarchy)?;
     Ok(Waveform::new(hierarchy, wave_mem))
 }
 
-fn read_hierarchy(input: &mut (impl BufRead + Seek), options: &LoadOptions) -> (usize, Hierarchy) {
+fn read_hierarchy(
+    input: &mut (impl BufRead + Seek),
+    options: &LoadOptions,
+) -> Result<(usize, Hierarchy)> {
     let start = input.stream_position().unwrap();
     let mut h = HierarchyBuilder::new(FileType::Vcd);
 
@@ -59,29 +60,35 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek), options: &LoadOptions) -> (
         HeaderCmd::Scope(tpe, name) => {
             let flatten = options.remove_scopes_with_empty_name && name.is_empty();
             h.add_scope(
-                std::str::from_utf8(name).unwrap().to_string(),
+                std::str::from_utf8(name)?.to_string(),
                 convert_scope_tpe(tpe),
                 flatten,
             );
+            Ok(())
         }
-        HeaderCmd::UpScope => h.pop_scope(),
-        HeaderCmd::ScalarVar(tpe, size, id, name) => h.add_var(
-            std::str::from_utf8(name).unwrap().to_string(),
-            convert_var_tpe(tpe),
-            VarDirection::Todo,
-            u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
-            None,
-            SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
-        ),
+        HeaderCmd::UpScope => {
+            h.pop_scope();
+            Ok(())
+        }
+        HeaderCmd::ScalarVar(tpe, size, id, name) => {
+            h.add_var(
+                std::str::from_utf8(name).unwrap().to_string(),
+                convert_var_tpe(tpe),
+                VarDirection::Todo,
+                u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
+                None,
+                SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
+            );
+            Ok(())
+        }
         HeaderCmd::VectorVar(tpe, size, id, name, index) => {
             let length = match u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10) {
                 Ok(len) => len,
                 Err(_) => {
-                    panic!(
-                        "Failed to parse length: {} for {}",
-                        String::from_utf8_lossy(size),
-                        String::from_utf8_lossy(name)
-                    );
+                    return Err(WellenError::VcdVarLengthParsing(
+                        String::from_utf8_lossy(size).to_string(),
+                        String::from_utf8_lossy(name).to_string(),
+                    ));
                 }
             };
             h.add_var(
@@ -92,27 +99,32 @@ fn read_hierarchy(input: &mut (impl BufRead + Seek), options: &LoadOptions) -> (
                 parse_index(index),
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
             );
+            Ok(())
         }
         HeaderCmd::Date(value) => {
             h.set_date(String::from_utf8_lossy(value).to_string());
+            Ok(())
         }
         HeaderCmd::Version(value) => {
             h.set_version(String::from_utf8_lossy(value).to_string());
+            Ok(())
         }
         HeaderCmd::Comment(value) => {
             h.add_comment(String::from_utf8_lossy(value).to_string());
+            Ok(())
         }
         HeaderCmd::Timescale(factor, unit) => {
             let factor_int = u32::from_str_radix(std::str::from_utf8(factor).unwrap(), 10).unwrap();
             let value = Timescale::new(factor_int, convert_timescale_unit(unit));
             h.set_timescale(value);
+            Ok(())
         }
     };
 
     read_header(input, foo).unwrap();
     let end = input.stream_position().unwrap();
     let hierarchy = h.finish();
-    ((end - start) as usize, hierarchy)
+    Ok(((end - start) as usize, hierarchy))
 }
 
 pub(crate) fn parse_index(index: &[u8]) -> Option<VarIndex> {
@@ -218,8 +230,8 @@ fn id_to_int(id: &[u8]) -> Option<u64> {
 /// very hacky read header implementation, will fail on a lot of valid headers
 fn read_header(
     input: &mut impl BufRead,
-    mut callback: impl FnMut(HeaderCmd),
-) -> std::io::Result<()> {
+    mut callback: impl FnMut(HeaderCmd) -> Result<()>,
+) -> Result<()> {
     let mut buf: Vec<u8> = Vec::with_capacity(128);
     loop {
         buf.clear();
@@ -271,7 +283,7 @@ fn read_header(
                 return Ok(());
             }
         };
-        (callback)(parsed);
+        (callback)(parsed)?;
     }
 }
 
@@ -359,7 +371,7 @@ pub(crate) fn is_vcd(input: &mut (impl BufRead + Seek)) -> bool {
 }
 
 /// Returns an error or false if not a vcd. Returns Ok(true) only if we think it is a vcd.
-fn internal_is_vcd(input: &mut (impl BufRead + Seek)) -> std::io::Result<bool> {
+fn internal_is_vcd(input: &mut (impl BufRead + Seek)) -> Result<bool> {
     let mut buf = Vec::with_capacity(64);
     let (_cmd, _body) = read_command(input, &mut buf)?;
     Ok(true)
@@ -367,21 +379,18 @@ fn internal_is_vcd(input: &mut (impl BufRead + Seek)) -> std::io::Result<bool> {
 
 /// Reads in a command until the `$end`. Uses buf to store the read data.
 /// Returns the name and the body of the command.
-fn read_command<'a>(
-    input: &mut impl BufRead,
-    buf: &'a mut Vec<u8>,
-) -> std::io::Result<(VcdCmd, &'a [u8])> {
+fn read_command<'a>(input: &mut impl BufRead, buf: &'a mut Vec<u8>) -> Result<(VcdCmd, &'a [u8])> {
     // start out with an empty buffer
     assert!(buf.is_empty());
 
     // skip over any preceding whitespace
     let start_char = skip_whitespace(input)?;
-    assert_eq!(
-        start_char,
-        b'$',
-        "Expected `$` but got `{}`",
-        String::from_utf8_lossy(&[start_char])
-    );
+
+    if start_char != b'$' {
+        return Err(WellenError::VcdStartChar(
+            String::from_utf8_lossy(&[start_char]).to_string(),
+        ));
+    }
 
     // read the rest of the command into the buffer
     read_token(input, buf)?;
@@ -527,7 +536,7 @@ fn read_values(
     input: &[u8],
     options: &LoadOptions,
     hierarchy: &Hierarchy,
-) -> Box<crate::wavemem::Reader> {
+) -> Result<Box<crate::wavemem::Reader>> {
     if options.multi_thread {
         let chunks = determine_thread_chunks(input.len());
         let encoders: Vec<crate::wavemem::Encoder> = chunks
@@ -558,10 +567,10 @@ fn read_values(
         for other in encoder_iter {
             encoder.append(other);
         }
-        Box::new(encoder.finish())
+        Ok(Box::new(encoder.finish()))
     } else {
         let encoder = read_single_stream_of_values(input, input.len() - 1, true, true, hierarchy);
-        Box::new(encoder.finish())
+        Ok(Box::new(encoder.finish()))
     }
 }
 

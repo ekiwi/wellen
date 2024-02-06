@@ -27,6 +27,14 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
 
+  semver:
+    name: Check Semantic Versioning
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+
   examples:
     name: Try Examples
     runs-on: ubuntu-latest
