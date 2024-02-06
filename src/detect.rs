@@ -6,10 +6,18 @@
 
 use std::io::{BufRead, Seek};
 
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum FileFormat {
     Vcd,
     Fst,
     Unknown,
+}
+
+/// Tries to guess the format of the file.
+pub fn open_and_detect_file_format(filename: &str) -> FileFormat {
+    let input_file = std::fs::File::open(filename).expect("failed to open input file!");
+    let mut reader = std::io::BufReader::new(input_file);
+    detect_file_format(&mut reader)
 }
 
 /// Tries to guess the file format used by the input.

@@ -6,24 +6,26 @@ use crate::hierarchy::*;
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
 use crate::vcd::parse_index;
 use crate::wavemem::{check_states, write_n_state, States};
-use crate::Waveform;
+use crate::{Waveform, WellenError};
 use fst_native::*;
 use std::collections::HashMap;
 use std::io::{BufRead, Seek};
 
-pub fn read(filename: &str) -> Waveform {
+pub type Result<T> = std::result::Result<T, WellenError>;
+
+pub fn read(filename: &str) -> Result<Waveform> {
     let input = std::fs::File::open(filename).expect("failed to open input file!");
     let mut reader = FstReader::open_and_read_time_table(std::io::BufReader::new(input)).unwrap();
     let hierarchy = read_hierarchy(&mut reader);
     let db = Box::new(FstWaveDatabase::new(reader));
-    Waveform::new(hierarchy, db)
+    Ok(Waveform::new(hierarchy, db))
 }
 
-pub fn read_from_bytes(bytes: Vec<u8>) -> Waveform {
+pub fn read_from_bytes(bytes: Vec<u8>) -> Result<Waveform> {
     let mut reader = FstReader::open_and_read_time_table(std::io::Cursor::new(bytes)).unwrap();
     let hierarchy = read_hierarchy(&mut reader);
     let db = Box::new(FstWaveDatabase::new(reader));
-    Waveform::new(hierarchy, db)
+    Ok(Waveform::new(hierarchy, db))
 }
 
 struct FstWaveDatabase<R: BufRead + Seek> {
