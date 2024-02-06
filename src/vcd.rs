@@ -350,6 +350,21 @@ impl VcdCmd {
     }
 }
 
+/// Tries to guess whether this input could be a VCD by looking at the first token.
+pub(crate) fn is_vcd(input: &mut (impl BufRead + Seek)) -> bool {
+    let is_vcd = matches!(internal_is_vcd(input), Ok(true));
+    // try to reset input
+    let _ = input.seek(std::io::SeekFrom::Start(0));
+    is_vcd
+}
+
+/// Returns an error or false if not a vcd. Returns Ok(true) only if we think it is a vcd.
+fn internal_is_vcd(input: &mut (impl BufRead + Seek)) -> std::io::Result<bool> {
+    let mut buf = Vec::with_capacity(64);
+    let (_cmd, _body) = read_command(input, &mut buf)?;
+    Ok(true)
+}
+
 /// Reads in a command until the `$end`. Uses buf to store the read data.
 /// Returns the name and the body of the command.
 fn read_command<'a>(
