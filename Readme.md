@@ -8,4 +8,3 @@ VCD parsing uses multiple-threads.
 ## Overview
 
 ![Overview of wellen components](./wellen_overview.svg)
-<img src="./wellen_overview.svg">
