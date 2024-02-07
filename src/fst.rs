@@ -405,13 +405,18 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
 
     let cb = |entry: FstHierarchyEntry| {
         match entry {
-            FstHierarchyEntry::Scope { tpe, name, .. } => {
+            FstHierarchyEntry::Scope {
+                tpe,
+                name,
+                component,
+            } => {
                 // scopes should not be able to have enum types
                 debug_assert!(next_var_has_enum.is_none());
                 next_var_has_enum = None;
 
                 h.add_scope(
                     name,
+                    Some(component),
                     convert_scope_tpe(tpe),
                     next_scope_has_source_info,
                     next_scope_has_instance_source_info,

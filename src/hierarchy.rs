@@ -321,6 +321,8 @@ pub enum HierarchyItem<'a> {
 #[derive(Debug)]
 pub struct Scope {
     name: HierarchyStringId,
+    /// Some wave formats supply the name of the component, e.g., of the module that was instantiated.
+    component: Option<HierarchyStringId>,
     tpe: ScopeType,
     declaration_source: Option<SourceLocId>,
     instance_source: Option<SourceLocId>,
@@ -333,6 +335,11 @@ impl Scope {
     /// Local name of the scope.
     pub fn name<'a>(&self, hierarchy: &'a Hierarchy) -> &'a str {
         hierarchy.get_str(self.name)
+    }
+
+    /// Local name of the component, e.g., the name of the module that was instantiated.
+    pub fn component<'a>(&self, hierarchy: &'a Hierarchy) -> Option<&'a str> {
+        self.component.map(|n| hierarchy.get_str(n))
     }
 
     /// Full hierarchical name of the scope.
@@ -864,6 +871,7 @@ impl HierarchyBuilder {
     pub fn add_scope(
         &mut self,
         name: String,
+        component: Option<String>,
         tpe: ScopeType,
         declaration_source: Option<SourceLocId>,
         instance_source: Option<SourceLocId>,
@@ -890,12 +898,25 @@ impl HierarchyBuilder {
                 flattened: false,
             });
 
+            // empty component name is treated the same as none
+            let component = match component {
+                None => None,
+                Some(name) => {
+                    if name.is_empty() {
+                        None
+                    } else {
+                        Some(self.add_string(name))
+                    }
+                }
+            };
+
             // now we can build the node data structure and store it
             let node = Scope {
                 parent,
                 child: None,
                 next: None,
                 name: self.add_string(name),
+                component,
                 tpe,
                 declaration_source,
                 instance_source,
@@ -1033,6 +1054,7 @@ mod tests {
         assert_eq!(
             std::mem::size_of::<Scope>(),
             std::mem::size_of::<HierarchyStringId>() // name
+                + std::mem::size_of::<HierarchyStringId>() // component name
                 + 1 // tpe
                 + 2 // source info
                 + 2 // source info
@@ -1041,8 +1063,8 @@ mod tests {
                 + std::mem::size_of::<HierarchyItemId>() // next
                 + 1 // padding
         );
-        // currently this all comes out to 28 bytes (~= 3.5x 64-bit pointers)
-        assert_eq!(std::mem::size_of::<Scope>(), 28);
+        // currently this all comes out to 32 bytes (~= 4x 64-bit pointers)
+        assert_eq!(std::mem::size_of::<Scope>(), 32);
 
         // for comparison: one string is 24 bytes for the struct alone (ignoring heap allocation)
         assert_eq!(std::mem::size_of::<String>(), 24);

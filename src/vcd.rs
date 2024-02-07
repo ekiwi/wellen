@@ -61,6 +61,7 @@ fn read_hierarchy(
             let flatten = options.remove_scopes_with_empty_name && name.is_empty();
             h.add_scope(
                 std::str::from_utf8(name)?.to_string(),
+                None, // VCDs do not contain component names
                 convert_scope_tpe(tpe),
                 None,
                 None,
