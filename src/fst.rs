@@ -394,6 +394,8 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
     h.set_timescale(convert_timescale(fst_header.timescale_exponent));
 
     let mut path_names = HashMap::new();
+    let mut enums = HashMap::new();
+    let mut next_var_has_enum = None;
 
     let cb = |entry: FstHierarchyEntry| {
         match entry {
@@ -416,6 +418,12 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                     (name, None)
                 };
 
+                if let Some(handle) = next_var_has_enum {
+                    next_var_has_enum = None;
+                    let (name, mapping) = &enums[&handle];
+                    println!("TODO: {var_name} is of enum type {name}: {mapping:?}!");
+                }
+
                 h.add_var(
                     var_name,
                     convert_var_tpe(tpe),
@@ -428,11 +436,27 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
             FstHierarchyEntry::PathName { id, name } => {
                 path_names.insert(id, name);
             }
-            FstHierarchyEntry::SourceStem { .. } => todo!(),
+            FstHierarchyEntry::SourceStem {
+                is_instantiation,
+                path_id,
+                line,
+            } => {
+                let path = &path_names[&path_id];
+                println!("TODO: Deal with source info: {path}:{line}");
+            }
             FstHierarchyEntry::Comment { .. } => {} // ignored
-            FstHierarchyEntry::EnumTable { .. } => todo!(),
-            FstHierarchyEntry::EnumTableRef { .. } => todo!(),
-            FstHierarchyEntry::AttributeEnd => todo!(),
+            FstHierarchyEntry::EnumTable {
+                name,
+                handle,
+                mapping,
+            } => {
+                // remember enum table by handle
+                enums.insert(handle, (name, mapping));
+            }
+            FstHierarchyEntry::EnumTableRef { handle } => {
+                next_var_has_enum = Some(handle);
+            }
+            FstHierarchyEntry::AttributeEnd => todo!("{entry:?}"),
         };
     };
     reader.read_hierarchy(cb).unwrap();
