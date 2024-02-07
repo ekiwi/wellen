@@ -396,11 +396,13 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
     let mut path_names = HashMap::new();
     let mut enums = HashMap::new();
     let mut next_var_has_enum = None;
+    // let mut next_var_has_source_info = None;
 
     let cb = |entry: FstHierarchyEntry| {
         match entry {
             FstHierarchyEntry::Scope { tpe, name, .. } => {
                 h.add_scope(name, convert_scope_tpe(tpe), false);
+                println!("SCOPE");
             }
             FstHierarchyEntry::UpScope => h.pop_scope(),
             FstHierarchyEntry::Var {
@@ -424,6 +426,8 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                     println!("TODO: {var_name} is of enum type {name}: {mapping:?}!");
                 }
 
+                println!("VAR");
+
                 h.add_var(
                     var_name,
                     convert_var_tpe(tpe),
@@ -442,7 +446,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 line,
             } => {
                 let path = &path_names[&path_id];
-                println!("TODO: Deal with source info: {path}:{line}");
+                println!("TODO: Deal with source info: {path}:{line} {is_instantiation}");
             }
             FstHierarchyEntry::Comment { .. } => {} // ignored
             FstHierarchyEntry::EnumTable {
