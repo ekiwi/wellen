@@ -350,8 +350,12 @@ fn convert_var_tpe(tpe: FstVarType) -> VarType {
 
 fn convert_var_direction(tpe: FstVarDirection) -> VarDirection {
     match tpe {
+        FstVarDirection::Implicit => VarDirection::Implicit,
         FstVarDirection::Input => VarDirection::Input,
-        _ => VarDirection::Todo,
+        FstVarDirection::Output => VarDirection::Output,
+        FstVarDirection::InOut => VarDirection::InOut,
+        FstVarDirection::Buffer => VarDirection::Buffer,
+        FstVarDirection::Linkage => VarDirection::Linkage,
     }
 }
 

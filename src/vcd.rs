@@ -76,7 +76,7 @@ fn read_hierarchy(
             h.add_var(
                 std::str::from_utf8(name).unwrap().to_string(),
                 convert_var_tpe(tpe),
-                VarDirection::Todo,
+                VarDirection::vcd_default(),
                 u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
                 None,
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
@@ -97,7 +97,7 @@ fn read_hierarchy(
             h.add_var(
                 std::str::from_utf8(name).unwrap().to_string(),
                 convert_var_tpe(tpe),
-                VarDirection::Todo,
+                VarDirection::vcd_default(),
                 length,
                 parse_index(index),
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),

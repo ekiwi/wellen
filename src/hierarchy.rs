@@ -120,7 +120,7 @@ pub enum ScopeType {
     Fork,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VarType {
     Event,
     Integer,
@@ -148,10 +148,23 @@ pub enum VarType {
     Enum,
 }
 
-#[derive(Debug, Clone, Copy)]
+/// Signal directions of a variable. Currently these have the exact same meaning as in the FST format.
+/// For VCD inputs, all variables will be marked as `VarDirection::Unknown` since no direction information is included.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum VarDirection {
+    Unknown,
+    Implicit,
     Input,
-    Todo, // placeholder tpe
+    Output,
+    InOut,
+    Buffer,
+    Linkage,
+}
+
+impl VarDirection {
+    pub(crate) fn vcd_default() -> Self {
+        VarDirection::Unknown
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
