@@ -80,6 +80,7 @@ fn read_hierarchy(
                 u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
                 None,
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
+                None,
             );
             Ok(())
         }
@@ -100,6 +101,7 @@ fn read_hierarchy(
                 length,
                 parse_index(index),
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
+                None,
             );
             Ok(())
         }

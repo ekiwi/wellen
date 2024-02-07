@@ -402,6 +402,10 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
     let cb = |entry: FstHierarchyEntry| {
         match entry {
             FstHierarchyEntry::Scope { tpe, name, .. } => {
+                // scopes should not be able to have enum types
+                debug_assert!(next_var_has_enum.is_none());
+                next_var_has_enum = None;
+
                 h.add_scope(
                     name,
                     convert_scope_tpe(tpe),
@@ -429,12 +433,6 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                     (name, None)
                 };
 
-                if let Some(handle) = next_var_has_enum {
-                    next_var_has_enum = None;
-                    let (name, mapping) = &enums[&handle];
-                    println!("TODO: {var_name} is of enum type {name}: {mapping:?}!");
-                }
-
                 // these two variables should be None since we assume that only scopes have source info
                 debug_assert!(next_scope_has_instance_source_info.is_none());
                 debug_assert!(next_scope_has_source_info.is_none());
@@ -450,7 +448,11 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                     length,
                     index,
                     SignalRef::from_index(handle.get_index()).unwrap(),
+                    next_var_has_enum,
                 );
+
+                // reset info
+                next_var_has_enum = None;
             }
             FstHierarchyEntry::PathName { id, name } => {
                 let string_ref = h.add_string(name);
@@ -475,11 +477,12 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 handle,
                 mapping,
             } => {
+                let enum_ref = h.add_enum_type(name, mapping);
                 // remember enum table by handle
-                enums.insert(handle, (name, mapping));
+                enums.insert(handle, enum_ref);
             }
             FstHierarchyEntry::EnumTableRef { handle } => {
-                next_var_has_enum = Some(handle);
+                next_var_has_enum = Some(enums[&handle]);
             }
             FstHierarchyEntry::AttributeEnd => todo!("{entry:?}"),
         };

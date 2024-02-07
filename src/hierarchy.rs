@@ -218,6 +218,7 @@ pub struct Var {
     direction: VarDirection,
     signal_tpe: SignalType,
     signal_idx: SignalRef,
+    enum_type: Option<EnumTypeId>,
     parent: Option<ScopeRef>,
     next: Option<HierarchyItemId>,
 }
@@ -246,6 +247,12 @@ impl Var {
 
     pub fn var_type(&self) -> VarType {
         self.var_tpe
+    }
+    pub fn enum_type<'a>(
+        &self,
+        hierarchy: &'a Hierarchy,
+    ) -> Option<(&'a str, Vec<(&'a str, &'a str)>)> {
+        self.enum_type.map(|id| hierarchy.get_enum_type(id))
     }
     pub fn direction(&self) -> VarDirection {
         self.direction
@@ -296,22 +303,6 @@ enum HierarchyItemId {
 pub enum HierarchyItem<'a> {
     Scope(&'a Scope),
     Var(&'a Var),
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub(crate) struct SourceLocId(NonZeroU16);
-
-impl SourceLocId {
-    #[inline]
-    fn from_index(index: usize) -> Self {
-        let value = (index + 1) as u16;
-        SourceLocId(NonZeroU16::new(value).unwrap())
-    }
-
-    #[inline]
-    fn index(&self) -> usize {
-        (self.0.get() - 1) as usize
-    }
 }
 
 #[derive(Debug)]
@@ -479,10 +470,48 @@ impl<'a> Iterator for HierarchyScopeRefIterator<'a> {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
+pub(crate) struct SourceLocId(NonZeroU16);
+
+impl SourceLocId {
+    #[inline]
+    fn from_index(index: usize) -> Self {
+        let value = (index + 1) as u16;
+        SourceLocId(NonZeroU16::new(value).unwrap())
+    }
+
+    #[inline]
+    fn index(&self) -> usize {
+        (self.0.get() - 1) as usize
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
 struct SourceLoc {
     path: HierarchyStringId,
     line: u64,
     is_instantiation: bool,
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub(crate) struct EnumTypeId(NonZeroU16);
+
+impl EnumTypeId {
+    #[inline]
+    fn from_index(index: usize) -> Self {
+        let value = (index + 1) as u16;
+        EnumTypeId(NonZeroU16::new(value).unwrap())
+    }
+
+    #[inline]
+    fn index(&self) -> usize {
+        (self.0.get() - 1) as usize
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct EnumType {
+    name: HierarchyStringId,
+    mapping: Vec<(HierarchyStringId, HierarchyStringId)>,
 }
 
 pub struct Hierarchy {
@@ -491,6 +520,7 @@ pub struct Hierarchy {
     first_item: Option<HierarchyItemId>,
     strings: Vec<String>,
     source_locs: Vec<SourceLoc>,
+    enums: Vec<EnumType>,
     signal_idx_to_var: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
 }
@@ -649,6 +679,17 @@ impl Hierarchy {
         (self.get_str(loc.path), loc.line)
     }
 
+    fn get_enum_type(&self, id: EnumTypeId) -> (&str, Vec<(&str, &str)>) {
+        let enum_tpe = &self.enums[id.index()];
+        let name = self.get_str(enum_tpe.name);
+        let mapping = enum_tpe
+            .mapping
+            .iter()
+            .map(|(a, b)| (self.get_str(*a), self.get_str(*b)))
+            .collect::<Vec<_>>();
+        (name, mapping)
+    }
+
     fn get_item(&self, id: HierarchyItemId) -> HierarchyItem {
         match id {
             HierarchyItemId::Scope(id) => HierarchyItem::Scope(self.get(id)),
@@ -687,6 +728,7 @@ pub struct HierarchyBuilder {
     scope_stack: Vec<ScopeStackEntry>,
     strings: Vec<String>,
     source_locs: Vec<SourceLoc>,
+    enums: Vec<EnumType>,
     handle_to_node: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
 }
@@ -706,6 +748,7 @@ impl HierarchyBuilder {
             scope_stack,
             strings: Vec::default(),
             source_locs: Vec::default(),
+            enums: Vec::default(),
             handle_to_node: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
         }
@@ -718,6 +761,7 @@ impl HierarchyBuilder {
         self.scopes.shrink_to_fit();
         self.strings.shrink_to_fit();
         self.source_locs.shrink_to_fit();
+        self.enums.shrink_to_fit();
         self.handle_to_node.shrink_to_fit();
         Hierarchy {
             vars: self.vars,
@@ -725,6 +769,7 @@ impl HierarchyBuilder {
             first_item: self.first_item,
             strings: self.strings,
             source_locs: self.source_locs,
+            enums: self.enums,
             signal_idx_to_var: self.handle_to_node,
             meta: self.meta,
         }
@@ -750,6 +795,22 @@ impl HierarchyBuilder {
             line,
             is_instantiation,
         });
+        sym
+    }
+
+    pub(crate) fn add_enum_type(
+        &mut self,
+        name: String,
+        mapping: Vec<(String, String)>,
+    ) -> EnumTypeId {
+        let name = self.add_string(name);
+        let mapping = mapping
+            .into_iter()
+            .map(|(a, b)| (self.add_string(a), self.add_string(b)))
+            .collect::<Vec<_>>();
+
+        let sym = EnumTypeId::from_index(self.enums.len());
+        self.enums.push(EnumType { name, mapping });
         sym
     }
 
@@ -838,6 +899,7 @@ impl HierarchyBuilder {
         raw_length: u32,
         index: Option<VarIndex>,
         signal_idx: SignalRef,
+        enum_type: Option<EnumTypeId>,
     ) {
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
@@ -869,6 +931,7 @@ impl HierarchyBuilder {
             direction,
             signal_tpe,
             signal_idx,
+            enum_type,
             next: None,
         };
         self.vars.push(node);
@@ -944,10 +1007,11 @@ mod tests {
                 + 1 // tpe
                 + 1 // direction
                 + 16 // signal tpe
+                + std::mem::size_of::<Option<EnumTypeId>>() // enum type
                 + std::mem::size_of::<SignalRef>() // handle
                 + std::mem::size_of::<ScopeRef>() // parent
                 + std::mem::size_of::<HierarchyItemId>() // next
-                + 4 // padding
+                + 2 // padding
         );
         // currently this all comes out to 40 bytes (~= 5x 64-bit pointers)
         assert_eq!(std::mem::size_of::<Var>(), 40);
