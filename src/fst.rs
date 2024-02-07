@@ -62,8 +62,12 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
             .iter()
             .map(|(id, tpe)| SignalWriter::new(*id, *tpe))
             .collect::<Vec<_>>();
-        let idx_to_pos: HashMap<usize, usize> =
-            HashMap::from_iter(ids.iter().map(|(r, _)| r.index()).enumerate());
+        let idx_to_pos: HashMap<usize, usize> = HashMap::from_iter(
+            ids.iter()
+                .map(|(r, _)| r.index())
+                .enumerate()
+                .map(|(pos, idx)| (idx, pos)),
+        );
         let foo = |time: u64, handle: FstSignalHandle, value: FstSignalValue| {
             // determine time index
             while *(index_and_time.1) < time {
