@@ -45,7 +45,7 @@ impl TimescaleUnit {
 
 /// Uniquely identifies a variable in the hierarchy.
 /// Replaces the old `SignalRef`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VarRef(NonZeroU32);
 
 impl VarRef {
@@ -71,7 +71,7 @@ impl Default for VarRef {
 
 /// Uniquely identifies a scope in the hierarchy.
 /// Replaces the old `ModuleRef`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct ScopeRef(NonZeroU16);
 
 impl ScopeRef {
