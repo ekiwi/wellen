@@ -58,7 +58,7 @@ fn main() {
     let ext = args.filename.split('.').last().unwrap();
     let start = std::time::Instant::now();
     let mut wave = match ext {
-        "fst" => wellen::fst::read(&args.filename),
+        "fst" => wellen::fst::read(&args.filename).expect("Failed to load FST."),
         "vcd" => wellen::vcd::read(&args.filename).expect("Failed to load VCD."),
         other => panic!("Unsupported file extension: {other}"),
     };

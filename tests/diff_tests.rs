@@ -35,7 +35,7 @@ fn run_diff_test_internal(vcd_filename: &str, fst_filename: &str, skip_content_c
         diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
     {
-        let wave = wellen::fst::read(fst_filename);
+        let wave = wellen::fst::read(fst_filename).expect("Failed to load FST");
         diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
 }
