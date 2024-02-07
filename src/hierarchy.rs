@@ -96,7 +96,7 @@ impl Default for ScopeRef {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct HierarchyStringId(NonZeroU32);
+pub(crate) struct HierarchyStringId(NonZeroU32);
 
 impl HierarchyStringId {
     #[inline]
@@ -298,10 +298,28 @@ pub enum HierarchyItem<'a> {
     Var(&'a Var),
 }
 
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub(crate) struct SourceLocId(NonZeroU16);
+
+impl SourceLocId {
+    #[inline]
+    fn from_index(index: usize) -> Self {
+        let value = (index + 1) as u16;
+        SourceLocId(NonZeroU16::new(value).unwrap())
+    }
+
+    #[inline]
+    fn index(&self) -> usize {
+        (self.0.get() - 1) as usize
+    }
+}
+
 #[derive(Debug)]
 pub struct Scope {
     name: HierarchyStringId,
     tpe: ScopeType,
+    declaration_source: Option<SourceLocId>,
+    instance_source: Option<SourceLocId>,
     child: Option<HierarchyItemId>,
     parent: Option<ScopeRef>,
     next: Option<HierarchyItemId>,
@@ -332,6 +350,15 @@ impl Scope {
 
     pub fn scope_type(&self) -> ScopeType {
         self.tpe
+    }
+
+    pub fn source_loc<'a>(&self, hierarchy: &'a Hierarchy) -> Option<(&'a str, u64)> {
+        self.declaration_source
+            .map(|id| hierarchy.get_source_loc(id))
+    }
+
+    pub fn instantiation_source_loc<'a>(&self, hierarchy: &'a Hierarchy) -> Option<(&'a str, u64)> {
+        self.instance_source.map(|id| hierarchy.get_source_loc(id))
     }
 
     pub fn items<'a>(&'a self, hierarchy: &'a Hierarchy) -> HierarchyItemIterator<'a> {
@@ -451,11 +478,19 @@ impl<'a> Iterator for HierarchyScopeRefIterator<'a> {
     }
 }
 
+#[derive(Debug, PartialEq, Copy, Clone)]
+struct SourceLoc {
+    path: HierarchyStringId,
+    line: u64,
+    is_instantiation: bool,
+}
+
 pub struct Hierarchy {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
     first_item: Option<HierarchyItemId>,
     strings: Vec<String>,
+    source_locs: Vec<SourceLoc>,
     signal_idx_to_var: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
 }
@@ -609,6 +644,11 @@ impl Hierarchy {
         &self.strings[id.index()]
     }
 
+    fn get_source_loc(&self, id: SourceLocId) -> (&str, u64) {
+        let loc = &self.source_locs[id.index()];
+        (self.get_str(loc.path), loc.line)
+    }
+
     fn get_item(&self, id: HierarchyItemId) -> HierarchyItem {
         match id {
             HierarchyItemId::Scope(id) => HierarchyItem::Scope(self.get(id)),
@@ -646,6 +686,7 @@ pub struct HierarchyBuilder {
     first_item: Option<HierarchyItemId>,
     scope_stack: Vec<ScopeStackEntry>,
     strings: Vec<String>,
+    source_locs: Vec<SourceLoc>,
     handle_to_node: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
 }
@@ -664,6 +705,7 @@ impl HierarchyBuilder {
             first_item: None,
             scope_stack,
             strings: Vec::default(),
+            source_locs: Vec::default(),
             handle_to_node: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
         }
@@ -675,22 +717,39 @@ impl HierarchyBuilder {
         self.vars.shrink_to_fit();
         self.scopes.shrink_to_fit();
         self.strings.shrink_to_fit();
+        self.source_locs.shrink_to_fit();
         self.handle_to_node.shrink_to_fit();
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
             first_item: self.first_item,
             strings: self.strings,
+            source_locs: self.source_locs,
             signal_idx_to_var: self.handle_to_node,
             meta: self.meta,
         }
     }
 
-    fn add_string(&mut self, value: String) -> HierarchyStringId {
+    pub(crate) fn add_string(&mut self, value: String) -> HierarchyStringId {
         // we assign each string a unique ID, currently we make no effort to avoid saving the same string twice
         let sym = HierarchyStringId::from_index(self.strings.len());
         self.strings.push(value);
         debug_assert_eq!(self.strings.len(), sym.index() + 1);
+        sym
+    }
+
+    pub(crate) fn add_source_loc(
+        &mut self,
+        path: HierarchyStringId,
+        line: u64,
+        is_instantiation: bool,
+    ) -> SourceLocId {
+        let sym = SourceLocId::from_index(self.source_locs.len());
+        self.source_locs.push(SourceLoc {
+            path,
+            line,
+            is_instantiation,
+        });
         sym
     }
 
@@ -728,7 +787,14 @@ impl HierarchyBuilder {
         }
     }
 
-    pub fn add_scope(&mut self, name: String, tpe: ScopeType, flatten: bool) {
+    pub fn add_scope(
+        &mut self,
+        name: String,
+        tpe: ScopeType,
+        declaration_source: Option<SourceLocId>,
+        instance_source: Option<SourceLocId>,
+        flatten: bool,
+    ) {
         if flatten {
             self.scope_stack.push(ScopeStackEntry {
                 scope_id: usize::MAX,
@@ -757,6 +823,8 @@ impl HierarchyBuilder {
                 next: None,
                 name: self.add_string(name),
                 tpe,
+                declaration_source,
+                instance_source,
             };
             self.scopes.push(node);
         }
@@ -889,13 +957,15 @@ mod tests {
             std::mem::size_of::<Scope>(),
             std::mem::size_of::<HierarchyStringId>() // name
                 + 1 // tpe
+                + 2 // source info
+                + 2 // source info
                 + std::mem::size_of::<HierarchyItemId>() // child
                 + std::mem::size_of::<ScopeRef>() // parent
                 + std::mem::size_of::<HierarchyItemId>() // next
                 + 1 // padding
         );
-        // currently this all comes out to 24 bytes (~= 3x 64-bit pointers)
-        assert_eq!(std::mem::size_of::<Scope>(), 24);
+        // currently this all comes out to 28 bytes (~= 3.5x 64-bit pointers)
+        assert_eq!(std::mem::size_of::<Scope>(), 28);
 
         // for comparison: one string is 24 bytes for the struct alone (ignoring heap allocation)
         assert_eq!(std::mem::size_of::<String>(), 24);

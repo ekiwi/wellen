@@ -62,6 +62,8 @@ fn read_hierarchy(
             h.add_scope(
                 std::str::from_utf8(name)?.to_string(),
                 convert_scope_tpe(tpe),
+                None,
+                None,
                 flatten,
             );
             Ok(())

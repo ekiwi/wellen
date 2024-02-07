@@ -396,13 +396,22 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
     let mut path_names = HashMap::new();
     let mut enums = HashMap::new();
     let mut next_var_has_enum = None;
-    // let mut next_var_has_source_info = None;
+    let mut next_scope_has_source_info = None;
+    let mut next_scope_has_instance_source_info = None;
 
     let cb = |entry: FstHierarchyEntry| {
         match entry {
             FstHierarchyEntry::Scope { tpe, name, .. } => {
-                h.add_scope(name, convert_scope_tpe(tpe), false);
-                println!("SCOPE");
+                h.add_scope(
+                    name,
+                    convert_scope_tpe(tpe),
+                    next_scope_has_source_info,
+                    next_scope_has_instance_source_info,
+                    false,
+                );
+                // reset info
+                next_scope_has_instance_source_info = None;
+                next_scope_has_source_info = None;
             }
             FstHierarchyEntry::UpScope => h.pop_scope(),
             FstHierarchyEntry::Var {
@@ -426,7 +435,13 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                     println!("TODO: {var_name} is of enum type {name}: {mapping:?}!");
                 }
 
-                println!("VAR");
+                // these two variables should be None since we assume that only scopes have source info
+                debug_assert!(next_scope_has_instance_source_info.is_none());
+                debug_assert!(next_scope_has_source_info.is_none());
+
+                // if we are not debugging, we just delete the info
+                next_scope_has_instance_source_info = None;
+                next_scope_has_source_info = None;
 
                 h.add_var(
                     var_name,
@@ -438,15 +453,21 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 );
             }
             FstHierarchyEntry::PathName { id, name } => {
-                path_names.insert(id, name);
+                let string_ref = h.add_string(name);
+                path_names.insert(id, string_ref);
             }
             FstHierarchyEntry::SourceStem {
                 is_instantiation,
                 path_id,
                 line,
             } => {
-                let path = &path_names[&path_id];
-                println!("TODO: Deal with source info: {path}:{line} {is_instantiation}");
+                let path = path_names[&path_id];
+                let id = h.add_source_loc(path, line, is_instantiation);
+                if is_instantiation {
+                    next_scope_has_instance_source_info = Some(id);
+                } else {
+                    next_scope_has_source_info = Some(id);
+                }
             }
             FstHierarchyEntry::Comment { .. } => {} // ignored
             FstHierarchyEntry::EnumTable {
