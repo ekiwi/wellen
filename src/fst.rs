@@ -4,7 +4,7 @@
 
 use crate::hierarchy::*;
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
-use crate::vcd::parse_index;
+use crate::vcd::{extract_index_from_name, parse_index};
 use crate::wavemem::{check_states, write_n_state, States};
 use crate::{Waveform, WellenError};
 use fst_native::*;
@@ -559,7 +559,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 let (var_name, index) = if let Some((prefix, suffix)) = name.split_once(' ') {
                     (prefix.to_string(), parse_index(suffix.as_bytes()))
                 } else {
-                    (name, None)
+                    extract_index_from_name(name.as_bytes())
                 };
 
                 let (type_name, var_type, enum_type) =

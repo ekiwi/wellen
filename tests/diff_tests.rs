@@ -176,7 +176,14 @@ fn diff_hierarchy_item(
         }
         (vcd::ScopeItem::Var(ref_var), HierarchyItem::Var(our_var)) => {
             id_map.insert(ref_var.code, our_var.signal_ref());
-            assert_eq!(ref_var.reference, our_var.name(our_hier));
+            // this happens because simulators like GHDL forget the space before the index
+            let ref_name_contains_index =
+                ref_var.reference.contains('[') && ref_var.reference.contains(']');
+            if !ref_name_contains_index {
+                assert_eq!(ref_var.reference, our_var.name(our_hier));
+            } else {
+                assert!(ref_var.reference.starts_with(our_var.name(our_hier)));
+            }
             assert_eq!(
                 ref_var.var_type.to_string(),
                 waveform_var_type_to_string(our_var.var_type())
@@ -192,7 +199,7 @@ fn diff_hierarchy_item(
                 }
             }
             match ref_var.index {
-                None => assert!(our_var.index().is_none()),
+                None => assert!(our_var.index().is_none() || ref_name_contains_index),
                 Some(vcd::ReferenceIndex::BitSelect(bit)) => {
                     assert_eq!(our_var.index().unwrap().msb(), bit);
                     assert_eq!(our_var.index().unwrap().lsb(), bit);

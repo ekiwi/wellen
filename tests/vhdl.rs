@@ -34,17 +34,17 @@ fn test_vhdl_3(waves: Waveform) {
     assert_eq!(rr.scope_type(), ScopeType::VhdlRecord);
 
     for var in rr.vars(h).map(|v| h.get(v)) {
-        match var.name(h).chars().next().unwrap() {
-            'a' => {
+        match var.name(h) {
+            "a" => {
                 assert_eq!(var.vhdl_type_name(h), Some("STD_LOGIC"));
                 // TODO: this should be "Logic" and not "ULogic". Not sure why we end up with this though...
                 assert_eq!(var.var_type(), VarType::StdULogic);
             }
-            'b' | 'c' => {
+            "b" | "c" => {
                 assert_eq!(var.vhdl_type_name(h), Some("STD_LOGIC_VECTOR"));
                 assert_eq!(var.var_type(), VarType::StdLogicVector);
             }
-            'd' => {
+            "d" => {
                 assert_eq!(var.vhdl_type_name(h), Some("E"));
                 assert_eq!(var.var_type(), VarType::String);
             }

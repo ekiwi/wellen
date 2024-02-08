@@ -138,7 +138,8 @@ fn read_hierarchy(
             Ok(())
         }
         HeaderCmd::ScalarVar(tpe, size, id, name) => {
-            let var_name = std::str::from_utf8(name).unwrap().to_string();
+            // sometimes the index is not separated from the name (which is incorrect ... but alas!)
+            let (var_name, index) = extract_index_from_name(name);
             let (type_name, var_type, enum_type) =
                 parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name)?;
             h.add_var(
@@ -146,7 +147,7 @@ fn read_hierarchy(
                 var_type,
                 VarDirection::vcd_default(),
                 u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
-                None,
+                index,
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
                 enum_type,
                 type_name,
@@ -164,6 +165,7 @@ fn read_hierarchy(
                 }
             };
 
+            let index = parse_index(index);
             let var_name = std::str::from_utf8(name).unwrap().to_string();
             let (type_name, var_type, enum_type) =
                 parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name)?;
@@ -172,7 +174,7 @@ fn read_hierarchy(
                 var_type,
                 VarDirection::vcd_default(),
                 length,
-                parse_index(index),
+                index,
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
                 enum_type,
                 type_name,
@@ -211,12 +213,28 @@ fn read_hierarchy(
     Ok(((end - start) as usize, hierarchy))
 }
 
+/// Tries to see if the name contains an index that is not white-space separated.
+/// E.g. `a[1:0]` instead of `a [1:0]` as would be correct for a VCD.
+pub(crate) fn extract_index_from_name(name: &[u8]) -> (String, Option<VarIndex>) {
+    let bracket_pos = name.iter().position(|c| *c == b'[');
+    if let Some(pos) = bracket_pos {
+        if let Some(index) = parse_index(&name[pos..]) {
+            return (
+                std::str::from_utf8(&name[..pos]).unwrap().to_string(),
+                Some(index),
+            );
+        }
+    }
+    return (std::str::from_utf8(name).unwrap().to_string(), None);
+}
+
 pub(crate) fn parse_index(index: &[u8]) -> Option<VarIndex> {
     if index.len() < 3 {
         return None;
     }
-    assert_eq!(index[0], b'[');
-    assert_eq!(*index.last().unwrap(), b']');
+    if index[0] != b'[' || *index.last().unwrap() != b']' {
+        return None;
+    }
     let sep = index.iter().position(|b| *b == b':');
     match sep {
         None => {
