@@ -82,6 +82,7 @@ fn read_hierarchy(
                 None,
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
                 None,
+                None,
             );
             Ok(())
         }
@@ -102,6 +103,7 @@ fn read_hierarchy(
                 length,
                 parse_index(index),
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
+                None,
                 None,
             );
             Ok(())

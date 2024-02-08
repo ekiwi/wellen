@@ -309,7 +309,27 @@ fn convert_scope_tpe(tpe: FstScopeType) -> ScopeType {
         FstScopeType::Function => ScopeType::Function,
         FstScopeType::Begin => ScopeType::Begin,
         FstScopeType::Fork => ScopeType::Fork,
-        other => panic!("Unsupported scope type: {:?}", other),
+        FstScopeType::Generate => ScopeType::Generate,
+        FstScopeType::Struct => ScopeType::Struct,
+        FstScopeType::Union => ScopeType::Union,
+        FstScopeType::Class => ScopeType::Class,
+        FstScopeType::Interface => ScopeType::Interface,
+        FstScopeType::Package => ScopeType::Package,
+        FstScopeType::Program => ScopeType::Program,
+        FstScopeType::VhdlArchitecture => ScopeType::VhdlArchitecture,
+        FstScopeType::VhdlProcedure => ScopeType::VhdlProcedure,
+        FstScopeType::VhdlFunction => ScopeType::VhdlFunction,
+        FstScopeType::VhdlRecord => ScopeType::VhdlRecord,
+        FstScopeType::VhdlProcess => ScopeType::VhdlProcess,
+        FstScopeType::VhdlBlock => ScopeType::VhdlBlock,
+        FstScopeType::VhdlForGenerate => ScopeType::VhdlForGenerate,
+        FstScopeType::VhdlIfGenerate => ScopeType::VhdlIfGenerate,
+        FstScopeType::VhdlGenerate => ScopeType::VhdlGenerate,
+        FstScopeType::VhdlPackage => ScopeType::VhdlPackage,
+        FstScopeType::AttributeBegin
+        | FstScopeType::AttributeEnd
+        | FstScopeType::VcdScope
+        | FstScopeType::VcdUpScope => unreachable!("unexpected scope type!"),
     }
 }
 
@@ -334,17 +354,17 @@ fn convert_var_tpe(tpe: FstVarType) -> VarType {
         FstVarType::Wand => VarType::WAnd,
         FstVarType::Wor => VarType::WOr,
         FstVarType::Port => VarType::Port,
-        FstVarType::SparseArray => todo!("Implement support for SparseArray type!"),
-        FstVarType::RealTime => todo!("Implement support for RealTime type!"),
+        FstVarType::SparseArray => VarType::SparseArray,
+        FstVarType::RealTime => VarType::RealTime,
         FstVarType::GenericString => VarType::String,
         FstVarType::Bit => VarType::Bit,
         FstVarType::Logic => VarType::Logic,
         FstVarType::Int => VarType::Int,
-        FstVarType::ShortInt => VarType::Int,
-        FstVarType::LongInt => VarType::Int,
-        FstVarType::Byte => VarType::Int,
+        FstVarType::ShortInt => VarType::ShortInt,
+        FstVarType::LongInt => VarType::LongInt,
+        FstVarType::Byte => VarType::Byte,
         FstVarType::Enum => VarType::Enum,
-        FstVarType::ShortReal => VarType::Real,
+        FstVarType::ShortReal => VarType::ShortReal,
     }
 }
 
@@ -356,6 +376,53 @@ fn convert_var_direction(tpe: FstVarDirection) -> VarDirection {
         FstVarDirection::InOut => VarDirection::InOut,
         FstVarDirection::Buffer => VarDirection::Buffer,
         FstVarDirection::Linkage => VarDirection::Linkage,
+    }
+}
+
+/// GHDL does not seem to encode any actual information in the VHDL variable type.
+/// Variables are always Signal or None.
+fn deal_with_vhdl_var_type(tpe: FstVhdlVarType, var_name: &str) {
+    if !matches!(tpe, FstVhdlVarType::None | FstVhdlVarType::Signal) {
+        println!("INFO: detected a VHDL Var Type that is not Signal!: {tpe:?} for {var_name}");
+    }
+}
+
+/// GHDL only uses a small combination of VCD variable and VHDL data types.
+/// Here we merge them together into a single VarType.
+fn merge_vhdl_data_and_var_type(vcd: VarType, vhdl: FstVhdlDataType) -> VarType {
+    match vhdl {
+        FstVhdlDataType::None => vcd,
+        FstVhdlDataType::Boolean => VarType::Boolean,
+        FstVhdlDataType::Bit => VarType::Bit,
+        FstVhdlDataType::Vector => VarType::BitVector,
+        FstVhdlDataType::ULogic => VarType::StdULogic,
+        FstVhdlDataType::ULogicVector => VarType::StdULogicVector,
+        FstVhdlDataType::Logic => VarType::StdLogic,
+        FstVhdlDataType::LogicVector => VarType::StdLogicVector,
+        FstVhdlDataType::Unsigned => {
+            println!("TODO: handle {vcd:?} {vhdl:?} better!");
+            vcd
+        }
+        FstVhdlDataType::Signed => {
+            println!("TODO: handle {vcd:?} {vhdl:?} better!");
+            vcd
+        }
+        FstVhdlDataType::Integer => VarType::Integer,
+        FstVhdlDataType::Real => VarType::Real,
+        FstVhdlDataType::Natural => {
+            println!("TODO: handle {vcd:?} {vhdl:?} better!");
+            vcd
+        }
+        FstVhdlDataType::Positive => {
+            println!("TODO: handle {vcd:?} {vhdl:?} better!");
+            vcd
+        }
+        FstVhdlDataType::Time => VarType::Time,
+        FstVhdlDataType::Character => {
+            println!("TODO: handle {vcd:?} {vhdl:?} better!");
+            vcd
+        }
+        FstVhdlDataType::String => VarType::String,
     }
 }
 
@@ -402,6 +469,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
     let mut next_var_has_enum = None;
     let mut next_scope_has_source_info = None;
     let mut next_scope_has_instance_source_info = None;
+    let mut next_var_has_vhdl_info: Option<(String, FstVhdlVarType, FstVhdlDataType)> = None;
 
     let cb = |entry: FstHierarchyEntry| {
         match entry {
@@ -410,9 +478,11 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 name,
                 component,
             } => {
-                // scopes should not be able to have enum types
+                // scopes should not be able to have enum or vhdl types
                 debug_assert!(next_var_has_enum.is_none());
                 next_var_has_enum = None;
+                debug_assert!(next_var_has_vhdl_info.is_none());
+                next_var_has_vhdl_info = None;
 
                 h.add_scope(
                     name,
@@ -450,14 +520,27 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 next_scope_has_instance_source_info = None;
                 next_scope_has_source_info = None;
 
+                let mut var_type = convert_var_tpe(tpe);
+                let mut type_name = None;
+                if let Some(info) = next_var_has_vhdl_info.take() {
+                    // For now we ignore the var type since GHDL seems to just always set it to Signal.
+                    // Their code does not use any other var type.
+                    deal_with_vhdl_var_type(info.1, &var_name);
+
+                    // We merge the info of the VCD var type and the vhdl data type
+                    var_type = merge_vhdl_data_and_var_type(var_type, info.2);
+                    type_name = Some(info.0);
+                }
+
                 h.add_var(
                     var_name,
-                    convert_var_tpe(tpe),
+                    var_type,
                     convert_var_direction(direction),
                     length,
                     index,
                     SignalRef::from_index(handle.get_index()).unwrap(),
                     next_var_has_enum,
+                    type_name,
                 );
 
                 // reset info
@@ -492,6 +575,13 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
             }
             FstHierarchyEntry::EnumTableRef { handle } => {
                 next_var_has_enum = Some(enums[&handle]);
+            }
+            FstHierarchyEntry::VhdlVarInfo {
+                type_name,
+                var_type,
+                data_type,
+            } => {
+                next_var_has_vhdl_info = Some((type_name, var_type, data_type));
             }
             FstHierarchyEntry::AttributeEnd => todo!("{entry:?}"),
         };

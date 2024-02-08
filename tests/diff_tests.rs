@@ -118,6 +118,7 @@ fn waveform_scope_type_to_string(tpe: ScopeType) -> &'static str {
         ScopeType::Function => "function",
         ScopeType::Begin => "begin",
         ScopeType::Fork => "fork",
+        other => todo!("Convert {other:?} to string."),
     }
 }
 
@@ -146,6 +147,7 @@ fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
         VarType::Logic => "logic",
         VarType::Int => "int",
         VarType::Enum => "enum",
+        other => todo!("Convert {other:?} to string."),
     }
 }
 

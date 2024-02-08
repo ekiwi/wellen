@@ -111,17 +111,37 @@ impl HierarchyStringId {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ScopeType {
+    // VCD Scope Types
     Module,
     Task,
     Function,
     Begin,
     Fork,
+    Generate,
+    Struct,
+    Union,
+    Class,
+    Interface,
+    Package,
+    Program,
+    // VHDL
+    VhdlArchitecture,
+    VhdlProcedure,
+    VhdlFunction,
+    VhdlRecord,
+    VhdlProcess,
+    VhdlBlock,
+    VhdlForGenerate,
+    VhdlIfGenerate,
+    VhdlGenerate,
+    VhdlPackage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VarType {
+    // VCD
     Event,
     Integer,
     Parameter,
@@ -140,12 +160,25 @@ pub enum VarType {
     Wire,
     WOr,
     String,
-    // only supported by FST:
     Port,
+    SparseArray,
+    RealTime,
+    // System Verilog
     Bit,
     Logic,
     Int,
+    ShortInt,
+    LongInt,
+    Byte,
     Enum,
+    ShortReal,
+    // VHDL (these are the types emitted by GHDL)
+    Boolean,
+    BitVector,
+    StdLogic,
+    StdLogicVector,
+    StdULogic,
+    StdULogicVector,
 }
 
 /// Signal directions of a variable. Currently these have the exact same meaning as in the FST format.
@@ -232,6 +265,7 @@ pub struct Var {
     signal_tpe: SignalType,
     signal_idx: SignalRef,
     enum_type: Option<EnumTypeId>,
+    vhdl_type_name: Option<HierarchyStringId>,
     parent: Option<ScopeRef>,
     next: Option<HierarchyItemId>,
 }
@@ -267,6 +301,12 @@ impl Var {
     ) -> Option<(&'a str, Vec<(&'a str, &'a str)>)> {
         self.enum_type.map(|id| hierarchy.get_enum_type(id))
     }
+
+    #[inline]
+    pub fn vhdl_type_name<'a>(&self, hierarchy: &'a Hierarchy) -> Option<&'a str> {
+        self.vhdl_type_name.map(|i| hierarchy.get_str(i))
+    }
+
     pub fn direction(&self) -> VarDirection {
         self.direction
     }
@@ -934,6 +974,7 @@ impl HierarchyBuilder {
         index: Option<VarIndex>,
         signal_idx: SignalRef,
         enum_type: Option<EnumTypeId>,
+        vhdl_type_name: Option<String>,
     ) {
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
@@ -967,6 +1008,7 @@ impl HierarchyBuilder {
             signal_idx,
             enum_type,
             next: None,
+            vhdl_type_name: vhdl_type_name.map(|s| self.add_string(s)),
         };
         self.vars.push(node);
     }
@@ -1042,13 +1084,14 @@ mod tests {
                 + 1 // direction
                 + 16 // signal tpe
                 + std::mem::size_of::<Option<EnumTypeId>>() // enum type
+                + std::mem::size_of::<HierarchyStringId>() // VHDL type name
                 + std::mem::size_of::<SignalRef>() // handle
                 + std::mem::size_of::<ScopeRef>() // parent
                 + std::mem::size_of::<HierarchyItemId>() // next
-                + 2 // padding
+                + 6 // padding
         );
-        // currently this all comes out to 40 bytes (~= 5x 64-bit pointers)
-        assert_eq!(std::mem::size_of::<Var>(), 40);
+        // currently this all comes out to 48 bytes (~= 6x 64-bit pointers)
+        assert_eq!(std::mem::size_of::<Var>(), 48);
 
         // Scope
         assert_eq!(
