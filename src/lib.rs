@@ -15,8 +15,22 @@ pub enum WellenError {
     VcdVarLengthParsing(String, String),
     #[error("[vcd] expected command to start with `$`, not `{0}`")]
     VcdStartChar(String),
+    #[error("[vcd] unexpected number of tokens for command {0}: {1}")]
+    VcdUnexpectedNumberOfTokens(String, String),
+    #[error("[vcd] encountered a attribute with an unsupported type: {0}")]
+    VcdUnsupportedAttributeType(String),
+    #[error("[vcd] failed to parse VHDL var type from attribute.")]
+    VcdFailedToParseVhdlVarType(
+        #[from] num_enum::TryFromPrimitiveError<fst_native::FstVhdlVarType>,
+    ),
+    #[error("[vcd] failed to parse VHDL data type from attribute.")]
+    VcdFailedToParseVhdlDataType(
+        #[from] num_enum::TryFromPrimitiveError<fst_native::FstVhdlDataType>,
+    ),
     #[error("failed to decode string")]
     Utf8(#[from] std::str::Utf8Error),
+    #[error("failed to parse an integer")]
+    ParseInt(#[from] std::num::ParseIntError),
     #[error("I/O operation failed")]
     Io(#[from] std::io::Error),
 }

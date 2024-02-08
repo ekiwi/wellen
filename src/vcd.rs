@@ -2,9 +2,13 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
+use crate::fst::{parse_scope_attributes, parse_var_attributes, Attribute};
 use crate::hierarchy::*;
 use crate::{Waveform, WellenError};
+use fst_native::{FstVhdlDataType, FstVhdlVarType};
+use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
 
@@ -49,22 +53,82 @@ pub fn read_from_bytes_with_options(bytes: &[u8], options: LoadOptions) -> Resul
     Ok(Waveform::new(hierarchy, wave_mem))
 }
 
+const FST_SUP_VAR_DATA_TYPE_BITS: u32 = 10;
+const FST_SUP_VAR_DATA_TYPE_MASK: u64 = (1 << FST_SUP_VAR_DATA_TYPE_BITS) - 1;
+
+// VCD attributes are a GTKWave extension which is also used by nvc
+fn parse_attribute(
+    tokens: Vec<&[u8]>,
+    path_names: &mut HashMap<u64, HierarchyStringId>,
+    h: &mut HierarchyBuilder,
+) -> Result<Option<Attribute>> {
+    match tokens[1] {
+        b"02" => {
+            // FstHierarchyEntry::VhdlVarInfo
+            if tokens.len() != 4 {
+                return Err(unexpected_n_tokens("attribute", &tokens));
+            }
+            let type_name = std::str::from_utf8(tokens[2])?.to_string();
+            let arg = u64::from_str_radix(std::str::from_utf8(tokens[3])?, 10)?;
+            let var_type =
+                FstVhdlVarType::try_from_primitive((arg >> FST_SUP_VAR_DATA_TYPE_BITS) as u8)?;
+            let data_type =
+                FstVhdlDataType::try_from_primitive((arg & FST_SUP_VAR_DATA_TYPE_MASK) as u8)?;
+            Ok(Some(Attribute::VhdlTypeInfo(
+                type_name, var_type, data_type,
+            )))
+        }
+        b"03" => {
+            // FstHierarchyEntry::PathName
+            if tokens.len() != 4 {
+                return Err(unexpected_n_tokens("attribute", &tokens));
+            }
+            let path = std::str::from_utf8(tokens[2])?.to_string();
+            let id = u64::from_str_radix(std::str::from_utf8(tokens[3])?, 10)?;
+            let string_ref = h.add_string(path);
+            path_names.insert(id, string_ref);
+            Ok(None)
+        }
+        b"04" => {
+            // FstHierarchyEntry::SourceStem
+            if tokens.len() != 4 {
+                // TODO: GTKWave might actually generate 5 tokens in order to include whether it is the
+                //       instance of the normal source path
+                return Err(unexpected_n_tokens("attribute", &tokens));
+            }
+            let path_id = u64::from_str_radix(std::str::from_utf8(tokens[2])?, 10)?;
+            let line = u64::from_str_radix(std::str::from_utf8(tokens[3])?, 10)?;
+            let is_instance = false;
+            Ok(Some(Attribute::SourceLoc(
+                path_names[&path_id],
+                line,
+                is_instance,
+            )))
+        }
+        other => todo!("{}", String::from_utf8_lossy(other)),
+    }
+}
+
 fn read_hierarchy(
     input: &mut (impl BufRead + Seek),
     options: &LoadOptions,
 ) -> Result<(usize, Hierarchy)> {
     let start = input.stream_position().unwrap();
     let mut h = HierarchyBuilder::new(FileType::Vcd);
+    let mut attributes = Vec::new();
+    let mut path_names = HashMap::new();
 
     let foo = |cmd: HeaderCmd| match cmd {
         HeaderCmd::Scope(tpe, name) => {
             let flatten = options.remove_scopes_with_empty_name && name.is_empty();
+            let (declaration_source, instance_source) =
+                parse_scope_attributes(&mut attributes, &mut h)?;
             h.add_scope(
                 std::str::from_utf8(name)?.to_string(),
                 None, // VCDs do not contain component names
                 convert_scope_tpe(tpe),
-                None,
-                None,
+                declaration_source,
+                instance_source,
                 flatten,
             );
             Ok(())
@@ -74,15 +138,18 @@ fn read_hierarchy(
             Ok(())
         }
         HeaderCmd::ScalarVar(tpe, size, id, name) => {
+            let var_name = std::str::from_utf8(name).unwrap().to_string();
+            let (type_name, var_type, enum_type) =
+                parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name)?;
             h.add_var(
-                std::str::from_utf8(name).unwrap().to_string(),
-                convert_var_tpe(tpe),
+                var_name,
+                var_type,
                 VarDirection::vcd_default(),
                 u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
                 None,
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
-                None,
-                None,
+                enum_type,
+                type_name,
             );
             Ok(())
         }
@@ -96,15 +163,19 @@ fn read_hierarchy(
                     ));
                 }
             };
+
+            let var_name = std::str::from_utf8(name).unwrap().to_string();
+            let (type_name, var_type, enum_type) =
+                parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name)?;
             h.add_var(
-                std::str::from_utf8(name).unwrap().to_string(),
-                convert_var_tpe(tpe),
+                var_name,
+                var_type,
                 VarDirection::vcd_default(),
                 length,
                 parse_index(index),
                 SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
-                None,
-                None,
+                enum_type,
+                type_name,
             );
             Ok(())
         }
@@ -124,6 +195,12 @@ fn read_hierarchy(
             let factor_int = u32::from_str_radix(std::str::from_utf8(factor).unwrap(), 10).unwrap();
             let value = Timescale::new(factor_int, convert_timescale_unit(unit));
             h.set_timescale(value);
+            Ok(())
+        }
+        HeaderCmd::MiscAttribute(tokens) => {
+            if let Some(attr) = parse_attribute(tokens, &mut path_names, &mut h)? {
+                attributes.push(attr);
+            }
             Ok(())
         }
     };
@@ -179,6 +256,8 @@ fn convert_scope_tpe(tpe: &[u8]) -> ScopeType {
         b"function" => ScopeType::Function,
         b"begin" => ScopeType::Begin,
         b"fork" => ScopeType::Fork,
+        b"vhdl_architecture" => ScopeType::VhdlArchitecture,
+        b"vhdl_record" => ScopeType::VhdlRecord,
         _ => panic!("TODO: convert {}", String::from_utf8_lossy(tpe)),
     }
 }
@@ -203,6 +282,7 @@ fn convert_var_tpe(tpe: &[u8]) -> VarType {
         b"tri1" => VarType::Tri1,
         b"wand" => VarType::WAnd,
         b"wor" => VarType::WOr,
+        b"logic" => VarType::Logic,
         _ => panic!("TODO: convert {}", String::from_utf8_lossy(tpe)),
     }
 }
@@ -234,6 +314,11 @@ fn id_to_int(id: &[u8]) -> Option<u64> {
     Some(result - 1)
 }
 
+#[inline]
+fn unexpected_n_tokens(cmd: &str, tokens: &[&[u8]]) -> WellenError {
+    WellenError::VcdUnexpectedNumberOfTokens(cmd.to_string(), iter_bytes_to_list_str(tokens.iter()))
+}
+
 /// very hacky read header implementation, will fail on a lot of valid headers
 fn read_header(
     input: &mut impl BufRead,
@@ -256,10 +341,7 @@ fn read_header(
                     5 => {
                         HeaderCmd::VectorVar(tokens[0], tokens[1], tokens[2], tokens[3], tokens[4])
                     }
-                    _ => panic!(
-                        "Unexpected var declaration: {}",
-                        std::str::from_utf8(&buf).unwrap()
-                    ),
+                    _ => return Err(unexpected_n_tokens("variable", &tokens)),
                 }
             }
             VcdCmd::UpScope => HeaderCmd::UpScope,
@@ -278,16 +360,35 @@ fn read_header(
                         }
                     }
                     2 => (tokens[0], tokens[1]),
-                    _ => panic!(
-                        "Unexpected number of tokens for timescale: {}",
-                        iter_bytes_to_list_str(tokens.iter())
-                    ),
+                    _ => {
+                        return Err(WellenError::VcdUnexpectedNumberOfTokens(
+                            "timescale".to_string(),
+                            iter_bytes_to_list_str(tokens.iter()),
+                        ))
+                    }
                 };
                 HeaderCmd::Timescale(factor, unit)
             }
             VcdCmd::EndDefinitions => {
                 // header is done
                 return Ok(());
+            }
+            VcdCmd::Attribute => {
+                let tokens = find_tokens(body);
+                if tokens.len() < 3 {
+                    return Err(WellenError::VcdUnexpectedNumberOfTokens(
+                        "attribute".to_string(),
+                        iter_bytes_to_list_str(tokens.iter()),
+                    ));
+                }
+                match tokens[0] {
+                    b"misc" => HeaderCmd::MiscAttribute(tokens),
+                    _ => {
+                        return Err(WellenError::VcdUnsupportedAttributeType(
+                            iter_bytes_to_list_str(tokens.iter()),
+                        ))
+                    }
+                }
             }
         };
         (callback)(parsed)?;
@@ -302,7 +403,9 @@ const VCD_UP_SCOPE: &[u8] = b"upscope";
 const VCD_COMMENT: &[u8] = b"comment";
 const VCD_VERSION: &[u8] = b"version";
 const VCD_END_DEFINITIONS: &[u8] = b"enddefinitions";
-const VCD_COMMANDS: [&[u8]; 8] = [
+/// This might be an unofficial extension used by VHDL simulators.
+const VCD_ATTRIBUTE_BEGIN: &[u8] = b"attrbegin";
+const VCD_COMMANDS: [&[u8]; 9] = [
     VCD_DATE,
     VCD_TIMESCALE,
     VCD_VAR,
@@ -311,6 +414,7 @@ const VCD_COMMANDS: [&[u8]; 8] = [
     VCD_COMMENT,
     VCD_VERSION,
     VCD_END_DEFINITIONS,
+    VCD_ATTRIBUTE_BEGIN,
 ];
 
 /// Used to show all commands when printing an error message.
@@ -338,6 +442,7 @@ enum VcdCmd {
     Comment,
     Version,
     EndDefinitions,
+    Attribute,
 }
 
 impl VcdCmd {
@@ -351,6 +456,7 @@ impl VcdCmd {
             VCD_COMMENT => Some(VcdCmd::Comment),
             VCD_VERSION => Some(VcdCmd::Version),
             VCD_END_DEFINITIONS => Some(VcdCmd::EndDefinitions),
+            VCD_ATTRIBUTE_BEGIN => Some(VcdCmd::Attribute),
             _ => None,
         }
     }
@@ -508,6 +614,8 @@ enum HeaderCmd<'a> {
     UpScope,
     ScalarVar(&'a [u8], &'a [u8], &'a [u8], &'a [u8]), // tpe, size, id, name
     VectorVar(&'a [u8], &'a [u8], &'a [u8], &'a [u8], &'a [u8]), // tpe, size, id, name, vector def
+    /// Misc attributes are emitted by nvc (VHDL sim) and fst2vcd (included with GTKwave).
+    MiscAttribute(Vec<&'a [u8]>),
 }
 
 /// The minimum number of bytes we want to read per thread.
@@ -694,7 +802,8 @@ impl<'a> BodyReader<'a> {
                         // 1-token commands are binary changes or time commands
                         match token[0] {
                             b'#' => Some(BodyCmd::Time(&token[1..])),
-                            b'0' | b'1' | b'z' | b'Z' | b'x' | b'X' => {
+                            b'0' | b'1' | b'z' | b'Z' | b'x' | b'X' | b'h' | b'H' | b'u' | b'U'
+                            | b'w' | b'W' | b'l' | b'L' | b'-' => {
                                 Some(BodyCmd::Value(&token[0..1], &token[1..]))
                             }
                             _ => {
