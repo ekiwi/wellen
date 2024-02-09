@@ -101,9 +101,14 @@ fn main() {
         min_signal_load_time, max_signal_load_time, average_signal_load_time
     );
 
-    let average_signal_size = signal_sizes.iter().sum::<usize>() / signal_sizes.len();
+    let total_signal_size = signal_sizes.iter().sum::<usize>();
+    let average_signal_size = total_signal_size / signal_sizes.len();
     let max_signal_size = *signal_sizes.iter().max().unwrap();
     let min_signal_size = *signal_sizes.iter().min().unwrap();
+    println!(
+        "All signals together take up {}",
+        ByteSize::b(total_signal_size as u64)
+    );
     println!(
         "Signal take up {}..{} (avg. {})",
         ByteSize::b(min_signal_size as u64),
