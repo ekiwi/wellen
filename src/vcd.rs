@@ -126,7 +126,7 @@ fn read_hierarchy(
             h.add_scope(
                 std::str::from_utf8(name)?.to_string(),
                 None, // VCDs do not contain component names
-                convert_scope_tpe(tpe),
+                convert_scope_tpe(tpe)?,
                 declaration_source,
                 instance_source,
                 flatten,
@@ -141,7 +141,7 @@ fn read_hierarchy(
             // sometimes the index is not separated from the name (which is incorrect ... but alas!)
             let (var_name, index) = extract_index_from_name(name);
             let (type_name, var_type, enum_type) =
-                parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name)?;
+                parse_var_attributes(&mut attributes, convert_var_tpe(tpe)?, &var_name)?;
             h.add_var(
                 var_name,
                 var_type,
@@ -168,7 +168,7 @@ fn read_hierarchy(
             let index = parse_index(index);
             let var_name = std::str::from_utf8(name).unwrap().to_string();
             let (type_name, var_type, enum_type) =
-                parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name)?;
+                parse_var_attributes(&mut attributes, convert_var_tpe(tpe)?, &var_name)?;
             h.add_var(
                 var_name,
                 var_type,
@@ -267,41 +267,71 @@ fn convert_timescale_unit(name: &[u8]) -> TimescaleUnit {
     }
 }
 
-fn convert_scope_tpe(tpe: &[u8]) -> ScopeType {
+fn convert_scope_tpe(tpe: &[u8]) -> Result<ScopeType> {
     match tpe {
-        b"module" => ScopeType::Module,
-        b"task" => ScopeType::Task,
-        b"function" => ScopeType::Function,
-        b"begin" => ScopeType::Begin,
-        b"fork" => ScopeType::Fork,
-        b"vhdl_architecture" => ScopeType::VhdlArchitecture,
-        b"vhdl_record" => ScopeType::VhdlRecord,
-        _ => panic!("TODO: convert {}", String::from_utf8_lossy(tpe)),
+        b"module" => Ok(ScopeType::Module),
+        b"task" => Ok(ScopeType::Task),
+        b"function" => Ok(ScopeType::Function),
+        b"begin" => Ok(ScopeType::Begin),
+        b"fork" => Ok(ScopeType::Fork),
+        b"generate" => Ok(ScopeType::Generate),
+        b"struct" => Ok(ScopeType::Struct),
+        b"union" => Ok(ScopeType::Union),
+        b"class" => Ok(ScopeType::Class),
+        b"interface" => Ok(ScopeType::Interface),
+        b"package" => Ok(ScopeType::Package),
+        b"program" => Ok(ScopeType::Program),
+        b"vhdl_architecture" => Ok(ScopeType::VhdlArchitecture),
+        b"vhdl_procedure" => Ok(ScopeType::VhdlProcedure),
+        b"vhdl_function" => Ok(ScopeType::VhdlFunction),
+        b"vhdl_record" => Ok(ScopeType::VhdlRecord),
+        b"vhdl_process" => Ok(ScopeType::VhdlProcess),
+        b"vhdl_block" => Ok(ScopeType::VhdlBlock),
+        b"vhdl_for_generate" => Ok(ScopeType::VhdlForGenerate),
+        b"vhdl_if_generate" => Ok(ScopeType::VhdlIfGenerate),
+        b"vhdl_generate" => Ok(ScopeType::VhdlGenerate),
+        b"vhdl_package" => Ok(ScopeType::VhdlPackage),
+        _ => Err(WellenError::VcdUnknownScopeType(
+            String::from_utf8_lossy(tpe).to_string(),
+        )),
     }
 }
 
-fn convert_var_tpe(tpe: &[u8]) -> VarType {
+fn convert_var_tpe(tpe: &[u8]) -> Result<VarType> {
     match tpe {
-        b"wire" => VarType::Wire,
-        b"reg" => VarType::Reg,
-        b"parameter" => VarType::Parameter,
-        b"integer" => VarType::Integer,
-        b"string" => VarType::String,
-        b"event" => VarType::Event,
-        b"real" => VarType::Real,
-        b"supply0" => VarType::Supply0,
-        b"supply1" => VarType::Supply1,
-        b"time" => VarType::Time,
-        b"tri" => VarType::Tri,
-        b"triand" => VarType::TriAnd,
-        b"trior" => VarType::TriOr,
-        b"trireg" => VarType::TriReg,
-        b"tri0" => VarType::Tri0,
-        b"tri1" => VarType::Tri1,
-        b"wand" => VarType::WAnd,
-        b"wor" => VarType::WOr,
-        b"logic" => VarType::Logic,
-        _ => panic!("TODO: convert {}", String::from_utf8_lossy(tpe)),
+        b"wire" => Ok(VarType::Wire),
+        b"reg" => Ok(VarType::Reg),
+        b"parameter" => Ok(VarType::Parameter),
+        b"integer" => Ok(VarType::Integer),
+        b"string" => Ok(VarType::String),
+        b"event" => Ok(VarType::Event),
+        b"real" => Ok(VarType::Real),
+        b"real_parameter" => Ok(VarType::Parameter),
+        b"supply0" => Ok(VarType::Supply0),
+        b"supply1" => Ok(VarType::Supply1),
+        b"time" => Ok(VarType::Time),
+        b"tri" => Ok(VarType::Tri),
+        b"triand" => Ok(VarType::TriAnd),
+        b"trior" => Ok(VarType::TriOr),
+        b"trireg" => Ok(VarType::TriReg),
+        b"tri0" => Ok(VarType::Tri0),
+        b"tri1" => Ok(VarType::Tri1),
+        b"wand" => Ok(VarType::WAnd),
+        b"wor" => Ok(VarType::WOr),
+        b"logic" => Ok(VarType::Logic),
+        b"port" => Ok(VarType::Port),
+        b"sparray" => Ok(VarType::SparseArray),
+        b"realtime" => Ok(VarType::RealTime),
+        b"bit" => Ok(VarType::Bit),
+        b"int" => Ok(VarType::Int),
+        b"shortint" => Ok(VarType::ShortInt),
+        b"longint" => Ok(VarType::LongInt),
+        b"byte" => Ok(VarType::Byte),
+        b"enum" => Ok(VarType::Enum),
+        b"shortread" => Ok(VarType::ShortReal),
+        _ => Err(WellenError::VcdUnknownVarType(
+            String::from_utf8_lossy(tpe).to_string(),
+        )),
     }
 }
 

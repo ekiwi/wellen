@@ -27,6 +27,10 @@ pub enum WellenError {
     VcdFailedToParseVhdlDataType(
         #[from] num_enum::TryFromPrimitiveError<fst_native::FstVhdlDataType>,
     ),
+    #[error("[vcd] unknown var type: {0}")]
+    VcdUnknownVarType(String),
+    #[error("[vcd] unknown scope type: {0}")]
+    VcdUnknownScopeType(String),
     #[error("failed to decode string")]
     Utf8(#[from] std::str::Utf8Error),
     #[error("failed to parse an integer")]
