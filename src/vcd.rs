@@ -105,7 +105,9 @@ fn parse_attribute(
                 is_instance,
             )))
         }
-        other => todo!("{}", String::from_utf8_lossy(other)),
+        _ => Err(WellenError::VcdUnsupportedAttributeType(
+            iter_bytes_to_list_str(tokens.iter()),
+        )),
     }
 }
 
