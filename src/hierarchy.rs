@@ -530,7 +530,7 @@ impl<'a> Iterator for HierarchyScopeRefIterator<'a> {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub(crate) struct SourceLocId(NonZeroU16);
+pub struct SourceLocId(NonZeroU16);
 
 impl SourceLocId {
     #[inline]
@@ -553,7 +553,7 @@ struct SourceLoc {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub(crate) struct EnumTypeId(NonZeroU16);
+pub struct EnumTypeId(NonZeroU16);
 
 impl EnumTypeId {
     #[inline]
