@@ -4,6 +4,7 @@
 
 mod detect;
 pub mod fst;
+mod ghw;
 mod hierarchy;
 mod signals;
 pub mod vcd;
