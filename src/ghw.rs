@@ -139,7 +139,39 @@ fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<
     let mut string_table = Vec::with_capacity(string_num as usize);
     string_table.push("<anon>".to_string());
 
-    for i in 1..string_num {}
+    let mut buf = Vec::with_capacity(64);
+    let mut prev = Vec::with_capacity(64);
+    let mut c_buf = [0u8];
+    let mut prev_len = 0u32;
+    for i in 1..(string_num + 1) {
+        for ii in 0..prev_len {
+            buf.push(prev[ii as usize]);
+        }
+        prev.clear();
+
+        loop {
+            input.read_exact(&mut c_buf)?;
+            let c = c_buf[0];
+            if (c >= 0 && c <= 31) || (c >= 128 && c <= 159) {
+                break;
+            } else {
+                buf.push(c);
+            }
+        }
+
+        let value = String::from_utf8_lossy(&buf).to_string();
+        std::mem::swap(&mut buf, &mut prev);
+        println!("{value}");
+        string_table.push(value);
+
+        prev_len = (c_buf[0] & 0x1f) as u32;
+        let mut shift = 5;
+        while c_buf[0] >= 128 {
+            input.read_exact(&mut c_buf)?;
+            prev_len |= ((c_buf[0] & 0x1f) as u32) << shift;
+            shift += 5;
+        }
+    }
 
     Ok(string_table)
 }
@@ -245,5 +277,6 @@ mod tests {
     #[test]
     fn test_simple_load() {
         load("inputs/ghdl/tb_recv.ghw").unwrap();
+        todo!()
     }
 }
