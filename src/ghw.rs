@@ -13,6 +13,12 @@ pub enum GhwParseError {
     UnexpectedHeaderMagic(String),
     #[error("[ghw] unexpected value in header: {0:?}")]
     UnexpectedHeader(HeaderData),
+    #[error("[ghw] unexpected section start: {0}")]
+    UnexpectedSection(String),
+    #[error("[ghw] failed to parse a string section: {0}")]
+    FailedToParseStringSection(String),
+    #[error("[ghw] expected positive integer, not: {0}")]
+    ExpectedPositiveInteger(i64),
     #[error("[ghw] failed to decode string")]
     Utf8(#[from] std::str::Utf8Error),
     #[error("[ghw] failed to parse an integer")]
@@ -29,6 +35,8 @@ fn load(filename: &str) -> Result<()> {
 
     let header = parse_header(&mut input)?;
     println!("{header:?}");
+
+    read_section(&header, &mut input)?;
 
     Ok(())
 }
@@ -88,6 +96,54 @@ fn parse_header(input: &mut impl BufRead) -> Result<HeaderData> {
     Ok(data)
 }
 
+const GHW_STRING_SECTION: &[u8; 4] = b"STR\x00";
+const GHW_HIERARCHY_SECTION: &[u8; 4] = b"HIE\x00";
+const GHW_TYPE_SECTION: &[u8; 4] = b"TYP\x00";
+const GHW_WK_TYPE_SECTION: &[u8; 4] = b"WKT\x00";
+const GHW_END_SECTION: &[u8; 4] = b"EOH\x00";
+
+fn read_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Section> {
+    let mut mark = [0u8; 4];
+    input.read_exact(&mut mark)?;
+
+    match &mark {
+        GHW_STRING_SECTION => Ok(Section::StringTable(read_string_section(header, input)?)),
+        GHW_HIERARCHY_SECTION => todo!("parse hierarchy section"),
+        GHW_TYPE_SECTION => todo!("parse type section"),
+        GHW_WK_TYPE_SECTION => todo!("parse wk type section"),
+        GHW_END_SECTION => Ok(Section::End),
+        other => Err(GhwParseError::UnexpectedSection(
+            String::from_utf8_lossy(other).to_string(),
+        )),
+    }
+}
+
+enum Section {
+    End,
+    StringTable(Vec<String>),
+}
+
+fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<String>> {
+    let mut h = [0u8; 12];
+    input.read_exact(&mut h)?;
+
+    if &h[..4] != b"\x00\x00\x00\x00" {
+        return Err(GhwParseError::FailedToParseStringSection(
+            "first four bytes should be zero".to_string(),
+        ));
+    }
+
+    let string_num = header.read_u32(&mut &h[4..8])? + 1;
+    let string_size = header.read_i32(&mut &h[8..12])? as u32;
+
+    let mut string_table = Vec::with_capacity(string_num as usize);
+    string_table.push("<anon>".to_string());
+
+    for i in 1..string_num {}
+
+    Ok(string_table)
+}
+
 #[derive(Debug)]
 struct HeaderData {
     version: u8,
@@ -96,11 +152,24 @@ struct HeaderData {
     word_offset: u8,
 }
 
-#[inline]
-pub(crate) fn read_bytes(input: &mut impl Read, len: usize) -> Result<Vec<u8>> {
-    let mut buf: Vec<u8> = Vec::with_capacity(len);
-    input.take(len as u64).read_to_end(&mut buf)?;
-    Ok(buf)
+impl HeaderData {
+    fn read_i32(&self, input: &mut impl BufRead) -> Result<i32> {
+        let mut b = [0u8; 4];
+        input.read_exact(&mut b)?;
+        if self.big_endian {
+            Ok(i32::from_be_bytes(b))
+        } else {
+            Ok(i32::from_le_bytes(b))
+        }
+    }
+    fn read_u32(&self, input: &mut impl BufRead) -> Result<u32> {
+        let ii = self.read_i32(input)?;
+        if ii >= 0 {
+            Ok(ii as u32)
+        } else {
+            Err(GhwParseError::ExpectedPositiveInteger(ii as i64))
+        }
+    }
 }
 
 const GHW_GZIP_HEADER: &[u8; 2] = &[0x1f, 0x8b];
