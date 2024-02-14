@@ -134,21 +134,15 @@ fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<
     }
 
     let string_num = header.read_u32(&mut &h[4..8])? + 1;
-    let string_size = header.read_i32(&mut &h[8..12])? as u32;
+    let _string_size = header.read_i32(&mut &h[8..12])? as u32;
 
     let mut string_table = Vec::with_capacity(string_num as usize);
     string_table.push("<anon>".to_string());
 
     let mut buf = Vec::with_capacity(64);
-    let mut prev = Vec::with_capacity(64);
     let mut c_buf = [0u8];
-    let mut prev_len = 0u32;
-    for i in 1..(string_num + 1) {
-        for ii in 0..prev_len {
-            buf.push(prev[ii as usize]);
-        }
-        prev.clear();
 
+    for i in 1..(string_num + 1) {
         loop {
             input.read_exact(&mut c_buf)?;
             let c = c_buf[0];
@@ -159,18 +153,19 @@ fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<
             }
         }
 
+        // push the value to the string table
         let value = String::from_utf8_lossy(&buf).to_string();
-        std::mem::swap(&mut buf, &mut prev);
-        println!("{value}");
         string_table.push(value);
 
-        prev_len = (c_buf[0] & 0x1f) as u32;
+        // determine the length of the shared prefix
+        let mut prev_len = (c_buf[0] & 0x1f) as usize;
         let mut shift = 5;
         while c_buf[0] >= 128 {
             input.read_exact(&mut c_buf)?;
-            prev_len |= ((c_buf[0] & 0x1f) as u32) << shift;
+            prev_len |= ((c_buf[0] & 0x1f) as usize) << shift;
             shift += 5;
         }
+        buf.truncate(prev_len);
     }
 
     Ok(string_table)
