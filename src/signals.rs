@@ -182,12 +182,17 @@ impl Signal {
         base + time + data
     }
 
-    pub fn get_offset(&self, time_table_idx: TimeTableIdx) -> DataOffset {
-        debug_assert!(
-            !self.time_indices.is_empty(),
-            "Cannot query signal with empty time_indices: {self:?}"
-        );
-        find_offset_from_time_table_idx(&self.time_indices, time_table_idx)
+    /// Returns the data offset for the nearest change at or before the provided idx.
+    /// Returns `None` of not data is available for this signal at or before the idx.
+    pub fn get_offset(&self, time_table_idx: TimeTableIdx) -> Option<DataOffset> {
+        match self.time_indices.first() {
+            None => None,
+            Some(first) if *first > time_table_idx => None,
+            _ => Some(find_offset_from_time_table_idx(
+                &self.time_indices,
+                time_table_idx,
+            )),
+        }
     }
 
     pub fn get_time_idx_at(&self, offset: &DataOffset) -> TimeTableIdx {

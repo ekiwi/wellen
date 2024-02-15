@@ -357,7 +357,7 @@ fn get_value<'a>(
     delta_counter: &mut HashMap<SignalRef, u16>,
 ) -> SignalValue<'a> {
     let our_signal = our.get_signal(signal_ref).unwrap();
-    let our_offset = our_signal.get_offset(time_table_idx as u32);
+    let our_offset = our_signal.get_offset(time_table_idx as u32).unwrap();
     assert!(
         our_offset.time_match,
         "Was not able to find an entry for {time_table_idx}"
