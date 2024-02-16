@@ -428,6 +428,11 @@ fn diff_gtkwave_perm_current() {
 }
 
 #[test]
+fn diff_jtag_atxmega256a3u_bmda() {
+    run_diff_test_vcd_only("inputs/jtag/atxmega256a3u-bmda-jtag.vcd");
+}
+
+#[test]
 fn diff_icarus_cpu() {
     run_diff_test("inputs/icarus/CPU.vcd", "inputs/icarus/CPU.vcd.fst");
 }
@@ -622,6 +627,11 @@ fn diff_verilator_vlt_dump() {
 #[test]
 fn diff_vivado_iladata() {
     run_diff_test("inputs/vivado/iladata.vcd", "inputs/vivado/iladata.vcd.fst");
+}
+
+#[test]
+fn diff_wikipedia_example() {
+    run_diff_test_vcd_only("inputs/wikipedia/example.vcd");
 }
 
 #[test]
