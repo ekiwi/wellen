@@ -542,6 +542,15 @@ fn diff_surfer_counter() {
     run_diff_test("inputs/surfer/counter.vcd", "inputs/surfer/counter.vcd.fst");
 }
 
+/// source: https://gitlab.com/surfer-project/surfer/-/issues/145
+#[test]
+fn diff_surfer_issue_145() {
+    run_diff_test(
+        "inputs/surfer/issue_145.vcd",
+        "inputs/surfer/issue_145.vcd.fst",
+    );
+}
+
 #[test]
 #[ignore] // VCD parser stumbles over unexpected $dumpall
 fn diff_surfer_picorv32() {
