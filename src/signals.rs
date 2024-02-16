@@ -203,6 +203,10 @@ impl Signal {
         assert!(element < offset.elements);
         self.data.get_value_at(offset.start + element as usize)
     }
+
+    pub fn get_first_time_idx(&self) -> Option<TimeTableIdx> {
+        self.time_indices.first().cloned()
+    }
 }
 
 /// Provides file format independent access to a waveform file.
