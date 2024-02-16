@@ -166,6 +166,7 @@ impl Reader {
                         meta.max_states,
                         &mut time_indices,
                         &mut data_bytes,
+                        id,
                     );
                 }
                 SignalType::Real => {
@@ -231,12 +232,22 @@ fn load_reals(
             Ok(value) => value as u32,
             Err(_) => break, // presumably there is no more data to be read
         };
+        last_time_idx += time_idx_delta;
+
         // read 8 bytes of reald
         let mut buf = vec![0u8; 8];
         data.read_exact(&mut buf.as_mut()).unwrap();
-        out.append(&mut buf);
-        last_time_idx += time_idx_delta;
-        time_indices.push(last_time_idx)
+
+        // check to see if the value actually changed
+        let changed = if out.is_empty() {
+            true
+        } else {
+            &out[out.len() - 8..] != buf
+        };
+        if changed {
+            out.append(&mut buf);
+            time_indices.push(last_time_idx)
+        }
     }
 }
 
@@ -248,9 +259,11 @@ fn load_fixed_len_signal(
     signal_states: States,
     time_indices: &mut Vec<TimeTableIdx>,
     out: &mut Vec<u8>,
+    _signal_id: SignalRef, // for debugging
 ) {
     let mut last_time_idx = time_idx_offset;
     let (len, has_meta) = get_len_and_meta(signal_states, bits);
+    let bytes_per_entry = get_bytes_per_entry(len, has_meta);
 
     loop {
         // read time index
@@ -302,9 +315,31 @@ fn load_fixed_len_signal(
                 time_idx_delta_raw >> 2
             }
         };
+        // see if there actually was a change and revert if there was not
         last_time_idx += time_idx_delta;
-        time_indices.push(last_time_idx)
+        if check_if_changed_and_truncate(bytes_per_entry, out) {
+            time_indices.push(last_time_idx);
+        }
     }
+
+    debug_assert_eq!(out.len(), time_indices.len() * bytes_per_entry);
+}
+
+pub(crate) fn check_if_changed_and_truncate(bytes_per_entry: usize, out: &mut Vec<u8>) -> bool {
+    let changed = if out.len() < 2 * bytes_per_entry {
+        true
+    } else {
+        let prev_start = out.len() - 2 * bytes_per_entry;
+        let new_start = out.len() - bytes_per_entry;
+        &out[prev_start..new_start] != &out[new_start..]
+    };
+
+    if !changed {
+        // remove new value
+        out.truncate(out.len() - bytes_per_entry);
+    }
+
+    changed
 }
 
 #[inline]
@@ -323,13 +358,19 @@ fn load_signal_strings(
             Err(_) => break, // presumably there is no more data to be read
         };
         last_time_idx += time_idx_delta;
-        time_indices.push(last_time_idx);
+
         // read variable length string
         let len = leb128::read::unsigned(data).unwrap() as usize;
         let mut buf = vec![0u8; len];
         data.read_exact(&mut buf).unwrap();
         let str_value = String::from_utf8_lossy(&buf).to_string();
-        out.push(str_value);
+
+        // check to see if the value actually changed
+        let changed = out.last().map(|prev| prev != &str_value).unwrap_or(true);
+        if changed {
+            out.push(str_value);
+            time_indices.push(last_time_idx);
+        }
     }
 }
 

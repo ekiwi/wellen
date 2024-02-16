@@ -39,3 +39,42 @@ fn test_vcd_not_starting_at_zero() {
     assert!(sp_signal.get_offset(1).is_some());
     assert!(sp_signal.get_offset(0).is_none());
 }
+
+/// If a VCD records a change to an input, but the value is the same, our signal loader ensures to remove that change.
+#[test]
+fn test_vcd_with_fake_changes() {
+    let filename = "inputs/surfer/issue_145.vcd";
+    let waves = vcd::read(filename).expect("failed to parse");
+    check_no_fake_changes(waves);
+}
+
+/// Make sure that we also do not get duplicate changes for the fst
+#[test]
+fn test_fst_created_from_vcd_with_fake_changes() {
+    let filename = "inputs/surfer/issue_145.vcd.fst";
+    let waves = fst::read(filename).expect("failed to parse");
+    check_no_fake_changes(waves);
+}
+
+fn check_no_fake_changes(mut waves: Waveform) {
+    let data = {
+        let h = waves.hierarchy();
+        let logic = h.first_scope().unwrap();
+        h.get(logic.vars(h).next().unwrap()).clone()
+    };
+    assert_eq!(data.full_name(waves.hierarchy()), "logic.data");
+
+    waves.load_signals(&[data.signal_ref()]);
+    let signal = waves.get_signal(data.signal_ref()).unwrap();
+
+    assert_eq!(
+        signal.time_indices(),
+        [0],
+        "The signal never actually changes, thus only a change at zero should be recorded."
+    );
+
+    // make sure there are no delta cycles
+    let offset = signal.get_offset(0).unwrap();
+    assert_eq!(offset.elements, 1);
+    assert_eq!(offset.next_index, None);
+}

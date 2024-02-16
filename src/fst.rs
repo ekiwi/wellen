@@ -5,7 +5,7 @@
 use crate::hierarchy::*;
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
 use crate::vcd::{extract_index_from_name, parse_index};
-use crate::wavemem::{check_states, write_n_state, States};
+use crate::wavemem::{check_if_changed_and_truncate, check_states, write_n_state, States};
 use crate::{Waveform, WellenError};
 use fst_native::*;
 use std::collections::HashMap;
@@ -126,12 +126,20 @@ impl SignalWriter {
         if let Some(prev_idx) = self.time_indices.last() {
             debug_assert!(*prev_idx <= time_idx);
         }
-        self.time_indices.push(time_idx);
         match value {
             FstSignalValue::String(value) => match self.tpe {
                 SignalType::String => {
-                    self.strings
-                        .push(String::from_utf8_lossy(value).to_string());
+                    let str_value = String::from_utf8_lossy(value).to_string();
+                    // check to see if the value actually changed
+                    let changed = self
+                        .strings
+                        .last()
+                        .map(|prev| prev != &str_value)
+                        .unwrap_or(true);
+                    if changed {
+                        self.strings.push(str_value);
+                        self.time_indices.push(time_idx);
+                    }
                 }
                 SignalType::BitVector(len, _) => {
                     let bits = len.get();
@@ -148,7 +156,7 @@ impl SignalWriter {
                         // With FST we do not know how many states the signal needs, thus we first assume
                         // the minimal number of states. If that turns out to be wrong, we go back and
                         // expand the existing data.
-                        let num_prev_entries = self.time_indices.len() - 1; // -1 to account for the new index
+                        let num_prev_entries = self.time_indices.len();
                         self.data_bytes = expand_entries(
                             self.max_states,
                             signal_states,
@@ -187,6 +195,11 @@ impl SignalWriter {
                         }
                         write_n_state(local_encoding, value, &mut self.data_bytes, None);
                     }
+
+                    let bytes_per_entry = get_bytes_per_entry(len, has_meta);
+                    if check_if_changed_and_truncate(bytes_per_entry, &mut self.data_bytes) {
+                        self.time_indices.push(time_idx);
+                    }
                 }
                 SignalType::Real => panic!(
                     "Expecting reals, but go: {}",
@@ -196,6 +209,9 @@ impl SignalWriter {
             FstSignalValue::Real(value) => {
                 debug_assert_eq!(self.tpe, SignalType::Real);
                 self.data_bytes.extend_from_slice(&value.to_le_bytes());
+                if check_if_changed_and_truncate(8, &mut self.data_bytes) {
+                    self.time_indices.push(time_idx);
+                }
             }
         }
     }

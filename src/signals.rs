@@ -207,6 +207,10 @@ impl Signal {
     pub fn get_first_time_idx(&self) -> Option<TimeTableIdx> {
         self.time_indices.first().cloned()
     }
+
+    pub fn time_indices(&self) -> &[TimeTableIdx] {
+        &self.time_indices
+    }
 }
 
 /// Provides file format independent access to a waveform file.

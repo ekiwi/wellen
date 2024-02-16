@@ -274,11 +274,12 @@ fn diff_signals<R: BufRead>(
                 assert_eq!(
                     our_value_str,
                     value.to_string(),
-                    "{} ({:?}) = {} @ {} ({})",
+                    "{} ({:?}) = {} @ {} (idx: {}) ({})",
                     id,
                     signal_ref,
                     value,
                     current_time.unwrap_or(0),
+                    time_table_idx,
                     our_value_str
                 );
             }
@@ -358,20 +359,21 @@ fn get_value<'a>(
 ) -> SignalValue<'a> {
     let our_signal = our.get_signal(signal_ref).unwrap();
     let our_offset = our_signal.get_offset(time_table_idx as u32).unwrap();
-    assert!(
-        our_offset.time_match,
-        "Was not able to find an entry for {time_table_idx}"
-    );
     // deal with delta cycles
     if our_offset.elements > 1 {
-        let element = delta_counter.get(&signal_ref).map(|v| *v + 1).unwrap_or(0);
-        if element == our_offset.elements - 1 {
-            // last element
-            delta_counter.remove(&signal_ref);
+        if our_offset.time_match {
+            let element = delta_counter.get(&signal_ref).map(|v| *v + 1).unwrap_or(0);
+            if element == our_offset.elements - 1 {
+                // last element
+                delta_counter.remove(&signal_ref);
+            } else {
+                delta_counter.insert(signal_ref, element);
+            }
+            our_signal.get_value_at(&our_offset, element)
         } else {
-            delta_counter.insert(signal_ref, element);
+            // if we are looking at a past offset, we always want to get the last element
+            our_signal.get_value_at(&our_offset, our_offset.elements - 1)
         }
-        our_signal.get_value_at(&our_offset, element)
     } else {
         // no delta cycle -> just get the element and be happy!
         our_signal.get_value_at(&our_offset, 0)
