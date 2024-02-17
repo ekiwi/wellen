@@ -197,7 +197,7 @@ fn read_hierarchy(
         }
         HeaderCmd::Timescale(factor, unit) => {
             let factor_int = u32::from_str_radix(std::str::from_utf8(factor).unwrap(), 10).unwrap();
-            let value = Timescale::new(factor_int, convert_timescale_unit(unit));
+            let value = Timescale::new(factor_int, unit);
             h.set_timescale(value);
             Ok(())
         }
@@ -257,15 +257,17 @@ pub(crate) fn parse_index(index: &[u8]) -> Option<VarIndex> {
     }
 }
 
-fn convert_timescale_unit(name: &[u8]) -> TimescaleUnit {
-    match name {
-        b"fs" => TimescaleUnit::FemtoSeconds,
-        b"ps" => TimescaleUnit::PicoSeconds,
-        b"ns" => TimescaleUnit::NanoSeconds,
-        b"us" => TimescaleUnit::MicroSeconds,
-        b"ms" => TimescaleUnit::MilliSeconds,
-        b"s" => TimescaleUnit::Seconds,
-        _ => TimescaleUnit::Unknown,
+impl From<&[u8]> for TimescaleUnit {
+    fn from(name: &[u8]) -> Self {
+        match name {
+            b"fs" => TimescaleUnit::FemtoSeconds,
+            b"ps" => TimescaleUnit::PicoSeconds,
+            b"ns" => TimescaleUnit::NanoSeconds,
+            b"us" => TimescaleUnit::MicroSeconds,
+            b"ms" => TimescaleUnit::MilliSeconds,
+            b"s" => TimescaleUnit::Seconds,
+            _ => TimescaleUnit::Unknown,
+        }
     }
 }
 

@@ -318,80 +318,86 @@ pub(crate) fn push_zeros(vec: &mut Vec<u8>, len: usize) {
     }
 }
 
-fn convert_scope_tpe(tpe: FstScopeType) -> ScopeType {
-    match tpe {
-        FstScopeType::Module => ScopeType::Module,
-        FstScopeType::Task => ScopeType::Task,
-        FstScopeType::Function => ScopeType::Function,
-        FstScopeType::Begin => ScopeType::Begin,
-        FstScopeType::Fork => ScopeType::Fork,
-        FstScopeType::Generate => ScopeType::Generate,
-        FstScopeType::Struct => ScopeType::Struct,
-        FstScopeType::Union => ScopeType::Union,
-        FstScopeType::Class => ScopeType::Class,
-        FstScopeType::Interface => ScopeType::Interface,
-        FstScopeType::Package => ScopeType::Package,
-        FstScopeType::Program => ScopeType::Program,
-        FstScopeType::VhdlArchitecture => ScopeType::VhdlArchitecture,
-        FstScopeType::VhdlProcedure => ScopeType::VhdlProcedure,
-        FstScopeType::VhdlFunction => ScopeType::VhdlFunction,
-        FstScopeType::VhdlRecord => ScopeType::VhdlRecord,
-        FstScopeType::VhdlProcess => ScopeType::VhdlProcess,
-        FstScopeType::VhdlBlock => ScopeType::VhdlBlock,
-        FstScopeType::VhdlForGenerate => ScopeType::VhdlForGenerate,
-        FstScopeType::VhdlIfGenerate => ScopeType::VhdlIfGenerate,
-        FstScopeType::VhdlGenerate => ScopeType::VhdlGenerate,
-        FstScopeType::VhdlPackage => ScopeType::VhdlPackage,
-        FstScopeType::AttributeBegin
-        | FstScopeType::AttributeEnd
-        | FstScopeType::VcdScope
-        | FstScopeType::VcdUpScope => unreachable!("unexpected scope type!"),
+impl From<FstScopeType> for ScopeType {
+    fn from(tpe: FstScopeType) -> Self {
+        match tpe {
+            FstScopeType::Module => ScopeType::Module,
+            FstScopeType::Task => ScopeType::Task,
+            FstScopeType::Function => ScopeType::Function,
+            FstScopeType::Begin => ScopeType::Begin,
+            FstScopeType::Fork => ScopeType::Fork,
+            FstScopeType::Generate => ScopeType::Generate,
+            FstScopeType::Struct => ScopeType::Struct,
+            FstScopeType::Union => ScopeType::Union,
+            FstScopeType::Class => ScopeType::Class,
+            FstScopeType::Interface => ScopeType::Interface,
+            FstScopeType::Package => ScopeType::Package,
+            FstScopeType::Program => ScopeType::Program,
+            FstScopeType::VhdlArchitecture => ScopeType::VhdlArchitecture,
+            FstScopeType::VhdlProcedure => ScopeType::VhdlProcedure,
+            FstScopeType::VhdlFunction => ScopeType::VhdlFunction,
+            FstScopeType::VhdlRecord => ScopeType::VhdlRecord,
+            FstScopeType::VhdlProcess => ScopeType::VhdlProcess,
+            FstScopeType::VhdlBlock => ScopeType::VhdlBlock,
+            FstScopeType::VhdlForGenerate => ScopeType::VhdlForGenerate,
+            FstScopeType::VhdlIfGenerate => ScopeType::VhdlIfGenerate,
+            FstScopeType::VhdlGenerate => ScopeType::VhdlGenerate,
+            FstScopeType::VhdlPackage => ScopeType::VhdlPackage,
+            FstScopeType::AttributeBegin
+            | FstScopeType::AttributeEnd
+            | FstScopeType::VcdScope
+            | FstScopeType::VcdUpScope => unreachable!("unexpected scope type!"),
+        }
     }
 }
 
-fn convert_var_tpe(tpe: FstVarType) -> VarType {
-    match tpe {
-        FstVarType::Wire => VarType::Wire,
-        FstVarType::Event => VarType::Event,
-        FstVarType::Integer => VarType::Integer,
-        FstVarType::Parameter => VarType::Parameter,
-        FstVarType::Real => VarType::Real,
-        FstVarType::RealParameter => VarType::Parameter,
-        FstVarType::Reg => VarType::Reg,
-        FstVarType::Supply0 => VarType::Supply0,
-        FstVarType::Supply1 => VarType::Supply1,
-        FstVarType::Time => VarType::Time,
-        FstVarType::Tri => VarType::Tri,
-        FstVarType::TriAnd => VarType::TriAnd,
-        FstVarType::TriOr => VarType::TriOr,
-        FstVarType::TriReg => VarType::TriReg,
-        FstVarType::Tri0 => VarType::Tri0,
-        FstVarType::Tri1 => VarType::Tri1,
-        FstVarType::Wand => VarType::WAnd,
-        FstVarType::Wor => VarType::WOr,
-        FstVarType::Port => VarType::Port,
-        FstVarType::SparseArray => VarType::SparseArray,
-        FstVarType::RealTime => VarType::RealTime,
-        FstVarType::GenericString => VarType::String,
-        FstVarType::Bit => VarType::Bit,
-        FstVarType::Logic => VarType::Logic,
-        FstVarType::Int => VarType::Int,
-        FstVarType::ShortInt => VarType::ShortInt,
-        FstVarType::LongInt => VarType::LongInt,
-        FstVarType::Byte => VarType::Byte,
-        FstVarType::Enum => VarType::Enum,
-        FstVarType::ShortReal => VarType::ShortReal,
+impl From<FstVarType> for VarType {
+    fn from(tpe: FstVarType) -> Self {
+        match tpe {
+            FstVarType::Wire => VarType::Wire,
+            FstVarType::Event => VarType::Event,
+            FstVarType::Integer => VarType::Integer,
+            FstVarType::Parameter => VarType::Parameter,
+            FstVarType::Real => VarType::Real,
+            FstVarType::RealParameter => VarType::Parameter,
+            FstVarType::Reg => VarType::Reg,
+            FstVarType::Supply0 => VarType::Supply0,
+            FstVarType::Supply1 => VarType::Supply1,
+            FstVarType::Time => VarType::Time,
+            FstVarType::Tri => VarType::Tri,
+            FstVarType::TriAnd => VarType::TriAnd,
+            FstVarType::TriOr => VarType::TriOr,
+            FstVarType::TriReg => VarType::TriReg,
+            FstVarType::Tri0 => VarType::Tri0,
+            FstVarType::Tri1 => VarType::Tri1,
+            FstVarType::Wand => VarType::WAnd,
+            FstVarType::Wor => VarType::WOr,
+            FstVarType::Port => VarType::Port,
+            FstVarType::SparseArray => VarType::SparseArray,
+            FstVarType::RealTime => VarType::RealTime,
+            FstVarType::GenericString => VarType::String,
+            FstVarType::Bit => VarType::Bit,
+            FstVarType::Logic => VarType::Logic,
+            FstVarType::Int => VarType::Int,
+            FstVarType::ShortInt => VarType::ShortInt,
+            FstVarType::LongInt => VarType::LongInt,
+            FstVarType::Byte => VarType::Byte,
+            FstVarType::Enum => VarType::Enum,
+            FstVarType::ShortReal => VarType::ShortReal,
+        }
     }
 }
 
-fn convert_var_direction(tpe: FstVarDirection) -> VarDirection {
-    match tpe {
-        FstVarDirection::Implicit => VarDirection::Implicit,
-        FstVarDirection::Input => VarDirection::Input,
-        FstVarDirection::Output => VarDirection::Output,
-        FstVarDirection::InOut => VarDirection::InOut,
-        FstVarDirection::Buffer => VarDirection::Buffer,
-        FstVarDirection::Linkage => VarDirection::Linkage,
+impl From<FstVarDirection> for VarDirection {
+    fn from(tpe: FstVarDirection) -> Self {
+        match tpe {
+            FstVarDirection::Implicit => VarDirection::Implicit,
+            FstVarDirection::Input => VarDirection::Input,
+            FstVarDirection::Output => VarDirection::Output,
+            FstVarDirection::InOut => VarDirection::InOut,
+            FstVarDirection::Buffer => VarDirection::Buffer,
+            FstVarDirection::Linkage => VarDirection::Linkage,
+        }
     }
 }
 
@@ -556,7 +562,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 h.add_scope(
                     name,
                     Some(component),
-                    convert_scope_tpe(tpe),
+                    tpe,
                     declaration_source,
                     instance_source,
                     false,
@@ -579,11 +585,11 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 };
 
                 let (type_name, var_type, enum_type) =
-                    parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name).unwrap();
+                    parse_var_attributes(&mut attributes, tpe.into(), &var_name).unwrap();
                 h.add_var(
                     var_name,
                     var_type,
-                    convert_var_direction(direction),
+                    direction,
                     length,
                     index,
                     SignalRef::from_index(handle.get_index()).unwrap(),

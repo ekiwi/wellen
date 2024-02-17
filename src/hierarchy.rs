@@ -4,7 +4,10 @@
 //
 // Space efficient format for a wavedump hierarchy.
 
-use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
+use std::{
+    fmt,
+    num::{NonZeroU16, NonZeroU32, NonZeroU64},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Timescale {
@@ -13,8 +16,11 @@ pub struct Timescale {
 }
 
 impl Timescale {
-    pub fn new(factor: u32, unit: TimescaleUnit) -> Self {
-        Timescale { factor, unit }
+    pub fn new(factor: u32, unit: impl Into<TimescaleUnit>) -> Self {
+        Timescale {
+            factor,
+            unit: unit.into(),
+        }
     }
 }
 
@@ -139,6 +145,35 @@ pub enum ScopeType {
     VhdlPackage,
 }
 
+impl fmt::Display for ScopeType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScopeType::Module => write!(f, "module"),
+            ScopeType::Task => write!(f, "task"),
+            ScopeType::Function => write!(f, "function"),
+            ScopeType::Begin => write!(f, "begin"),
+            ScopeType::Fork => write!(f, "fork"),
+            ScopeType::Generate => write!(f, "generate"),
+            ScopeType::Struct => write!(f, "struct"),
+            ScopeType::Union => write!(f, "union"),
+            ScopeType::Class => write!(f, "class"),
+            ScopeType::Interface => write!(f, "interface"),
+            ScopeType::Package => write!(f, "package"),
+            ScopeType::Program => write!(f, "program"),
+            ScopeType::VhdlArchitecture => write!(f, "architecture"),
+            ScopeType::VhdlProcedure => write!(f, "procedure"),
+            ScopeType::VhdlFunction => write!(f, "function"),
+            ScopeType::VhdlRecord => write!(f, "record"),
+            ScopeType::VhdlProcess => write!(f, "process"),
+            ScopeType::VhdlBlock => write!(f, "block"),
+            ScopeType::VhdlForGenerate => write!(f, "for-generate"),
+            ScopeType::VhdlIfGenerate => write!(f, "if-generate"),
+            ScopeType::VhdlGenerate => write!(f, "generate"),
+            ScopeType::VhdlPackage => write!(f, "package"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VarType {
     // VCD
@@ -181,6 +216,48 @@ pub enum VarType {
     StdULogicVector,
 }
 
+impl fmt::Display for VarType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VarType::Reg => write!(f, "reg"),
+            VarType::Wire => write!(f, "wire"),
+            VarType::Integer => write!(f, "integer"),
+            VarType::Real => write!(f, "real"),
+            VarType::Parameter => write!(f, "parameter"),
+            VarType::String => write!(f, "string"),
+            VarType::Event => write!(f, "event"),
+            VarType::Time => write!(f, "time"),
+            VarType::RealTime => write!(f, "realtime"),
+            VarType::Supply0 => write!(f, "supply0"),
+            VarType::Supply1 => write!(f, "supply1"),
+            VarType::Tri => write!(f, "tri"),
+            VarType::Tri0 => write!(f, "tri0"),
+            VarType::Tri1 => write!(f, "tri1"),
+            VarType::TriAnd => write!(f, "triand"),
+            VarType::TriOr => write!(f, "trior"),
+            VarType::TriReg => write!(f, "trireg"),
+            VarType::WAnd => write!(f, "wand"),
+            VarType::WOr => write!(f, "wor"),
+            VarType::Port => write!(f, "port"),
+            VarType::Bit => write!(f, "bit"),
+            VarType::Logic => write!(f, "logic"),
+            VarType::Enum => write!(f, "enum"),
+            VarType::SparseArray => write!(f, "sparsearray"),
+            VarType::Int => write!(f, "int"),
+            VarType::ShortInt => write!(f, "shortint"),
+            VarType::LongInt => write!(f, "longint"),
+            VarType::Byte => write!(f, "byte"),
+            VarType::ShortReal => write!(f, "shortreal"),
+            VarType::Boolean => write!(f, "boolean"),
+            VarType::BitVector => write!(f, "bit_vector"),
+            VarType::StdLogic => write!(f, "std_logic"),
+            VarType::StdLogicVector => write!(f, "std_logic_vector"),
+            VarType::StdULogic => write!(f, "std_ulogic"),
+            VarType::StdULogicVector => write!(f, "std_ulogic_vector"),
+        }
+    }
+}
+
 /// Signal directions of a variable. Currently these have the exact same meaning as in the FST format.
 /// For VCD inputs, all variables will be marked as `VarDirection::Unknown` since no direction information is included.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -197,6 +274,20 @@ pub enum VarDirection {
 impl VarDirection {
     pub(crate) fn vcd_default() -> Self {
         VarDirection::Unknown
+    }
+}
+
+impl fmt::Display for VarDirection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VarDirection::Unknown => write!(f, "unknown"),
+            VarDirection::Implicit => write!(f, "implicit"),
+            VarDirection::Input => write!(f, "input"),
+            VarDirection::Output => write!(f, "output"),
+            VarDirection::InOut => write!(f, "inout"),
+            VarDirection::Buffer => write!(f, "buffer"),
+            VarDirection::Linkage => write!(f, "linkage"),
+        }
     }
 }
 
@@ -912,7 +1003,7 @@ impl HierarchyBuilder {
         &mut self,
         name: String,
         component: Option<String>,
-        tpe: ScopeType,
+        tpe: impl Into<ScopeType>,
         declaration_source: Option<SourceLocId>,
         instance_source: Option<SourceLocId>,
         flatten: bool,
@@ -957,7 +1048,7 @@ impl HierarchyBuilder {
                 next: None,
                 name: self.add_string(name),
                 component,
-                tpe,
+                tpe: tpe.into(),
                 declaration_source,
                 instance_source,
             };
@@ -968,14 +1059,15 @@ impl HierarchyBuilder {
     pub fn add_var(
         &mut self,
         name: String,
-        tpe: VarType,
-        direction: VarDirection,
+        tpe: impl Into<VarType>,
+        direction: impl Into<VarDirection>,
         raw_length: u32,
         index: Option<VarIndex>,
         signal_idx: SignalRef,
         enum_type: Option<EnumTypeId>,
         vhdl_type_name: Option<String>,
     ) {
+        let tpe = tpe.into();
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
         let wrapped_id = HierarchyItemId::Var(var_id);
@@ -1003,7 +1095,7 @@ impl HierarchyBuilder {
             parent,
             name: self.add_string(name),
             var_tpe: tpe,
-            direction,
+            direction: direction.into(),
             signal_tpe,
             signal_idx,
             enum_type,

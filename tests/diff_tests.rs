@@ -4,10 +4,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
-use wellen::{
-    FileType, Hierarchy, HierarchyItem, ScopeType, SignalRef, SignalValue, TimescaleUnit, VarType,
-    Waveform,
-};
+use wellen::{FileType, Hierarchy, HierarchyItem, SignalRef, SignalValue, TimescaleUnit, Waveform};
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
     run_diff_test_internal(vcd_filename, Some(fst_filename), false);
@@ -119,46 +116,6 @@ fn diff_meta(ours: &Hierarchy, ref_header: &vcd::Header) {
     }
 }
 
-fn waveform_scope_type_to_string(tpe: ScopeType) -> &'static str {
-    match tpe {
-        ScopeType::Module => "module",
-        ScopeType::Task => "task",
-        ScopeType::Function => "function",
-        ScopeType::Begin => "begin",
-        ScopeType::Fork => "fork",
-        other => todo!("Convert {other:?} to string."),
-    }
-}
-
-fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
-    match tpe {
-        VarType::Wire => "wire",
-        VarType::Reg => "reg",
-        VarType::Parameter => "parameter",
-        VarType::Integer => "integer",
-        VarType::String => "string",
-        VarType::Event => "event",
-        VarType::Real => "real",
-        VarType::Supply0 => "supply0",
-        VarType::Supply1 => "supply1",
-        VarType::Time => "time",
-        VarType::Tri => "tri",
-        VarType::TriAnd => "triand",
-        VarType::TriOr => "trior",
-        VarType::TriReg => "trireg",
-        VarType::Tri0 => "tri0",
-        VarType::Tri1 => "tri1",
-        VarType::WAnd => "wand",
-        VarType::WOr => "wor",
-        VarType::Port => "port",
-        VarType::Bit => "bit",
-        VarType::Logic => "logic",
-        VarType::Int => "int",
-        VarType::Enum => "enum",
-        other => todo!("Convert {other:?} to string."),
-    }
-}
-
 fn diff_hierarchy_item(
     ref_item: &vcd::ScopeItem,
     our_item: HierarchyItem,
@@ -170,7 +127,7 @@ fn diff_hierarchy_item(
             assert_eq!(ref_scope.identifier, our_scope.name(our_hier));
             assert_eq!(
                 ref_scope.scope_type.to_string(),
-                waveform_scope_type_to_string(our_scope.scope_type())
+                format!("{}", our_scope.scope_type())
             );
             for (ref_child, our_child) in itertools::zip_eq(
                 ref_scope
@@ -194,7 +151,7 @@ fn diff_hierarchy_item(
             }
             assert_eq!(
                 ref_var.var_type.to_string(),
-                waveform_var_type_to_string(our_var.var_type())
+                format!("{}", our_var.var_type())
             );
             match our_var.length() {
                 None => {} // nothing to check
