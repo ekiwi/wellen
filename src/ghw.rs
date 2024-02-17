@@ -2,6 +2,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
+use num_enum::TryFromPrimitive;
 use std::io::{BufRead, Read};
 use thiserror::Error;
 
@@ -15,10 +16,14 @@ pub enum GhwParseError {
     UnexpectedHeader(HeaderData),
     #[error("[ghw] unexpected section start: {0}")]
     UnexpectedSection(String),
-    #[error("[ghw] failed to parse a string section: {0}")]
-    FailedToParseStringSection(String),
+    #[error("[ghw] failed to parse a {0} section: {1}")]
+    FailedToParseSection(&'static str, String),
     #[error("[ghw] expected positive integer, not: {0}")]
     ExpectedPositiveInteger(i64),
+    #[error("[ghw] failed to parse GHDL RTIK.")]
+    FailedToParseGhdlRtik(#[from] num_enum::TryFromPrimitiveError<GhdlRtik>),
+    #[error("[ghw] failed to parse a leb128 encoded number")]
+    FailedToParsLeb128(#[from] leb128::read::Error),
     #[error("[ghw] failed to decode string")]
     Utf8(#[from] std::str::Utf8Error),
     #[error("[ghw] failed to parse an integer")]
@@ -36,7 +41,31 @@ fn load(filename: &str) -> Result<()> {
     let header = parse_header(&mut input)?;
     println!("{header:?}");
 
-    read_section(&header, &mut input)?;
+    let mut string_table = Vec::new();
+    let mut type_table = Vec::new();
+
+    while let Some(section) = read_section(&header, &mut input)? {
+        match section {
+            Section::StringTable(table) => {
+                debug_assert!(
+                    string_table.is_empty(),
+                    "unexpected second string table:\n{:?}\n{:?}",
+                    &string_table,
+                    &table
+                );
+                string_table = table;
+            }
+            Section::TypeTable(table) => {
+                debug_assert!(
+                    type_table.is_empty(),
+                    "unexpected second type table:\n{:?}\n{:?}",
+                    &type_table,
+                    &table
+                );
+                type_table = table;
+            }
+        }
+    }
 
     Ok(())
 }
@@ -102,16 +131,18 @@ const GHW_TYPE_SECTION: &[u8; 4] = b"TYP\x00";
 const GHW_WK_TYPE_SECTION: &[u8; 4] = b"WKT\x00";
 const GHW_END_SECTION: &[u8; 4] = b"EOH\x00";
 
-fn read_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Section> {
+fn read_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Option<Section>> {
     let mut mark = [0u8; 4];
     input.read_exact(&mut mark)?;
 
     match &mark {
-        GHW_STRING_SECTION => Ok(Section::StringTable(read_string_section(header, input)?)),
+        GHW_STRING_SECTION => Ok(Some(Section::StringTable(read_string_section(
+            header, input,
+        )?))),
         GHW_HIERARCHY_SECTION => todo!("parse hierarchy section"),
-        GHW_TYPE_SECTION => todo!("parse type section"),
+        GHW_TYPE_SECTION => Ok(Some(Section::TypeTable(read_type_section(header, input)?))),
         GHW_WK_TYPE_SECTION => todo!("parse wk type section"),
-        GHW_END_SECTION => Ok(Section::End),
+        GHW_END_SECTION => Ok(None),
         other => Err(GhwParseError::UnexpectedSection(
             String::from_utf8_lossy(other).to_string(),
         )),
@@ -119,8 +150,15 @@ fn read_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Section
 }
 
 enum Section {
-    End,
     StringTable(Vec<String>),
+    TypeTable(Vec<GhwTypeInfo>),
+}
+
+#[inline]
+fn read_u8(input: &mut impl BufRead) -> Result<u8> {
+    let mut buf = [0u8];
+    input.read_exact(&mut buf)?;
+    Ok(buf[0])
 }
 
 fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<String>> {
@@ -128,7 +166,8 @@ fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<
     input.read_exact(&mut h)?;
 
     if &h[..4] != b"\x00\x00\x00\x00" {
-        return Err(GhwParseError::FailedToParseStringSection(
+        return Err(GhwParseError::FailedToParseSection(
+            "string",
             "first four bytes should be zero".to_string(),
         ));
     }
@@ -140,13 +179,12 @@ fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<
     string_table.push("<anon>".to_string());
 
     let mut buf = Vec::with_capacity(64);
-    let mut c_buf = [0u8];
 
     for i in 1..(string_num + 1) {
+        let mut c = 0;
         loop {
-            input.read_exact(&mut c_buf)?;
-            let c = c_buf[0];
-            if (c >= 0 && c <= 31) || (c >= 128 && c <= 159) {
+            c = read_u8(input)?;
+            if c <= 31 || (c >= 128 && c <= 159) {
                 break;
             } else {
                 buf.push(c);
@@ -158,17 +196,103 @@ fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<
         string_table.push(value);
 
         // determine the length of the shared prefix
-        let mut prev_len = (c_buf[0] & 0x1f) as usize;
+        let mut prev_len = (c & 0x1f) as usize;
         let mut shift = 5;
-        while c_buf[0] >= 128 {
-            input.read_exact(&mut c_buf)?;
-            prev_len |= ((c_buf[0] & 0x1f) as usize) << shift;
+        while c >= 128 {
+            c = read_u8(input)?;
+            prev_len |= ((c & 0x1f) as usize) << shift;
             shift += 5;
         }
         buf.truncate(prev_len);
     }
 
     Ok(string_table)
+}
+
+fn read_string_id(input: &mut impl BufRead) -> Result<StringId> {
+    let value = leb128::read::unsigned(input)?;
+    Ok(StringId(value as usize))
+}
+
+fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<GhwTypeInfo>> {
+    let mut h = [0u8; 8];
+    input.read_exact(&mut h)?;
+
+    if &h[..4] != b"\x00\x00\x00\x00" {
+        return Err(GhwParseError::FailedToParseSection(
+            "type",
+            "first four bytes should be zero".to_string(),
+        ));
+    }
+
+    let type_num = header.read_u32(&mut &h[4..8])?;
+    let mut table = Vec::with_capacity(type_num as usize);
+
+    for _ in 0..type_num {
+        let t = read_u8(input)?;
+        let kind = GhdlRtik::try_from_primitive(t)?;
+        let name = read_string_id(input)?;
+        let tpe = match kind {
+            GhdlRtik::TypeE8 | GhdlRtik::TypeB2 => {
+                let num_literals = leb128::read::unsigned(input)?;
+                let mut literals = Vec::with_capacity(num_literals as usize);
+                for _ in 0..num_literals {
+                    literals.push(read_string_id(input)?);
+                }
+
+                GhwType::Enum {
+                    wkt: GhwWellKnownType::Unknown,
+                    literals,
+                }
+            }
+            other => todo!("Support: {other:?}"),
+        };
+        let info = GhwTypeInfo { kind, name, tpe };
+        println!("{info:?}");
+        table.push(info);
+    }
+
+    Ok(table)
+}
+
+/// Pointer into the GHW string table.
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct StringId(usize);
+/// Pointer into the GHW type table.
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct TypeId(usize);
+
+#[derive(Debug)]
+struct GhwTypeInfo {
+    kind: GhdlRtik,
+    name: StringId,
+    tpe: GhwType,
+}
+
+#[derive(Debug)]
+enum GhwType {
+    Enum {
+        wkt: GhwWellKnownType,
+        literals: Vec<StringId>,
+    },
+    Scalar,
+    Physical {
+        units: Vec<GhwUnit>,
+    },
+    Array {
+        elements: Vec<TypeId>,
+        dimensions: Vec<TypeId>,
+    },
+    UnboundedArray {
+        base: TypeId,
+    },
+    // TODO
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct GhwUnit {
+    name: StringId,
+    value: i64,
 }
 
 #[derive(Debug)]
@@ -207,6 +331,15 @@ const GHW_HEADER_START: &[u8] = b"GHDLwave\n";
 
 #[repr(u8)]
 #[derive(Debug, PartialEq, Copy, Clone)]
+enum GhwWellKnownType {
+    Unknown = 0,
+    Boolean = 1,
+    Bit = 2,
+    StdULogic = 3,
+}
+
+#[repr(u8)]
+#[derive(Debug, PartialEq, Copy, Clone, TryFromPrimitive)]
 enum GhdlRtik {
     Top = 0,
     Library = 1,
@@ -217,52 +350,40 @@ enum GhdlRtik {
     Process = 6,
     Block = 7,
     IfGenerate = 8,
-    CaseGenerate = 9,
-    ForGenerate = 10,
-    GenerateBody = 11,
-    Instance = 12,
-    Constant = 13,
-    Iterator = 14,
-    Variable = 15,
-    Signal = 16,
-    File = 17,
-    Port = 18,
-    Generic = 19,
-    Alias = 20,
-    Guard = 21,
-    Component = 22,
-    Attribute = 23,
-    TypeB1 = 24,
-    TypeE8 = 25,
-    TypeE32 = 26,
-    TypeI32 = 27,
-    TypeI64 = 28,
-    TypeF64 = 29,
-    TypeP32 = 30,
-    TypeP64 = 31,
-    TypeAccess = 32,
-    TypeArray = 33,
-    TypeRecord = 34,
-    TypeUnboundedRecord = 35,
-    TypeFile = 36,
-    SubtypeScalar = 37,
-    SubtypeArray = 38,
-    SubtypeUnboundedArray = 39,
-    SubtypeRecord = 40,
-    SubtypeUnboundedRecord = 41,
-    SubtypeAccess = 42,
-    TypeProtected = 43,
-    Element = 44,
-    Unit64 = 45,
-    Unitptr = 46,
-    AttributeTransaction = 47,
-    AttributeQuiet = 48,
-    AttributeStable = 49,
-    PslAssert = 50,
-    PslAssume = 51,
-    PslCover = 52,
-    PslEndpoint = 53,
-    Error = 54,
+    ForGenerate = 9,
+    Instance = 10,
+    Constant = 11,
+    Iterator = 12,
+    Variable = 13,
+    Signal = 14,
+    File = 15,
+    Port = 16,
+    Generic = 17,
+    Alias = 18,
+    Guard = 19,
+    Component = 20,
+    Attribute = 21,
+    TypeB2 = 22,
+    TypeE8 = 23,
+    TypeE32 = 24,
+    TypeI32 = 25,
+    TypeI64 = 26,
+    TypeF64 = 27,
+    TypeP32 = 28,
+    TypeP64 = 29,
+    TypeAccess = 30,
+    TypeArray = 31,
+    TypeRecord = 32,
+    TypeFile = 33,
+    SubtypeScalar = 34,
+    SubtypeArray = 35,
+    // obsolete array pointer = 36
+    SubtypeUnboundedArray = 37,
+    SubtypeRecord = 38,
+    SubtypeUnboundedRecord = 39,
+    SubtypeAccess = 40,
+    TypeProtected = 41,
+    Element = 42,
 }
 
 #[cfg(test)]
