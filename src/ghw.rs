@@ -23,6 +23,8 @@ pub enum GhwParseError {
     FailedToParseSection(&'static str, String),
     #[error("[ghw] expected positive integer, not: {0}")]
     ExpectedPositiveInteger(i64),
+    #[error("[ghw] float range has no length: {0} .. {1}")]
+    FloatRangeLen(f64, f64),
     #[error("[ghw] failed to parse GHDL RTIK.")]
     FailedToParseGhdlRtik(#[from] num_enum::TryFromPrimitiveError<GhdlRtik>),
     #[error("[ghw] failed to parse well known type.")]
@@ -48,32 +50,36 @@ fn load(filename: &str) -> Result<()> {
     let header = parse_header(&mut input)?;
     println!("{header:?}");
 
-    let mut string_table = Vec::new();
-    let mut type_table = Vec::new();
+    let mut tables = GhwTables::default();
 
-    while let Some(section) = read_section(&header, &mut input)? {
+    while let Some(section) = read_section(&header, &tables, &mut input)? {
         match section {
             Section::StringTable(table) => {
                 debug_assert!(
-                    string_table.is_empty(),
+                    tables.strings.is_empty(),
                     "unexpected second string table:\n{:?}\n{:?}",
-                    &string_table,
+                    &tables.strings,
                     &table
                 );
-                string_table = table;
+                tables.strings = table;
             }
             Section::TypeTable(table) => {
                 debug_assert!(
-                    type_table.is_empty(),
+                    tables.types.is_empty(),
                     "unexpected second type table:\n{:?}\n{:?}",
-                    &type_table,
+                    &tables.types,
                     &table
                 );
-                type_table = table;
+                tables.types = table;
             }
             Section::WellKnownTypes(wkts) => {
-                debug_assert!(wkts.is_empty() || !type_table.is_empty());
-                println!("TODO: {wkts:?}");
+                debug_assert!(wkts.is_empty() || !tables.types.is_empty());
+
+                // we need to patch our type table with the well known types info
+                for (type_id, wkt) in wkts.into_iter() {
+                    let tpe = &mut tables.types[type_id.index()];
+                    tpe.well_known = wkt;
+                }
             }
         }
     }
@@ -142,7 +148,11 @@ const GHW_TYPE_SECTION: &[u8; 4] = b"TYP\x00";
 const GHW_WK_TYPE_SECTION: &[u8; 4] = b"WKT\x00";
 const GHW_END_SECTION: &[u8; 4] = b"EOH\x00";
 
-fn read_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Option<Section>> {
+fn read_section(
+    header: &HeaderData,
+    tables: &GhwTables,
+    input: &mut impl BufRead,
+) -> Result<Option<Section>> {
     let mut mark = [0u8; 4];
     input.read_exact(&mut mark)?;
 
@@ -151,7 +161,7 @@ fn read_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Option<
             header, input,
         )?))),
         GHW_HIERARCHY_SECTION => {
-            read_hierarchy_section(header, input)?;
+            read_hierarchy_section(header, tables, input)?;
             todo!()
         }
         GHW_TYPE_SECTION => Ok(Some(Section::TypeTable(read_type_section(header, input)?))),
@@ -251,7 +261,7 @@ fn read_type_id(input: &mut impl BufRead) -> Result<TypeId> {
 fn read_range(input: &mut impl BufRead) -> Result<GhwRange> {
     let t = read_u8(input)? & 0x7f;
     let kind = GhdlRtik::try_from_primitive(t)?;
-    let to = (t & 0x80) != 0;
+    let downto = (t & 0x80) != 0;
     let range = match kind {
         GhdlRtik::TypeE8 | GhdlRtik::TypeB2 => {
             let mut buf = [0u8; 2];
@@ -269,7 +279,11 @@ fn read_range(input: &mut impl BufRead) -> Result<GhwRange> {
         other => return Err(GhwParseError::UnexpectedType(other, "for range")),
     };
 
-    Ok(GhwRange { kind, to, range })
+    Ok(GhwRange {
+        kind,
+        downto,
+        range,
+    })
 }
 
 fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<GhwTypeInfo>> {
@@ -291,11 +305,7 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
                 for _ in 0..num_literals {
                     literals.push(read_string_id(input)?);
                 }
-
-                GhwType::Enum {
-                    wkt: GhwWellKnownType::Unknown,
-                    literals,
-                }
+                GhwType::Enum { literals }
             }
             GhdlRtik::TypeI32 | GhdlRtik::TypeI64 | GhdlRtik::TypeF64 => GhwType::Scalar,
             GhdlRtik::SubtypeScalar => GhwType::SubtypeScalar {
@@ -322,7 +332,7 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
                         ranges.push(read_range(input)?);
                     }
 
-                    let num_elements = table[element_tpe.index()].get_num_elements();
+                    let num_elements = table[element_tpe.index()].get_num_elements(&table)?;
                     let element_tpe = match num_elements {
                         // for bounded number of elements, we just use the array element type
                         Some(_) => *element_tpe,
@@ -344,7 +354,12 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
             }
             other => todo!("Support: {other:?}"),
         };
-        let info = GhwTypeInfo { kind, name, tpe };
+        let info = GhwTypeInfo {
+            kind,
+            name,
+            well_known: GhwWellKnownType::Unknown,
+            tpe,
+        };
         table.push(info);
     }
 
@@ -378,7 +393,27 @@ fn read_well_known_types_section(
     Ok(out)
 }
 
-fn read_hierarchy_section(header: &HeaderData, input: &mut impl BufRead) -> Result<()> {
+#[derive(Debug, Default)]
+struct GhwTables {
+    types: Vec<GhwTypeInfo>,
+    strings: Vec<String>,
+}
+
+impl GhwTables {
+    fn get_type(&self, type_id: TypeId) -> &GhwTypeInfo {
+        &self.types[type_id.index()]
+    }
+
+    fn get_str(&self, string_id: StringId) -> &str {
+        &self.strings[string_id.0]
+    }
+}
+
+fn read_hierarchy_section(
+    header: &HeaderData,
+    tables: &GhwTables,
+    input: &mut impl BufRead,
+) -> Result<()> {
     let mut h = [0u8; 16];
     input.read_exact(&mut h)?;
     check_header_zeros("hierarchy", &h)?;
@@ -396,37 +431,79 @@ fn read_hierarchy_section(header: &HeaderData, input: &mut impl BufRead) -> Resu
             GhwHierarchyKind::EndOfScope => {
                 println!("UpScope");
             }
-            _ => {
-                let name = read_string_id(input)?;
-                match kind {
-                    GhwHierarchyKind::End
-                    | GhwHierarchyKind::EndOfScope
-                    | GhwHierarchyKind::Design => unreachable!(),
-                    GhwHierarchyKind::Process => {
-                        println!("TODO: process");
-                    }
-                    GhwHierarchyKind::Block
-                    | GhwHierarchyKind::GenerateIf
-                    | GhwHierarchyKind::GenerateFor
-                    | GhwHierarchyKind::Instance
-                    | GhwHierarchyKind::Generic
-                    | GhwHierarchyKind::Package => {
-                        todo!("scope")
-                    }
-                    GhwHierarchyKind::Signal
-                    | GhwHierarchyKind::PortIn
-                    | GhwHierarchyKind::PortOut
-                    | GhwHierarchyKind::PortInOut
-                    | GhwHierarchyKind::Buffer
-                    | GhwHierarchyKind::Linkage => {
-                        todo!("var")
-                    }
-                }
+            GhwHierarchyKind::Design => unreachable!(),
+            GhwHierarchyKind::Process => {
+                println!("TODO: process");
+            }
+            GhwHierarchyKind::Block
+            | GhwHierarchyKind::GenerateIf
+            | GhwHierarchyKind::GenerateFor
+            | GhwHierarchyKind::Instance
+            | GhwHierarchyKind::Generic
+            | GhwHierarchyKind::Package => {
+                read_hierarchy_scope(tables, input, kind)?;
+            }
+            GhwHierarchyKind::Signal
+            | GhwHierarchyKind::PortIn
+            | GhwHierarchyKind::PortOut
+            | GhwHierarchyKind::PortInOut
+            | GhwHierarchyKind::Buffer
+            | GhwHierarchyKind::Linkage => {
+                read_hierarchy_var(tables, input, kind)?;
             }
         }
     }
 
     todo!()
+}
+
+fn read_hierarchy_scope(
+    tables: &GhwTables,
+    input: &mut impl BufRead,
+    kind: GhwHierarchyKind,
+) -> Result<()> {
+    let name = read_string_id(input)?;
+
+    if kind == GhwHierarchyKind::GenerateFor {
+        let iter_type = read_type_id(input)?;
+        todo!("read value");
+    }
+
+    println!("SCOPE {kind:?} {}", tables.get_str(name));
+
+    Ok(())
+}
+
+fn read_hierarchy_var(
+    tables: &GhwTables,
+    input: &mut impl BufRead,
+    kind: GhwHierarchyKind,
+) -> Result<()> {
+    let name = read_string_id(input)?;
+    let tpe = tables.get_type(read_type_id(input)?);
+
+    if let Some(num_elements) = tpe.get_num_elements(&tables.types)? {
+        let mut signals = Vec::with_capacity(num_elements as usize);
+        for _ in 0..num_elements {
+            let index = leb128::read::unsigned(input)?;
+            signals.push(SignalId(NonZeroU32::new(index as u32).unwrap()));
+        }
+        println!(
+            "TODO: {kind:?} {} : {}\n{:?}",
+            tables.get_str(name),
+            tables.get_str(tpe.name),
+            signals
+        );
+        Ok(())
+    } else {
+        Err(GhwParseError::FailedToParseSection(
+            "hierarchy",
+            format!(
+                "var {} has unbound number of elements!",
+                tables.get_str(name)
+            ),
+        ))
+    }
 }
 
 /// Pointer into the GHW string table.
@@ -442,6 +519,9 @@ impl TypeId {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct SignalId(NonZeroU32);
+
 /// ???
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct RangeId(usize);
@@ -450,6 +530,7 @@ struct RangeId(usize);
 struct GhwTypeInfo {
     kind: GhdlRtik,
     name: StringId,
+    well_known: GhwWellKnownType,
     tpe: GhwType,
 }
 
@@ -464,15 +545,28 @@ impl GhwTypeInfo {
     }
 
     /// Returns `None` when the number is unbounded.
-    fn get_num_elements(&self) -> Option<u32> {
-        match self.tpe {
+    fn get_num_elements(&self, type_table: &[GhwTypeInfo]) -> Result<Option<u64>> {
+        match &self.tpe {
             GhwType::Array { .. }
             | GhwType::UnboundedArray { .. }
-            | GhwType::UnboundedRecord { .. } => None,
-            GhwType::SubtypeArray { .. } => todo!(""),
+            | GhwType::UnboundedRecord { .. } => Ok(None),
+            GhwType::SubtypeArray {
+                base,
+                ranges,
+                element_tpe,
+            } => {
+                let num_elements = &type_table[element_tpe.index()]
+                    .get_num_elements(type_table)?
+                    .unwrap_or_else(|| todo!());
+                let mut num_scalars = 1;
+                for r in ranges.iter() {
+                    num_scalars *= r.get_len()?;
+                }
+                Ok(Some(num_elements * num_scalars))
+            }
             GhwType::TypeRecord { .. } => todo!(""),
             GhwType::SubtypeRecord { .. } => todo!(""),
-            _ => Some(1),
+            _ => Ok(Some(1)),
         }
     }
 }
@@ -480,7 +574,6 @@ impl GhwTypeInfo {
 #[derive(Debug)]
 enum GhwType {
     Enum {
-        wkt: GhwWellKnownType,
         literals: Vec<StringId>,
     },
     Scalar,
@@ -526,9 +619,25 @@ enum GhwType {
 #[derive(Debug)]
 struct GhwRange {
     kind: GhdlRtik,
-    /// `downto` if `false`
-    to: bool,
+    /// `to` instead of `downto` if `false`
+    downto: bool,
     range: Range,
+}
+
+impl GhwRange {
+    fn get_len(&self) -> Result<u64> {
+        let (left, right) = match self.range {
+            Range::U8(left, right) => (left as i64, right as i64),
+            Range::I64(left, right) => (left, right),
+            Range::F64(left, right) => return Err(GhwParseError::FloatRangeLen(left, right)),
+        };
+        let res = if self.downto {
+            left - right + 1
+        } else {
+            right - left + 1
+        };
+        Ok(std::cmp::max(res, 0) as u64)
+    }
 }
 
 #[derive(Debug)]
@@ -658,6 +767,38 @@ enum GhwHierarchyKind {
     PortInOut = 19,
     Buffer = 20,
     Linkage = 21,
+}
+
+#[cfg(test)]
+fn render_type(tpe: &GhwTypeInfo, tables: &GhwTables) -> String {
+    if tpe.well_known != GhwWellKnownType::Unknown {
+        return format!("{:?}", tpe.well_known);
+    }
+    match &tpe.tpe {
+        GhwType::Enum { literals } => todo!("enum"),
+        GhwType::Scalar => todo!(""),
+        GhwType::Physical { .. } => todo!(""),
+        GhwType::Array { .. } => todo!(""),
+        GhwType::UnboundedArray { .. } => todo!(""),
+        GhwType::UnboundedRecord { .. } => todo!(""),
+        // TODO: what is the range for?
+        GhwType::SubtypeScalar { base, range } => render_type(tables.get_type(*base), tables),
+        GhwType::TypeArray { .. } => todo!(""),
+        GhwType::SubtypeArray { .. } => todo!(""),
+        GhwType::SubtypeUnboundedArray { .. } => todo!(""),
+        GhwType::TypeRecord { .. } => todo!(""),
+        GhwType::SubtypeRecord { .. } => todo!(""),
+    }
+}
+
+#[cfg(test)]
+fn render_range(range: &GhwRange) -> String {
+    let middle = if range.downto { "downto" } else { "to" };
+    match &range.range {
+        Range::U8(a, b) => format!("({a} {middle} {b})"),
+        Range::I64(a, b) => format!("({a} {middle} {b})"),
+        Range::F64(a, b) => format!("({a} {middle} {b})"),
+    }
 }
 
 #[cfg(test)]
