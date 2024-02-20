@@ -2,6 +2,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
+use crate::WellenError;
 use num_enum::TryFromPrimitive;
 use std::io::{BufRead, Read};
 use thiserror::Error;
@@ -16,6 +17,8 @@ pub enum GhwParseError {
     UnexpectedHeader(HeaderData),
     #[error("[ghw] unexpected section start: {0}")]
     UnexpectedSection(String),
+    #[error("[ghw] unexpected type: {0:?}, {1}")]
+    UnexpectedType(GhdlRtik, &'static str),
     #[error("[ghw] failed to parse a {0} section: {1}")]
     FailedToParseSection(&'static str, String),
     #[error("[ghw] expected positive integer, not: {0}")]
@@ -214,6 +217,24 @@ fn read_string_id(input: &mut impl BufRead) -> Result<StringId> {
     Ok(StringId(value as usize))
 }
 
+fn read_type_id(input: &mut impl BufRead) -> Result<TypeId> {
+    let value = leb128::read::unsigned(input)?;
+    Ok(TypeId(value as usize))
+}
+
+fn read_range(input: &mut impl BufRead) -> Result<GhwRange> {
+    let t = read_u8(input)? & 0x7f;
+    let kind = GhdlRtik::try_from_primitive(t)?;
+    let to = (t & 0x80) != 0;
+    let range = match kind {
+        GhdlRtik::TypeE8 | GhdlRtik::TypeB2 => {}
+
+        other => return Err(GhwParseError::UnexpectedType(other, "for range")),
+    };
+
+    Ok(GhwRange { kind, to, range })
+}
+
 fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<GhwTypeInfo>> {
     let mut h = [0u8; 8];
     input.read_exact(&mut h)?;
@@ -245,6 +266,10 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
                     literals,
                 }
             }
+            GhdlRtik::SubtypeScalar => GhwType::SubtypeScalar {
+                base: read_type_id(input)?,
+                range: read_range(input)?,
+            },
             other => todo!("Support: {other:?}"),
         };
         let info = GhwTypeInfo { kind, name, tpe };
@@ -261,6 +286,10 @@ struct StringId(usize);
 /// Pointer into the GHW type table.
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct TypeId(usize);
+
+/// ???
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct RangeId(usize);
 
 #[derive(Debug)]
 struct GhwTypeInfo {
@@ -286,7 +315,28 @@ enum GhwType {
     UnboundedArray {
         base: TypeId,
     },
-    // TODO
+    SubtypeScalar {
+        base: TypeId,
+        range: GhwRange,
+    }, // TODO
+}
+
+#[derive(Debug)]
+struct GhwRange {
+    kind: GhdlRtik,
+    /// `downto` if `false`
+    to: bool,
+    range: Range,
+}
+
+#[derive(Debug)]
+enum Range {
+    /// `b2` and `e8`
+    U8(u8, u8),
+    /// `i32` and `i64`
+    I64(i64, i64),
+    /// `f64`
+    F64(f64, f64),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
