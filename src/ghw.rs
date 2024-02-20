@@ -3,7 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use num_enum::TryFromPrimitive;
-use std::io::{BufRead, Read};
+use std::io::BufRead;
 use std::num::NonZeroU32;
 use thiserror::Error;
 
@@ -25,6 +25,10 @@ pub enum GhwParseError {
     ExpectedPositiveInteger(i64),
     #[error("[ghw] failed to parse GHDL RTIK.")]
     FailedToParseGhdlRtik(#[from] num_enum::TryFromPrimitiveError<GhdlRtik>),
+    #[error("[ghw] failed to parse well known type.")]
+    FailedToParseWellKnownType(#[from] num_enum::TryFromPrimitiveError<GhwWellKnownType>),
+    #[error("[ghw] failed to parse hierarchy kind.")]
+    FailedToParseHierarchyKind(#[from] num_enum::TryFromPrimitiveError<GhwHierarchyKind>),
     #[error("[ghw] failed to parse a leb128 encoded number")]
     FailedToParsLeb128(#[from] leb128::read::Error),
     #[error("[ghw] failed to decode string")]
@@ -66,6 +70,10 @@ fn load(filename: &str) -> Result<()> {
                     &table
                 );
                 type_table = table;
+            }
+            Section::WellKnownTypes(wkts) => {
+                debug_assert!(wkts.is_empty() || !type_table.is_empty());
+                println!("TODO: {wkts:?}");
             }
         }
     }
@@ -142,9 +150,14 @@ fn read_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Option<
         GHW_STRING_SECTION => Ok(Some(Section::StringTable(read_string_section(
             header, input,
         )?))),
-        GHW_HIERARCHY_SECTION => todo!("parse hierarchy section"),
+        GHW_HIERARCHY_SECTION => {
+            read_hierarchy_section(header, input)?;
+            todo!()
+        }
         GHW_TYPE_SECTION => Ok(Some(Section::TypeTable(read_type_section(header, input)?))),
-        GHW_WK_TYPE_SECTION => todo!("parse wk type section"),
+        GHW_WK_TYPE_SECTION => Ok(Some(Section::WellKnownTypes(
+            read_well_known_types_section(input)?,
+        ))),
         GHW_END_SECTION => Ok(None),
         other => Err(GhwParseError::UnexpectedSection(
             String::from_utf8_lossy(other).to_string(),
@@ -155,6 +168,7 @@ fn read_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Option<
 enum Section {
     StringTable(Vec<String>),
     TypeTable(Vec<GhwTypeInfo>),
+    WellKnownTypes(Vec<(TypeId, GhwWellKnownType)>),
 }
 
 #[inline]
@@ -164,16 +178,28 @@ fn read_u8(input: &mut impl BufRead) -> Result<u8> {
     Ok(buf[0])
 }
 
-fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<String>> {
-    let mut h = [0u8; 12];
-    input.read_exact(&mut h)?;
-
-    if &h[..4] != b"\x00\x00\x00\x00" {
+fn check_header_zeros(section: &'static str, header: &[u8]) -> Result<()> {
+    if header.len() < 4 {
         return Err(GhwParseError::FailedToParseSection(
-            "string",
+            section,
             "first four bytes should be zero".to_string(),
         ));
     }
+    let zeros = &header[..4];
+    if zeros == b"\x00\x00\x00\x00" {
+        Ok(())
+    } else {
+        Err(GhwParseError::FailedToParseSection(
+            section,
+            "first four bytes should be zero".to_string(),
+        ))
+    }
+}
+
+fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<String>> {
+    let mut h = [0u8; 12];
+    input.read_exact(&mut h)?;
+    check_header_zeros("string", &h)?;
 
     let string_num = header.read_u32(&mut &h[4..8])? + 1;
     let _string_size = header.read_i32(&mut &h[8..12])? as u32;
@@ -249,13 +275,7 @@ fn read_range(input: &mut impl BufRead) -> Result<GhwRange> {
 fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<GhwTypeInfo>> {
     let mut h = [0u8; 8];
     input.read_exact(&mut h)?;
-
-    if &h[..4] != b"\x00\x00\x00\x00" {
-        return Err(GhwParseError::FailedToParseSection(
-            "type",
-            "first four bytes should be zero".to_string(),
-        ));
-    }
+    check_header_zeros("type", &h)?;
 
     let type_num = header.read_u32(&mut &h[4..8])?;
     let mut table: Vec<GhwTypeInfo> = Vec::with_capacity(type_num as usize);
@@ -337,6 +357,76 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
     } else {
         Ok(table)
     }
+}
+
+fn read_well_known_types_section(
+    input: &mut impl BufRead,
+) -> Result<Vec<(TypeId, GhwWellKnownType)>> {
+    let mut h = [0u8; 4];
+    input.read_exact(&mut h)?;
+    check_header_zeros("well known types (WKT)", &h)?;
+
+    let mut out = Vec::new();
+    let mut t = read_u8(input)?;
+    while t > 0 {
+        let wkt = GhwWellKnownType::try_from_primitive(t)?;
+        let type_id = read_type_id(input)?;
+        out.push((type_id, wkt));
+        t = read_u8(input)?;
+    }
+
+    Ok(out)
+}
+
+fn read_hierarchy_section(header: &HeaderData, input: &mut impl BufRead) -> Result<()> {
+    let mut h = [0u8; 16];
+    input.read_exact(&mut h)?;
+    check_header_zeros("hierarchy", &h)?;
+
+    let num_scopes = header.read_i32(&mut &h[4..8])?;
+    // declared signals, may be composite
+    let num_declared_vars = header.read_i32(&mut &h[8..12])?;
+    let num_basic_vars = header.read_u32(&mut &h[12..16])?;
+
+    loop {
+        let kind = GhwHierarchyKind::try_from_primitive(read_u8(input)?)?;
+
+        match kind {
+            GhwHierarchyKind::End => break, // done
+            GhwHierarchyKind::EndOfScope => {
+                println!("UpScope");
+            }
+            _ => {
+                let name = read_string_id(input)?;
+                match kind {
+                    GhwHierarchyKind::End
+                    | GhwHierarchyKind::EndOfScope
+                    | GhwHierarchyKind::Design => unreachable!(),
+                    GhwHierarchyKind::Process => {
+                        println!("TODO: process");
+                    }
+                    GhwHierarchyKind::Block
+                    | GhwHierarchyKind::GenerateIf
+                    | GhwHierarchyKind::GenerateFor
+                    | GhwHierarchyKind::Instance
+                    | GhwHierarchyKind::Generic
+                    | GhwHierarchyKind::Package => {
+                        todo!("scope")
+                    }
+                    GhwHierarchyKind::Signal
+                    | GhwHierarchyKind::PortIn
+                    | GhwHierarchyKind::PortOut
+                    | GhwHierarchyKind::PortInOut
+                    | GhwHierarchyKind::Buffer
+                    | GhwHierarchyKind::Linkage => {
+                        todo!("var")
+                    }
+                }
+            }
+        }
+    }
+
+    todo!()
 }
 
 /// Pointer into the GHW string table.
@@ -492,7 +582,7 @@ const GHW_BZIP2_HEADER: &[u8; 2] = b"BZ";
 const GHW_HEADER_START: &[u8] = b"GHDLwave\n";
 
 #[repr(u8)]
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, TryFromPrimitive)]
 enum GhwWellKnownType {
     Unknown = 0,
     Boolean = 1,
@@ -546,6 +636,28 @@ enum GhdlRtik {
     SubtypeAccess = 40,
     TypeProtected = 41,
     Element = 42,
+}
+
+#[repr(u8)]
+#[derive(Debug, PartialEq, Copy, Clone, TryFromPrimitive)]
+enum GhwHierarchyKind {
+    /// indicates the end of the hierarchy
+    End = 0,
+    Design = 1,
+    Block = 3,
+    GenerateIf = 4,
+    GenerateFor = 5,
+    Instance = 6,
+    Package = 7,
+    Process = 13,
+    Generic = 14,
+    EndOfScope = 15,
+    Signal = 16,
+    PortIn = 17,
+    PortOut = 18,
+    PortInOut = 19,
+    Buffer = 20,
+    Linkage = 21,
 }
 
 #[cfg(test)]
