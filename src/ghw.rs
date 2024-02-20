@@ -2,9 +2,9 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use crate::WellenError;
 use num_enum::TryFromPrimitive;
 use std::io::{BufRead, Read};
+use std::num::NonZeroU32;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -183,7 +183,7 @@ fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<
 
     let mut buf = Vec::with_capacity(64);
 
-    for i in 1..(string_num + 1) {
+    for _ in 1..(string_num + 1) {
         let mut c = 0;
         loop {
             c = read_u8(input)?;
@@ -219,7 +219,7 @@ fn read_string_id(input: &mut impl BufRead) -> Result<StringId> {
 
 fn read_type_id(input: &mut impl BufRead) -> Result<TypeId> {
     let value = leb128::read::unsigned(input)?;
-    Ok(TypeId(value as usize))
+    Ok(TypeId(NonZeroU32::new(value as u32).unwrap()))
 }
 
 fn read_range(input: &mut impl BufRead) -> Result<GhwRange> {
@@ -227,8 +227,19 @@ fn read_range(input: &mut impl BufRead) -> Result<GhwRange> {
     let kind = GhdlRtik::try_from_primitive(t)?;
     let to = (t & 0x80) != 0;
     let range = match kind {
-        GhdlRtik::TypeE8 | GhdlRtik::TypeB2 => {}
-
+        GhdlRtik::TypeE8 | GhdlRtik::TypeB2 => {
+            let mut buf = [0u8; 2];
+            input.read_exact(&mut buf)?;
+            Range::U8(buf[0], buf[1])
+        }
+        GhdlRtik::TypeI32 | GhdlRtik::TypeP32 | GhdlRtik::TypeI64 | GhdlRtik::TypeP64 => {
+            let left = leb128::read::signed(input)?;
+            let right = leb128::read::signed(input)?;
+            Range::I64(left, right)
+        }
+        GhdlRtik::TypeF64 => {
+            todo!("float range!")
+        }
         other => return Err(GhwParseError::UnexpectedType(other, "for range")),
     };
 
@@ -247,7 +258,7 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
     }
 
     let type_num = header.read_u32(&mut &h[4..8])?;
-    let mut table = Vec::with_capacity(type_num as usize);
+    let mut table: Vec<GhwTypeInfo> = Vec::with_capacity(type_num as usize);
 
     for _ in 0..type_num {
         let t = read_u8(input)?;
@@ -266,26 +277,80 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
                     literals,
                 }
             }
+            GhdlRtik::TypeI32 | GhdlRtik::TypeI64 | GhdlRtik::TypeF64 => GhwType::Scalar,
             GhdlRtik::SubtypeScalar => GhwType::SubtypeScalar {
                 base: read_type_id(input)?,
                 range: read_range(input)?,
             },
+            GhdlRtik::TypeArray => {
+                let element_tpe = read_type_id(input)?;
+                let num_dims = leb128::read::unsigned(input)?;
+                let mut dims = Vec::with_capacity(num_dims as usize);
+                for _ in 0..num_dims {
+                    dims.push(read_type_id(input)?);
+                }
+                GhwType::TypeArray { element_tpe, dims }
+            }
+            GhdlRtik::SubtypeArray => {
+                let base = read_type_id(input)?;
+                let base_tpe_id = table[base.index()].get_base_type_id(base);
+                let array = &table[base_tpe_id.index()];
+                if let GhwType::TypeArray { element_tpe, dims } = &array.tpe {
+                    // one range per array dimension
+                    let mut ranges = Vec::with_capacity(dims.len());
+                    for _ in 0..dims.len() {
+                        ranges.push(read_range(input)?);
+                    }
+
+                    let num_elements = table[element_tpe.index()].get_num_elements();
+                    let element_tpe = match num_elements {
+                        // for bounded number of elements, we just use the array element type
+                        Some(_) => *element_tpe,
+                        // for unbounded, we need to derive it
+                        None => todo!("deal with unbounded!"),
+                    };
+
+                    GhwType::SubtypeArray {
+                        base,
+                        ranges,
+                        element_tpe,
+                    }
+                } else {
+                    return Err(GhwParseError::UnexpectedType(
+                        array.kind,
+                        "subtype array needs base to be an array!",
+                    ));
+                }
+            }
             other => todo!("Support: {other:?}"),
         };
         let info = GhwTypeInfo { kind, name, tpe };
-        println!("{info:?}");
         table.push(info);
     }
 
-    Ok(table)
+    // the type section should end in zero
+    if read_u8(input)? != 0 {
+        Err(GhwParseError::FailedToParseSection(
+            "type",
+            "last byte should be 0".to_string(),
+        ))
+    } else {
+        Ok(table)
+    }
 }
 
 /// Pointer into the GHW string table.
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct StringId(usize);
-/// Pointer into the GHW type table.
+/// Pointer into the GHW type table. Always positive!
 #[derive(Debug, Copy, Clone, PartialEq)]
-struct TypeId(usize);
+struct TypeId(NonZeroU32);
+
+impl TypeId {
+    fn index(&self) -> usize {
+        (self.0.get() - 1) as usize
+    }
+}
 
 /// ???
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -296,6 +361,30 @@ struct GhwTypeInfo {
     kind: GhdlRtik,
     name: StringId,
     tpe: GhwType,
+}
+
+impl GhwTypeInfo {
+    fn get_base_type_id(&self, id: TypeId) -> TypeId {
+        match self.tpe {
+            GhwType::SubtypeScalar { base, .. } => base,
+            GhwType::SubtypeArray { base, .. } => base,
+            GhwType::SubtypeUnboundedArray { base, .. } => base,
+            _ => id, // return our own id
+        }
+    }
+
+    /// Returns `None` when the number is unbounded.
+    fn get_num_elements(&self) -> Option<u32> {
+        match self.tpe {
+            GhwType::Array { .. }
+            | GhwType::UnboundedArray { .. }
+            | GhwType::UnboundedRecord { .. } => None,
+            GhwType::SubtypeArray { .. } => todo!(""),
+            GhwType::TypeRecord { .. } => todo!(""),
+            GhwType::SubtypeRecord { .. } => todo!(""),
+            _ => Some(1),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -315,10 +404,33 @@ enum GhwType {
     UnboundedArray {
         base: TypeId,
     },
+    UnboundedRecord {
+        // TODO
+    },
     SubtypeScalar {
         base: TypeId,
         range: GhwRange,
-    }, // TODO
+    },
+    TypeArray {
+        element_tpe: TypeId,
+        dims: Vec<TypeId>,
+    },
+    SubtypeArray {
+        base: TypeId,
+        ranges: Vec<GhwRange>,
+        element_tpe: TypeId,
+    },
+    SubtypeUnboundedArray {
+        base: TypeId,
+        // TODO
+    },
+    TypeRecord {
+        // TODO
+    },
+    SubtypeRecord {
+        // TODO
+    },
+    // TODO
 }
 
 #[derive(Debug)]
