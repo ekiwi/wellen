@@ -68,7 +68,7 @@ fn read_signals(
         // read_sm_hdr
         match &mark {
             GHW_SNAPSHOT_SECTION => read_snapshot_section(header, signals, input)?,
-            GHW_CYCLE_SECTION => todo!("cycle section"),
+            GHW_CYCLE_SECTION => read_cycle_section(header, signals, input)?,
             GHW_DIRECTORY_SECTION => todo!("directory section"),
             GHW_TAILER_SECTION => todo!("tailer section"),
             other => {
@@ -92,26 +92,83 @@ fn read_snapshot_section(
 
     // time in femto seconds
     let start_time = header.read_i64(&mut &h[4..12])? as u64;
+    println!("TODO: snapshot @ {start_time} fs");
 
     for sig in signals.iter() {
         for _ in 0..sig.len() {
             let value = read_signal_value(sig.tpe, input)?;
-            println!("TODO: {value:?}");
+            println!("TODO: {} = {value:?}", sig.start_id.0.get());
         }
     }
 
     // check for correct end magic
+    check_magic_end(input, "snapshot", GHW_END_SNAPSHOT_SECTION)?;
+    Ok(())
+}
+
+fn check_magic_end(input: &mut impl BufRead, section: &'static str, expected: &[u8]) -> Result<()> {
     let mut end_magic = [0u8; 4];
     input.read_exact(&mut end_magic)?;
-    if &end_magic == GHW_END_SECTION {
+    if &end_magic == expected {
         Ok(())
     } else {
         Err(GhwParseError::UnexpectedSection(format!(
-            "expected section to end in {}, not {}",
-            String::from_utf8_lossy(GHW_END_SECTION),
+            "expected {section} section to end in {}, not {}",
+            String::from_utf8_lossy(expected),
             String::from_utf8_lossy(&end_magic)
         )))
     }
+}
+
+fn read_cycle_section(
+    header: &HeaderData,
+    signals: &[SignalInfo],
+    input: &mut impl BufRead,
+) -> Result<()> {
+    let mut h = [0u8; 8];
+    input.read_exact(&mut h)?;
+    // note: cycle sections do not have the four zero bytes!
+
+    // time in femto seconds
+    let mut start_time = header.read_i64(&mut &h[..])? as u64;
+
+    loop {
+        println!("TODO: cycle @ {start_time} fs");
+        read_cycle_signals(signals, input)?;
+
+        let time_delta = leb128::read::signed(input)?;
+        if time_delta < 0 {
+            break; // end of cycle
+        } else {
+            start_time += time_delta as u64;
+        }
+    }
+
+    // check cycle end
+    check_magic_end(input, "cycle", GHW_END_CYCLE_SECTION)?;
+
+    Ok(())
+}
+
+fn read_cycle_signals(signals: &[SignalInfo], input: &mut impl BufRead) -> Result<()> {
+    let mut pos_signal_index = 0;
+    loop {
+        let delta = leb128::read::unsigned(input)? as usize;
+        if delta == 0 {
+            break;
+        }
+        pos_signal_index += delta;
+        if pos_signal_index == 0 {
+            return Err(GhwParseError::FailedToParseSection(
+                "cycle",
+                "Expected a first delta > 0".to_string(),
+            ));
+        }
+        let sig = &signals[pos_signal_index - 1];
+        let value = read_signal_value(sig.tpe, input)?;
+        println!("TODO: {} = {value:?}", sig.start_id.0.get());
+    }
+    Ok(())
 }
 
 fn read_signal_value(tpe: SignalType, input: &mut impl BufRead) -> Result<SignalValue> {
@@ -287,8 +344,8 @@ const GHW_SNAPSHOT_SECTION: &[u8; 4] = b"SNP\x00";
 const GHW_CYCLE_SECTION: &[u8; 4] = b"CYC\x00";
 const GHW_DIRECTORY_SECTION: &[u8; 4] = b"DIR\x00";
 const GHW_TAILER_SECTION: &[u8; 4] = b"TAI\x00";
-/// used to denote the end of a snapshot section
-const GHW_END_SECTION: &[u8; 4] = b"ESN\x00";
+const GHW_END_SNAPSHOT_SECTION: &[u8; 4] = b"ESN\x00";
+const GHW_END_CYCLE_SECTION: &[u8; 4] = b"ECY\x00";
 
 fn read_header_section(
     header: &HeaderData,
