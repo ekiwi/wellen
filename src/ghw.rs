@@ -81,6 +81,7 @@ fn load(filename: &str) -> Result<()> {
                     tpe.well_known = wkt;
                 }
             }
+            Section::Hierarchy => {}
         }
     }
 
@@ -162,7 +163,8 @@ fn read_section(
         )?))),
         GHW_HIERARCHY_SECTION => {
             read_hierarchy_section(header, tables, input)?;
-            todo!()
+            println!("TODO: actually do something with the hierarchy!");
+            Ok(Some(Section::Hierarchy))
         }
         GHW_TYPE_SECTION => Ok(Some(Section::TypeTable(read_type_section(header, input)?))),
         GHW_WK_TYPE_SECTION => Ok(Some(Section::WellKnownTypes(
@@ -179,6 +181,7 @@ enum Section {
     StringTable(Vec<String>),
     TypeTable(Vec<GhwTypeInfo>),
     WellKnownTypes(Vec<(TypeId, GhwWellKnownType)>),
+    Hierarchy,
 }
 
 #[inline]
@@ -259,8 +262,8 @@ fn read_type_id(input: &mut impl BufRead) -> Result<TypeId> {
 }
 
 fn read_range(input: &mut impl BufRead) -> Result<GhwRange> {
-    let t = read_u8(input)? & 0x7f;
-    let kind = GhdlRtik::try_from_primitive(t)?;
+    let t = read_u8(input)?;
+    let kind = GhdlRtik::try_from_primitive(t & 0x7f)?;
     let downto = (t & 0x80) != 0;
     let range = match kind {
         GhdlRtik::TypeE8 | GhdlRtik::TypeB2 => {
@@ -418,10 +421,13 @@ fn read_hierarchy_section(
     input.read_exact(&mut h)?;
     check_header_zeros("hierarchy", &h)?;
 
-    let num_scopes = header.read_i32(&mut &h[4..8])?;
+    // it appears that this number is actually not always 100% accurate
+    let _expected_num_scopes = header.read_u32(&mut &h[4..8])?;
     // declared signals, may be composite
-    let num_declared_vars = header.read_i32(&mut &h[8..12])?;
-    let num_basic_vars = header.read_u32(&mut &h[12..16])?;
+    let expected_num_declared_vars = header.read_u32(&mut &h[8..12])?;
+    let max_signal_id = header.read_u32(&mut &h[12..16])?;
+
+    let mut num_declared_vars = 0;
 
     loop {
         let kind = GhwHierarchyKind::try_from_primitive(read_u8(input)?)?;
@@ -433,7 +439,9 @@ fn read_hierarchy_section(
             }
             GhwHierarchyKind::Design => unreachable!(),
             GhwHierarchyKind::Process => {
-                println!("TODO: process");
+                read_hierarchy_scope(tables, input, kind)?;
+                // processes are always empty, thus an "upscope" is implied
+                println!("UpScope");
             }
             GhwHierarchyKind::Block
             | GhwHierarchyKind::GenerateIf
@@ -449,12 +457,21 @@ fn read_hierarchy_section(
             | GhwHierarchyKind::PortInOut
             | GhwHierarchyKind::Buffer
             | GhwHierarchyKind::Linkage => {
-                read_hierarchy_var(tables, input, kind)?;
+                read_hierarchy_var(tables, input, kind, max_signal_id)?;
+                num_declared_vars += 1;
+                if num_declared_vars > expected_num_declared_vars {
+                    return Err(GhwParseError::FailedToParseSection(
+                        "hierarchy",
+                        format!(
+                            "more declared variables than expected {expected_num_declared_vars}"
+                        ),
+                    ));
+                }
             }
         }
     }
 
-    todo!()
+    Ok(())
 }
 
 fn read_hierarchy_scope(
@@ -478,14 +495,21 @@ fn read_hierarchy_var(
     tables: &GhwTables,
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
-) -> Result<()> {
+    max_signal_id: u32,
+) -> Result<usize> {
     let name = read_string_id(input)?;
     let tpe = tables.get_type(read_type_id(input)?);
 
     if let Some(num_elements) = tpe.get_num_elements(&tables.types)? {
         let mut signals = Vec::with_capacity(num_elements as usize);
         for _ in 0..num_elements {
-            let index = leb128::read::unsigned(input)?;
+            let index = leb128::read::unsigned(input)? as u32;
+            if index > max_signal_id {
+                return Err(GhwParseError::FailedToParseSection(
+                    "hierarchy",
+                    format!("SignalId too large {index} > {max_signal_id}"),
+                ));
+            }
             signals.push(SignalId(NonZeroU32::new(index as u32).unwrap()));
         }
         println!(
@@ -494,7 +518,7 @@ fn read_hierarchy_var(
             tables.get_str(tpe.name),
             signals
         );
-        Ok(())
+        Ok(signals.len())
     } else {
         Err(GhwParseError::FailedToParseSection(
             "hierarchy",
@@ -808,6 +832,5 @@ mod tests {
     #[test]
     fn test_simple_load() {
         load("inputs/ghdl/tb_recv.ghw").unwrap();
-        todo!()
     }
 }
