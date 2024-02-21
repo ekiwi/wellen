@@ -4,7 +4,7 @@
 
 mod detect;
 pub mod fst;
-mod ghw;
+pub mod ghw;
 mod hierarchy;
 mod signals;
 pub mod vcd;
@@ -38,6 +38,8 @@ pub enum WellenError {
     ParseInt(#[from] std::num::ParseIntError),
     #[error("I/O operation failed")]
     Io(#[from] std::io::Error),
+    #[error("failed to load {0:?}:\n{1}")]
+    FailedToLoad(FileFormat, String),
 }
 
 pub use detect::{detect_file_format, open_and_detect_file_format, FileFormat};

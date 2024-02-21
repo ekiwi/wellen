@@ -10,6 +10,7 @@ use std::io::{BufRead, Seek};
 pub enum FileFormat {
     Vcd,
     Fst,
+    Ghw,
     Unknown,
 }
 
@@ -26,6 +27,8 @@ pub fn detect_file_format(input: &mut (impl BufRead + Seek)) -> FileFormat {
         FileFormat::Vcd
     } else if fst_native::is_fst_file(input) {
         FileFormat::Fst
+    } else if crate::ghw::is_ghw(input) {
+        FileFormat::Ghw
     } else {
         FileFormat::Unknown
     }
