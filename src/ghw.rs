@@ -23,7 +23,7 @@ enum GhwParseError {
     #[error("[ghw] unexpected section start: {0}")]
     UnexpectedSection(String),
     #[error("[ghw] unexpected type: {0:?}, {1}")]
-    UnexpectedType(GhdlRtik, &'static str),
+    UnexpectedType(GhwRtik, &'static str),
     #[error("[ghw] failed to parse a {0} section: {1}")]
     FailedToParseSection(&'static str, String),
     #[error("[ghw] expected positive integer, not: {0}")]
@@ -31,7 +31,7 @@ enum GhwParseError {
     #[error("[ghw] float range has no length: {0} .. {1}")]
     FloatRangeLen(f64, f64),
     #[error("[ghw] failed to parse GHDL RTIK.")]
-    FailedToParseGhdlRtik(#[from] num_enum::TryFromPrimitiveError<GhdlRtik>),
+    FailedToParseGhdlRtik(#[from] num_enum::TryFromPrimitiveError<GhwRtik>),
     #[error("[ghw] failed to parse well known type.")]
     FailedToParseWellKnownType(#[from] num_enum::TryFromPrimitiveError<GhwWellKnownType>),
     #[error("[ghw] failed to parse hierarchy kind.")]
@@ -563,20 +563,20 @@ fn read_type_id(input: &mut impl BufRead) -> Result<TypeId> {
 
 fn read_range(input: &mut impl BufRead) -> Result<GhwRange> {
     let t = read_u8(input)?;
-    let kind = GhdlRtik::try_from_primitive(t & 0x7f)?;
+    let kind = GhwRtik::try_from_primitive(t & 0x7f)?;
     let downto = (t & 0x80) != 0;
     let range = match kind {
-        GhdlRtik::TypeE8 | GhdlRtik::TypeB2 => {
+        GhwRtik::TypeE8 | GhwRtik::TypeB2 => {
             let mut buf = [0u8; 2];
             input.read_exact(&mut buf)?;
             Range::U8(buf[0], buf[1])
         }
-        GhdlRtik::TypeI32 | GhdlRtik::TypeP32 | GhdlRtik::TypeI64 | GhdlRtik::TypeP64 => {
+        GhwRtik::TypeI32 | GhwRtik::TypeP32 | GhwRtik::TypeI64 | GhwRtik::TypeP64 => {
             let left = leb128::read::signed(input)?;
             let right = leb128::read::signed(input)?;
             Range::I64(left, right)
         }
-        GhdlRtik::TypeF64 => {
+        GhwRtik::TypeF64 => {
             todo!("float range!")
         }
         other => return Err(GhwParseError::UnexpectedType(other, "for range")),
@@ -599,10 +599,10 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
 
     for _ in 0..type_num {
         let t = read_u8(input)?;
-        let kind = GhdlRtik::try_from_primitive(t)?;
+        let kind = GhwRtik::try_from_primitive(t)?;
         let name = read_string_id(input)?;
         let tpe = match kind {
-            GhdlRtik::TypeE8 | GhdlRtik::TypeB2 => {
+            GhwRtik::TypeE8 | GhwRtik::TypeB2 => {
                 let num_literals = leb128::read::unsigned(input)?;
                 let mut literals = Vec::with_capacity(num_literals as usize);
                 for _ in 0..num_literals {
@@ -610,12 +610,12 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
                 }
                 GhwType::Enum { literals }
             }
-            GhdlRtik::TypeI32 | GhdlRtik::TypeI64 | GhdlRtik::TypeF64 => GhwType::Scalar,
-            GhdlRtik::SubtypeScalar => GhwType::SubtypeScalar {
+            GhwRtik::TypeI32 | GhwRtik::TypeI64 | GhwRtik::TypeF64 => GhwType::Scalar,
+            GhwRtik::SubtypeScalar => GhwType::SubtypeScalar {
                 base: read_type_id(input)?,
                 range: read_range(input)?,
             },
-            GhdlRtik::TypeArray => {
+            GhwRtik::TypeArray => {
                 let element_tpe = read_type_id(input)?;
                 let num_dims = leb128::read::unsigned(input)?;
                 let mut dims = Vec::with_capacity(num_dims as usize);
@@ -624,7 +624,7 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
                 }
                 GhwType::TypeArray { element_tpe, dims }
             }
-            GhdlRtik::SubtypeArray => {
+            GhwRtik::SubtypeArray => {
                 let base = read_type_id(input)?;
                 let base_tpe_id = table[base.index()].get_base_type_id(base);
                 let array = &table[base_tpe_id.index()];
@@ -960,7 +960,7 @@ struct RangeId(usize);
 
 #[derive(Debug)]
 struct GhwTypeInfo {
-    kind: GhdlRtik,
+    kind: GhwRtik,
     name: StringId,
     well_known: GhwWellKnownType,
     tpe: GhwType,
@@ -1050,7 +1050,7 @@ enum GhwType {
 
 #[derive(Debug)]
 struct GhwRange {
-    kind: GhdlRtik,
+    kind: GhwRtik,
     /// `to` instead of `downto` if `false`
     downto: bool,
     range: Range,
@@ -1151,52 +1151,33 @@ enum GhwWellKnownType {
     StdULogic = 3,
 }
 
+/// This enum used to be the same than the internal Ghdl rtik,
+/// however in order to maintain backwards compatibility it was cloned.
 #[repr(u8)]
 #[derive(Debug, PartialEq, Copy, Clone, TryFromPrimitive)]
-enum GhdlRtik {
-    Top = 0,
-    Library = 1,
-    Package = 2,
-    PackageBody = 3,
-    Entity = 4,
-    Architecture = 5,
-    Process = 6,
-    Block = 7,
-    IfGenerate = 8,
-    ForGenerate = 9,
-    Instance = 10,
-    Constant = 11,
-    Iterator = 12,
-    Variable = 13,
-    Signal = 14,
-    File = 15,
-    Port = 16,
-    Generic = 17,
-    Alias = 18,
-    Guard = 19,
-    Component = 20,
-    Attribute = 21,
+enum GhwRtik {
+    Error = 0,
+    EndOfScope = 15,
+    Signal = 16,
+    PortIn = 17,
+    PortOut = 18,
+    PortInOut = 19,
+    PortBuffer = 20,
+    PortLinkage = 21,
     TypeB2 = 22,
     TypeE8 = 23,
-    TypeE32 = 24,
     TypeI32 = 25,
     TypeI64 = 26,
     TypeF64 = 27,
     TypeP32 = 28,
     TypeP64 = 29,
-    TypeAccess = 30,
     TypeArray = 31,
     TypeRecord = 32,
-    TypeFile = 33,
     SubtypeScalar = 34,
     SubtypeArray = 35,
-    // obsolete array pointer = 36
     SubtypeUnboundedArray = 37,
     SubtypeRecord = 38,
     SubtypeUnboundedRecord = 39,
-    SubtypeAccess = 40,
-    TypeProtected = 41,
-    Element = 42,
 }
 
 #[repr(u8)]
