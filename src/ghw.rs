@@ -47,13 +47,140 @@ fn load(filename: &str) -> Result<()> {
     let f = std::fs::File::open(filename)?;
     let mut input = std::io::BufReader::new(f);
 
-    let header = parse_header(&mut input)?;
-    println!("{header:?}");
+    let (header, signals) = read_hierarchy(&mut input)?;
 
+    read_signals(&header, &signals, &mut input)?;
+
+    Ok(())
+}
+
+/// Reads the GHW signal values. `input` should be advanced until right after the end of hierarchy
+fn read_signals(
+    header: &HeaderData,
+    signals: &[SignalInfo],
+    input: &mut impl BufRead,
+) -> Result<()> {
+    // loop over signal sections
+    loop {
+        let mut mark = [0u8; 4];
+        input.read_exact(&mut mark)?;
+
+        // read_sm_hdr
+        match &mark {
+            GHW_SNAPSHOT_SECTION => read_snapshot_section(header, signals, input)?,
+            GHW_CYCLE_SECTION => todo!("cycle section"),
+            GHW_DIRECTORY_SECTION => todo!("directory section"),
+            GHW_TAILER_SECTION => todo!("tailer section"),
+            other => {
+                return Err(GhwParseError::UnexpectedSection(
+                    String::from_utf8_lossy(other).to_string(),
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_snapshot_section(
+    header: &HeaderData,
+    signals: &[SignalInfo],
+    input: &mut impl BufRead,
+) -> Result<()> {
+    let mut h = [0u8; 12];
+    input.read_exact(&mut h)?;
+    check_header_zeros("snapshot", &h)?;
+
+    // time in femto seconds
+    let start_time = header.read_i64(&mut &h[4..12])? as u64;
+
+    for sig in signals.iter() {
+        for _ in 0..sig.len() {
+            let value = read_signal_value(sig.tpe, input)?;
+            println!("TODO: {value:?}");
+        }
+    }
+
+    // check for correct end magic
+    let mut end_magic = [0u8; 4];
+    input.read_exact(&mut end_magic)?;
+    if &end_magic == GHW_END_SECTION {
+        Ok(())
+    } else {
+        Err(GhwParseError::UnexpectedSection(format!(
+            "expected section to end in {}, not {}",
+            String::from_utf8_lossy(GHW_END_SECTION),
+            String::from_utf8_lossy(&end_magic)
+        )))
+    }
+}
+
+fn read_signal_value(tpe: SignalType, input: &mut impl BufRead) -> Result<SignalValue> {
+    match tpe {
+        SignalType::U8 => Ok(SignalValue::U8(read_u8(input)?)),
+        SignalType::I32 => {
+            let value = leb128::read::signed(input)?;
+            Ok(SignalValue::I32(value as i32))
+        }
+        SignalType::I64 => {
+            let value = leb128::read::signed(input)?;
+            Ok(SignalValue::I64(value))
+        }
+        SignalType::F64 => {
+            // we need to figure out the endianes here
+            let mut buf = [0u8; 8];
+            input.read_exact(&mut buf)?;
+            todo!(
+                "float values: {} or {}?",
+                f64::from_le_bytes(buf.clone()),
+                f64::from_be_bytes(buf)
+            )
+        }
+    }
+}
+
+/// Holds information from the header needed in order to read the corresponding data in the signal section.
+#[derive(Debug, Clone)]
+struct SignalInfo {
+    start_id: SignalId,
+    end_id: SignalId,
+    tpe: SignalType,
+}
+
+impl SignalInfo {
+    fn len(&self) -> usize {
+        (self.end_id.0.get() - self.start_id.0.get() + 1) as usize
+    }
+}
+
+/// Specifies the signal type info that is needed in order to read it.
+#[derive(Debug, PartialEq, Copy, Clone)]
+enum SignalType {
+    /// B2, E8
+    U8,
+    /// I32, P32
+    I32,
+    /// P64
+    I64,
+    /// F64
+    F64,
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+enum SignalValue {
+    U8(u8),
+    I32(i32),
+    I64(i64),
+    F64(f64),
+}
+
+/// Parses the beginning of the GHW file until the end of the hierarchy.
+fn read_hierarchy(input: &mut impl BufRead) -> Result<(HeaderData, Vec<SignalInfo>)> {
+    let header = read_ghw_header(input)?;
     let mut tables = GhwTables::default();
+    let mut signals = Vec::new();
 
-    while let Some(section) = read_section(&header, &tables, &mut input)? {
-        match section {
+    loop {
+        match read_header_section(&header, &tables, input)? {
             Section::StringTable(table) => {
                 debug_assert!(
                     tables.strings.is_empty(),
@@ -81,14 +208,22 @@ fn load(filename: &str) -> Result<()> {
                     tpe.well_known = wkt;
                 }
             }
-            Section::Hierarchy => {}
+            Section::Hierarchy(sigs) => {
+                debug_assert!(
+                    signals.is_empty(),
+                    "unexpected second hierarchy section:\n{:?}\n{:?}",
+                    &signals,
+                    &sigs
+                );
+                signals = sigs;
+            }
+            Section::EndOfHeader => break, // done
         }
     }
-
-    Ok(())
+    Ok((header, signals))
 }
 
-fn parse_header(input: &mut impl BufRead) -> Result<HeaderData> {
+fn read_ghw_header(input: &mut impl BufRead) -> Result<HeaderData> {
     // check for compression
     let mut comp_header = [0u8; 2];
     input.read_exact(&mut comp_header)?;
@@ -147,41 +282,46 @@ const GHW_STRING_SECTION: &[u8; 4] = b"STR\x00";
 const GHW_HIERARCHY_SECTION: &[u8; 4] = b"HIE\x00";
 const GHW_TYPE_SECTION: &[u8; 4] = b"TYP\x00";
 const GHW_WK_TYPE_SECTION: &[u8; 4] = b"WKT\x00";
-const GHW_END_SECTION: &[u8; 4] = b"EOH\x00";
+const GHW_END_OF_HEADER_SECTION: &[u8; 4] = b"EOH\x00";
+const GHW_SNAPSHOT_SECTION: &[u8; 4] = b"SNP\x00";
+const GHW_CYCLE_SECTION: &[u8; 4] = b"CYC\x00";
+const GHW_DIRECTORY_SECTION: &[u8; 4] = b"DIR\x00";
+const GHW_TAILER_SECTION: &[u8; 4] = b"TAI\x00";
+/// used to denote the end of a snapshot section
+const GHW_END_SECTION: &[u8; 4] = b"ESN\x00";
 
-fn read_section(
+fn read_header_section(
     header: &HeaderData,
     tables: &GhwTables,
     input: &mut impl BufRead,
-) -> Result<Option<Section>> {
+) -> Result<Section> {
     let mut mark = [0u8; 4];
     input.read_exact(&mut mark)?;
 
     match &mark {
-        GHW_STRING_SECTION => Ok(Some(Section::StringTable(read_string_section(
-            header, input,
-        )?))),
+        GHW_STRING_SECTION => Ok(Section::StringTable(read_string_section(header, input)?)),
         GHW_HIERARCHY_SECTION => {
-            read_hierarchy_section(header, tables, input)?;
-            println!("TODO: actually do something with the hierarchy!");
-            Ok(Some(Section::Hierarchy))
+            let signals = read_hierarchy_section(header, tables, input)?;
+            Ok(Section::Hierarchy(signals))
         }
-        GHW_TYPE_SECTION => Ok(Some(Section::TypeTable(read_type_section(header, input)?))),
-        GHW_WK_TYPE_SECTION => Ok(Some(Section::WellKnownTypes(
-            read_well_known_types_section(input)?,
-        ))),
-        GHW_END_SECTION => Ok(None),
+        GHW_TYPE_SECTION => Ok(Section::TypeTable(read_type_section(header, input)?)),
+        GHW_WK_TYPE_SECTION => Ok(Section::WellKnownTypes(read_well_known_types_section(
+            input,
+        )?)),
+        GHW_END_OF_HEADER_SECTION => Ok(Section::EndOfHeader),
         other => Err(GhwParseError::UnexpectedSection(
             String::from_utf8_lossy(other).to_string(),
         )),
     }
 }
 
+#[derive(Debug)]
 enum Section {
     StringTable(Vec<String>),
     TypeTable(Vec<GhwTypeInfo>),
     WellKnownTypes(Vec<(TypeId, GhwWellKnownType)>),
-    Hierarchy,
+    Hierarchy(Vec<SignalInfo>),
+    EndOfHeader,
 }
 
 #[inline]
@@ -416,7 +556,7 @@ fn read_hierarchy_section(
     header: &HeaderData,
     tables: &GhwTables,
     input: &mut impl BufRead,
-) -> Result<()> {
+) -> Result<Vec<SignalInfo>> {
     let mut h = [0u8; 16];
     input.read_exact(&mut h)?;
     check_header_zeros("hierarchy", &h)?;
@@ -425,9 +565,11 @@ fn read_hierarchy_section(
     let _expected_num_scopes = header.read_u32(&mut &h[4..8])?;
     // declared signals, may be composite
     let expected_num_declared_vars = header.read_u32(&mut &h[8..12])?;
-    let max_signal_id = header.read_u32(&mut &h[12..16])?;
+    let max_signal_id = header.read_u32(&mut &h[12..16])? as usize;
 
     let mut num_declared_vars = 0;
+    let mut signals: Vec<Option<SignalInfo>> = Vec::with_capacity(max_signal_id + 1);
+    signals.resize(max_signal_id + 1, None);
 
     loop {
         let kind = GhwHierarchyKind::try_from_primitive(read_u8(input)?)?;
@@ -435,13 +577,13 @@ fn read_hierarchy_section(
         match kind {
             GhwHierarchyKind::End => break, // done
             GhwHierarchyKind::EndOfScope => {
-                println!("UpScope");
+                // TODO: println!("UpScope");
             }
             GhwHierarchyKind::Design => unreachable!(),
             GhwHierarchyKind::Process => {
                 read_hierarchy_scope(tables, input, kind)?;
                 // processes are always empty, thus an "upscope" is implied
-                println!("UpScope");
+                // TODO: println!("UpScope");
             }
             GhwHierarchyKind::Block
             | GhwHierarchyKind::GenerateIf
@@ -457,7 +599,7 @@ fn read_hierarchy_section(
             | GhwHierarchyKind::PortInOut
             | GhwHierarchyKind::Buffer
             | GhwHierarchyKind::Linkage => {
-                read_hierarchy_var(tables, input, kind, max_signal_id)?;
+                read_hierarchy_var(tables, input, kind, &mut signals)?;
                 num_declared_vars += 1;
                 if num_declared_vars > expected_num_declared_vars {
                     return Err(GhwParseError::FailedToParseSection(
@@ -471,7 +613,7 @@ fn read_hierarchy_section(
         }
     }
 
-    Ok(())
+    Ok(signals.into_iter().flatten().collect::<Vec<_>>())
 }
 
 fn read_hierarchy_scope(
@@ -486,7 +628,7 @@ fn read_hierarchy_scope(
         todo!("read value");
     }
 
-    println!("SCOPE {kind:?} {}", tables.get_str(name));
+    // TODO: println!("SCOPE {kind:?} {}", tables.get_str(name));
 
     Ok(())
 }
@@ -495,30 +637,32 @@ fn read_hierarchy_var(
     tables: &GhwTables,
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
-    max_signal_id: u32,
-) -> Result<usize> {
+    signals: &mut [Option<SignalInfo>],
+) -> Result<()> {
     let name = read_string_id(input)?;
     let tpe = tables.get_type(read_type_id(input)?);
 
     if let Some(num_elements) = tpe.get_num_elements(&tables.types)? {
-        let mut signals = Vec::with_capacity(num_elements as usize);
         for _ in 0..num_elements {
-            let index = leb128::read::unsigned(input)? as u32;
-            if index > max_signal_id {
+            let index = leb128::read::unsigned(input)? as usize;
+            if index >= signals.len() {
                 return Err(GhwParseError::FailedToParseSection(
                     "hierarchy",
-                    format!("SignalId too large {index} > {max_signal_id}"),
+                    format!("SignalId too large {index} > {}", signals.len()),
                 ));
             }
-            signals.push(SignalId(NonZeroU32::new(index as u32).unwrap()));
+            let id = SignalId(NonZeroU32::new(index as u32).unwrap());
+
+            // add signal info if not already available
+            if signals[index].is_none() {
+                signals[index] = Some(SignalInfo {
+                    start_id: id,
+                    end_id: id,
+                    tpe: SignalType::U8,
+                })
+            }
         }
-        println!(
-            "TODO: {kind:?} {} : {}\n{:?}",
-            tables.get_str(name),
-            tables.get_str(tpe.name),
-            signals
-        );
-        Ok(signals.len())
+        Ok(())
     } else {
         Err(GhwParseError::FailedToParseSection(
             "hierarchy",
@@ -689,6 +833,7 @@ struct HeaderData {
 }
 
 impl HeaderData {
+    #[inline]
     fn read_i32(&self, input: &mut impl BufRead) -> Result<i32> {
         let mut b = [0u8; 4];
         input.read_exact(&mut b)?;
@@ -698,12 +843,24 @@ impl HeaderData {
             Ok(i32::from_le_bytes(b))
         }
     }
+    #[inline]
     fn read_u32(&self, input: &mut impl BufRead) -> Result<u32> {
         let ii = self.read_i32(input)?;
         if ii >= 0 {
             Ok(ii as u32)
         } else {
             Err(GhwParseError::ExpectedPositiveInteger(ii as i64))
+        }
+    }
+
+    #[inline]
+    fn read_i64(&self, input: &mut impl BufRead) -> Result<i64> {
+        let mut b = [0u8; 8];
+        input.read_exact(&mut b)?;
+        if self.big_endian {
+            Ok(i64::from_be_bytes(b))
+        } else {
+            Ok(i64::from_le_bytes(b))
         }
     }
 }
@@ -791,38 +948,6 @@ enum GhwHierarchyKind {
     PortInOut = 19,
     Buffer = 20,
     Linkage = 21,
-}
-
-#[cfg(test)]
-fn render_type(tpe: &GhwTypeInfo, tables: &GhwTables) -> String {
-    if tpe.well_known != GhwWellKnownType::Unknown {
-        return format!("{:?}", tpe.well_known);
-    }
-    match &tpe.tpe {
-        GhwType::Enum { literals } => todo!("enum"),
-        GhwType::Scalar => todo!(""),
-        GhwType::Physical { .. } => todo!(""),
-        GhwType::Array { .. } => todo!(""),
-        GhwType::UnboundedArray { .. } => todo!(""),
-        GhwType::UnboundedRecord { .. } => todo!(""),
-        // TODO: what is the range for?
-        GhwType::SubtypeScalar { base, range } => render_type(tables.get_type(*base), tables),
-        GhwType::TypeArray { .. } => todo!(""),
-        GhwType::SubtypeArray { .. } => todo!(""),
-        GhwType::SubtypeUnboundedArray { .. } => todo!(""),
-        GhwType::TypeRecord { .. } => todo!(""),
-        GhwType::SubtypeRecord { .. } => todo!(""),
-    }
-}
-
-#[cfg(test)]
-fn render_range(range: &GhwRange) -> String {
-    let middle = if range.downto { "downto" } else { "to" };
-    match &range.range {
-        Range::U8(a, b) => format!("({a} {middle} {b})"),
-        Range::I64(a, b) => format!("({a} {middle} {b})"),
-        Range::F64(a, b) => format!("({a} {middle} {b})"),
-    }
 }
 
 #[cfg(test)]
