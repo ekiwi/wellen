@@ -3,7 +3,10 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::HierarchyBuilder;
-use crate::{FileFormat, FileType, Hierarchy, ScopeType, Waveform, WellenError};
+use crate::{
+    FileFormat, FileType, Hierarchy, ScopeType, SignalRef, VarDirection, VarType, Waveform,
+    WellenError,
+};
 use num_enum::TryFromPrimitive;
 use std::io::{BufRead, Seek, SeekFrom};
 use std::num::NonZeroU32;
@@ -62,16 +65,25 @@ pub(crate) fn is_ghw(input: &mut (impl BufRead + Seek)) -> bool {
 pub fn read(filename: &str) -> std::result::Result<Waveform, WellenError> {
     let f = std::fs::File::open(filename)?;
     let mut input = std::io::BufReader::new(f);
-    let header = read_ghw_header(&mut input)?;
+    read_internal(&mut input)
+}
+
+pub fn read_from_bytes(bytes: Vec<u8>) -> std::result::Result<Waveform, WellenError> {
+    let mut input = std::io::Cursor::new(bytes);
+    read_internal(&mut input)
+}
+
+fn read_internal(input: &mut (impl BufRead + Seek)) -> std::result::Result<Waveform, WellenError> {
+    let header = read_ghw_header(input)?;
     let header_len = input.stream_position()?;
 
     // currently we do read the directory, however we are not using it yet
-    let _sections = try_read_directory(&header, &mut input)?;
+    let _sections = try_read_directory(&header, input)?;
     input.seek(SeekFrom::Start(header_len))?;
     // TODO: use actual section positions
 
-    let (signals, hierarchy) = read_hierarchy(&header, &mut input)?;
-    let wave_mem = read_signals(&header, &signals, &hierarchy, &mut input)?;
+    let (signals, hierarchy) = read_hierarchy(&header, input)?;
+    let wave_mem = read_signals(&header, &signals, &hierarchy, input)?;
     Ok(Waveform::new(hierarchy, wave_mem))
 }
 
@@ -730,9 +742,11 @@ fn read_hierarchy_section(
             }
             GhwHierarchyKind::Design => unreachable!(),
             GhwHierarchyKind::Process => {
-                read_hierarchy_scope(tables, input, kind, h)?;
+                // FIXME: for now we ignore processes since they seem to only add noise!
+                let _process_name = read_string_id(input)?;
+                // read_hierarchy_scope(tables, input, kind, h)?;
                 // processes are always empty, thus an "upscope" is implied
-                h.pop_scope();
+                // h.pop_scope();
             }
             GhwHierarchyKind::Block
             | GhwHierarchyKind::GenerateIf
@@ -799,7 +813,10 @@ fn convert_scope_type(kind: GhwHierarchyKind) -> ScopeType {
         GhwHierarchyKind::Instance => ScopeType::Interface,
         GhwHierarchyKind::Package => ScopeType::VhdlPackage,
         GhwHierarchyKind::Generic => ScopeType::GhwGeneric,
-        _ => unreachable!("this kind should have been handled by a different code path"),
+        GhwHierarchyKind::Process => ScopeType::VhdlProcess,
+        other => {
+            unreachable!("this kind ({other:?}) should have been handled by a different code path")
+        }
     }
 }
 
@@ -810,38 +827,114 @@ fn read_hierarchy_var(
     signals: &mut [Option<SignalInfo>],
     h: &mut HierarchyBuilder,
 ) -> Result<()> {
-    let name = read_string_id(input)?;
-    let tpe = tables.get_type(read_type_id(input)?);
+    let name_id = read_string_id(input)?;
+    let name = tables.get_str(name_id).to_string();
+    let tpe = read_type_id(input)?;
+    add_var(tables, input, kind, signals, h, name, tpe)
+}
 
-    if let Some(num_elements) = tpe.get_num_elements(&tables.types)? {
-        for _ in 0..num_elements {
-            let index = leb128::read::unsigned(input)? as usize;
-            if index >= signals.len() {
-                return Err(GhwParseError::FailedToParseSection(
-                    "hierarchy",
-                    format!("SignalId too large {index} > {}", signals.len()),
-                ));
-            }
-            let id = SignalId(NonZeroU32::new(index as u32).unwrap());
-
-            // add signal info if not already available
-            if signals[index].is_none() {
-                signals[index] = Some(SignalInfo {
-                    start_id: id,
-                    end_id: id,
-                    tpe: SignalType::U8,
-                })
-            }
+fn add_var(
+    tables: &GhwTables,
+    input: &mut impl BufRead,
+    kind: GhwHierarchyKind,
+    signals: &mut [Option<SignalInfo>],
+    h: &mut HierarchyBuilder,
+    name: String,
+    type_id: TypeId,
+) -> Result<()> {
+    let info = tables.get_type(type_id);
+    let (tpe, dir) = convert_var_kind(kind);
+    let tpe_name = tables.get_str(info.name).to_string();
+    match &info.tpe {
+        GhwType::Enum { literals } => {
+            let mapping = literals
+                .iter()
+                .enumerate()
+                .map(|(ii, lit)| (format!("{ii}"), tables.get_str(*lit).to_string()))
+                .collect::<Vec<_>>();
+            let enum_type = h.add_enum_type(tpe_name.clone(), mapping);
+            let index = read_signal_id(input, signals)?;
+            let signal_ref = SignalRef::from_index(index.0.get() as usize).unwrap();
+            let bits = 1;
+            h.add_var(
+                name,
+                tpe,
+                dir,
+                bits,
+                None,
+                signal_ref,
+                Some(enum_type),
+                Some(tpe_name),
+            );
         }
-        Ok(())
-    } else {
+        GhwType::SubtypeScalar { base, .. } => {
+            // we ignore the range and just treat it like its base
+            add_var(tables, input, kind, signals, h, name, *base)?;
+        }
+        GhwType::SubtypeArray {
+            base,
+            ranges,
+            element_tpe,
+        } => {
+            h.add_scope(name, None, ScopeType::Module, None, None, false);
+            for range in ranges.iter() {
+                for bit in 0..range.get_len()? {
+                    add_var(
+                        tables,
+                        input,
+                        kind,
+                        signals,
+                        h,
+                        format!("{bit}"),
+                        *element_tpe,
+                    )?;
+                }
+            }
+            h.pop_scope();
+        }
+        other => {
+            println!("TODO: {other:?} {name}");
+        }
+    }
+    Ok(())
+}
+
+fn read_signal_id(
+    input: &mut impl BufRead,
+    signals: &mut [Option<SignalInfo>],
+) -> Result<SignalId> {
+    let index = leb128::read::unsigned(input)? as usize;
+    if index >= signals.len() {
         Err(GhwParseError::FailedToParseSection(
             "hierarchy",
-            format!(
-                "var {} has unbound number of elements!",
-                tables.get_str(name)
-            ),
+            format!("SignalId too large {index} > {}", signals.len()),
         ))
+    } else {
+        let id = SignalId(NonZeroU32::new(index as u32).unwrap());
+
+        // add signal info if not already available
+        if signals[index].is_none() {
+            signals[index] = Some(SignalInfo {
+                start_id: id,
+                end_id: id,
+                tpe: SignalType::U8,
+            })
+        }
+        Ok(id)
+    }
+}
+
+fn convert_var_kind(kind: GhwHierarchyKind) -> (VarType, VarDirection) {
+    match kind {
+        GhwHierarchyKind::Signal => (VarType::Wire, VarDirection::Implicit),
+        GhwHierarchyKind::PortIn => (VarType::Port, VarDirection::Input),
+        GhwHierarchyKind::PortOut => (VarType::Port, VarDirection::Output),
+        GhwHierarchyKind::PortInOut => (VarType::Port, VarDirection::InOut),
+        GhwHierarchyKind::Buffer => (VarType::Wire, VarDirection::Buffer),
+        GhwHierarchyKind::Linkage => (VarType::Wire, VarDirection::Linkage),
+        other => {
+            unreachable!("this kind ({other:?}) should have been handled by a different code path")
+        }
     }
 }
 
@@ -965,17 +1058,22 @@ struct GhwRange {
 
 impl GhwRange {
     fn get_len(&self) -> Result<u64> {
-        let (left, right) = match self.range {
-            Range::U8(left, right) => (left as i64, right as i64),
-            Range::I64(left, right) => (left, right),
-            Range::F64(left, right) => return Err(GhwParseError::FloatRangeLen(left, right)),
-        };
+        let (left, right) = self.get_i64_left_and_right()?;
         let res = if self.downto {
             left - right + 1
         } else {
             right - left + 1
         };
         Ok(std::cmp::max(res, 0) as u64)
+    }
+
+    fn get_i64_left_and_right(&self) -> Result<(i64, i64)> {
+        let res = match self.range {
+            Range::U8(left, right) => (left as i64, right as i64),
+            Range::I64(left, right) => (left, right),
+            Range::F64(left, right) => return Err(GhwParseError::FloatRangeLen(left, right)),
+        };
+        Ok(res)
     }
 }
 
