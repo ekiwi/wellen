@@ -3,7 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use num_enum::TryFromPrimitive;
-use std::io::BufRead;
+use std::io::{BufRead, Seek, SeekFrom};
 use std::num::NonZeroU32;
 use thiserror::Error;
 
@@ -46,12 +46,82 @@ type Result<T> = std::result::Result<T, GhwParseError>;
 fn load(filename: &str) -> Result<()> {
     let f = std::fs::File::open(filename)?;
     let mut input = std::io::BufReader::new(f);
+    let header = read_ghw_header(&mut input)?;
+    let header_len = input.stream_position()?;
 
-    let (header, signals) = read_hierarchy(&mut input)?;
+    // currently we do read the directory, however we are not using it yet
+    let _sections = try_read_directory(&header, &mut input)?;
+    input.seek(SeekFrom::Start(header_len))?;
+    // TODO: use actual section positions
+
+    let signals = read_hierarchy(&header, &mut input)?;
 
     read_signals(&header, &signals, &mut input)?;
 
     Ok(())
+}
+
+const GHW_TAILER_LEN: usize = 12;
+
+/// The last 8 bytes of a finished, uncompressed file indicate where to find the directory which
+/// contains the offset of all sections.
+fn try_read_directory(
+    header: &HeaderData,
+    input: &mut (impl BufRead + Seek),
+) -> Result<Option<Vec<SectionPos>>> {
+    if input.seek(SeekFrom::End(-(GHW_TAILER_LEN as i64))).is_err() {
+        // we treat a failure to seek as not being able to find the directory
+        Ok(None)
+    } else {
+        let mut tailer = [0u8; GHW_TAILER_LEN];
+        input.read_exact(&mut tailer)?;
+
+        // check section start
+        if &tailer[0..4] != GHW_TAILER_SECTION {
+            Ok(None)
+        } else {
+            // note: the "tailer" section does not contain the normal 4 zeros
+            let directory_offset = header.read_u32(&mut &tailer[8..12])?;
+            input.seek(SeekFrom::Start(directory_offset as u64))?;
+
+            // check directory marker
+            let mut mark = [0u8; 4];
+            input.read_exact(&mut mark)?;
+            if &mark != GHW_DIRECTORY_SECTION {
+                Err(GhwParseError::UnexpectedSection(
+                    String::from_utf8_lossy(&mark).to_string(),
+                ))
+            } else {
+                Ok(Some(read_directory(header, input)?))
+            }
+        }
+    }
+}
+
+fn read_directory(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<SectionPos>> {
+    let mut h = [0u8; 8];
+    input.read_exact(&mut h)?;
+    // note: the directory section does not contain the normal 4 zeros
+    let num_entries = header.read_u32(&mut &h[4..8])?;
+
+    let mut sections = Vec::new();
+    for _ in 0..num_entries {
+        let mut id = [0u8; 4];
+        input.read_exact(&mut id)?;
+        let mut buf = [0u8; 4];
+        input.read_exact(&mut buf)?;
+        let pos = header.read_u32(&mut &buf[..])?;
+        sections.push(SectionPos { id, pos });
+    }
+
+    check_magic_end(input, "directory", GHW_END_DIRECTORY_SECTION)?;
+    Ok(sections)
+}
+
+#[derive(Debug)]
+struct SectionPos {
+    id: [u8; 4],
+    pos: u32,
 }
 
 /// Reads the GHW signal values. `input` should be advanced until right after the end of hierarchy
@@ -69,8 +139,14 @@ fn read_signals(
         match &mark {
             GHW_SNAPSHOT_SECTION => read_snapshot_section(header, signals, input)?,
             GHW_CYCLE_SECTION => read_cycle_section(header, signals, input)?,
-            GHW_DIRECTORY_SECTION => todo!("directory section"),
-            GHW_TAILER_SECTION => todo!("tailer section"),
+            GHW_DIRECTORY_SECTION => {
+                // skip the directory by reading it
+                let _ = read_directory(header, input)?;
+            }
+            GHW_TAILER_SECTION => {
+                // the "tailer" means that we are done reading the file
+                break;
+            }
             other => {
                 return Err(GhwParseError::UnexpectedSection(
                     String::from_utf8_lossy(other).to_string(),
@@ -231,13 +307,12 @@ enum SignalValue {
 }
 
 /// Parses the beginning of the GHW file until the end of the hierarchy.
-fn read_hierarchy(input: &mut impl BufRead) -> Result<(HeaderData, Vec<SignalInfo>)> {
-    let header = read_ghw_header(input)?;
+fn read_hierarchy(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<SignalInfo>> {
     let mut tables = GhwTables::default();
     let mut signals = Vec::new();
 
     loop {
-        match read_header_section(&header, &tables, input)? {
+        match read_header_section(header, &tables, input)? {
             Section::StringTable(table) => {
                 debug_assert!(
                     tables.strings.is_empty(),
@@ -277,7 +352,7 @@ fn read_hierarchy(input: &mut impl BufRead) -> Result<(HeaderData, Vec<SignalInf
             Section::EndOfHeader => break, // done
         }
     }
-    Ok((header, signals))
+    Ok(signals)
 }
 
 fn read_ghw_header(input: &mut impl BufRead) -> Result<HeaderData> {
@@ -346,6 +421,7 @@ const GHW_DIRECTORY_SECTION: &[u8; 4] = b"DIR\x00";
 const GHW_TAILER_SECTION: &[u8; 4] = b"TAI\x00";
 const GHW_END_SNAPSHOT_SECTION: &[u8; 4] = b"ESN\x00";
 const GHW_END_CYCLE_SECTION: &[u8; 4] = b"ECY\x00";
+const GHW_END_DIRECTORY_SECTION: &[u8; 4] = b"EOD\x00";
 
 fn read_header_section(
     header: &HeaderData,
@@ -401,7 +477,10 @@ fn check_header_zeros(section: &'static str, header: &[u8]) -> Result<()> {
     } else {
         Err(GhwParseError::FailedToParseSection(
             section,
-            "first four bytes should be zero".to_string(),
+            format!(
+                "first four bytes should be zero and not {}",
+                String::from_utf8_lossy(&zeros)
+            ),
         ))
     }
 }
