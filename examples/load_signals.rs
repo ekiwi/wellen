@@ -53,13 +53,20 @@ fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
     )
 }
 
+const VCD_OPTS: vcd::LoadOptions = vcd::LoadOptions {
+    multi_thread: true,
+    remove_scopes_with_empty_name: false,
+};
+
 fn main() {
     let args = Args::parse();
     let ext = args.filename.split('.').last().unwrap();
     let start = std::time::Instant::now();
     let mut wave = match ext {
         "fst" => wellen::fst::read(&args.filename).expect("Failed to load FST."),
-        "vcd" => wellen::vcd::read(&args.filename).expect("Failed to load VCD."),
+        "vcd" => {
+            wellen::vcd::read_with_options(&args.filename, VCD_OPTS).expect("Failed to load VCD.")
+        }
         other => panic!("Unsupported file extension: {other}"),
     };
     let load_duration = start.elapsed();

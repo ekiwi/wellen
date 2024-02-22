@@ -1,0 +1,14 @@
+$comment Small VCD adapted to show decrease in time issue $end
+$timescale 1ps $end
+$scope module logic $end
+$var wire 1 ! data $end
+$upscope $end
+$enddefinitions $end
+$dumpvars
+#4
+0!
+#1
+0!
+#5
+1!
+#2

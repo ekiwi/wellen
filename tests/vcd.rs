@@ -78,3 +78,11 @@ fn check_no_fake_changes(mut waves: Waveform) {
     assert_eq!(offset.elements, 1);
     assert_eq!(offset.next_index, None);
 }
+
+/// If a VCD contains a time change that goes back in time, wellen will skip it.
+#[test]
+fn test_vcd_with_decreasing_time() {
+    let filename = "inputs/wellen/issue_5.vcd";
+    let waves = vcd::read(filename).expect("failed to parse");
+    assert_eq!(waves.time_table(), [4, 5]);
+}

@@ -437,6 +437,8 @@ pub struct Encoder {
     signals: Vec<SignalEncoder>,
     /// Tracks if there has been any new data that would require us to create another block.
     has_new_data: bool,
+    /// Tracks if we are skipping a timestep because it came with an invalid time.
+    skipping_time_step: bool,
     /// Finished blocks
     blocks: Vec<Block>,
 }
@@ -460,6 +462,7 @@ impl Encoder {
             time_table: Vec::default(),
             signals,
             has_new_data: false,
+            skipping_time_step: false,
             blocks: Vec::default(),
         }
     }
@@ -469,8 +472,14 @@ impl Encoder {
         if let Some(prev_time) = self.time_table.last() {
             if *prev_time == time {
                 return; // ignore calls to time_change that do not actually change anything
+            } else if *prev_time > time {
+                println!(
+                    "WARN: time decreased from {} to {}. Skipping!",
+                    *prev_time, time
+                );
+                self.skipping_time_step = true;
+                return;
             }
-            assert!(*prev_time < time, "Time can only increase!");
         }
         // if we run out of time indices => start a new block
         if self.time_table.len() >= BlockTimeIdx::MAX as usize {
@@ -478,6 +487,7 @@ impl Encoder {
         }
         self.time_table.push(time);
         self.has_new_data = true;
+        self.skipping_time_step = false;
     }
 
     /// Call with an unaltered VCD value.
@@ -486,9 +496,11 @@ impl Encoder {
             !self.time_table.is_empty(),
             "We need a call to time_change first!"
         );
-        let time_idx = (self.time_table.len() - 1) as u16;
-        self.signals[id as usize].add_vcd_change(time_idx, value);
-        self.has_new_data = true;
+        if !self.skipping_time_step {
+            let time_idx = (self.time_table.len() - 1) as u16;
+            self.signals[id as usize].add_vcd_change(time_idx, value);
+            self.has_new_data = true;
+        }
     }
 
     pub fn finish(mut self) -> Reader {
