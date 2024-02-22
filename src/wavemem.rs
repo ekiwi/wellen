@@ -854,7 +854,7 @@ pub(crate) fn check_states(value: &[u8]) -> Option<States> {
 }
 
 #[inline]
-fn bit_char_to_num(value: u8) -> Option<u8> {
+pub(crate) fn bit_char_to_num(value: u8) -> Option<u8> {
     match value {
         // Value shared with 2 and 4-state logic
         b'0' | b'1' => Some(value - b'0'), // strong 0 / strong 1

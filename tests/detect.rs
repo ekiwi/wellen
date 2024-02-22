@@ -38,12 +38,16 @@ fn test_detect_file_format() {
             FileFormat::Fst => {
                 assert!(filename_str.ends_with(".fst"), "{filename_str}");
             }
+            FileFormat::Ghw => {
+                assert!(filename_str.ends_with(".ghw"), "{filename_str}");
+            }
             FileFormat::Unknown => {
                 // this file ends in fst, but does not seem to be a valid fst
                 let ignore = filename_str.ends_with("libsigrok.vcd.fst");
                 if !ignore {
                     assert!(!filename_str.ends_with(".vcd"), "{filename_str}");
                     assert!(!filename_str.ends_with(".fst"), "{filename_str}");
+                    assert!(!filename_str.ends_with(".ghw"), "{filename_str}");
                 }
             }
         }

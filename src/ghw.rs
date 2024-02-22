@@ -2,10 +2,11 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use crate::hierarchy::HierarchyBuilder;
+use crate::hierarchy::{HierarchyBuilder, HierarchyStringId};
+use crate::wavemem::bit_char_to_num;
 use crate::{
-    FileFormat, FileType, Hierarchy, ScopeType, SignalRef, VarDirection, VarType, Waveform,
-    WellenError,
+    FileFormat, FileType, Hierarchy, ScopeType, SignalRef, VarDirection, VarIndex, VarType,
+    Waveform, WellenError,
 };
 use num_enum::TryFromPrimitive;
 use std::io::{BufRead, Seek, SeekFrom};
@@ -398,7 +399,7 @@ fn read_hierarchy(
 ) -> Result<(Vec<SignalInfo>, Hierarchy)> {
     let mut tables = GhwTables::default();
     let mut signals = Vec::new();
-    let mut h = HierarchyBuilder::new(FileType::Vcd);
+    let mut hb = HierarchyBuilder::new(FileType::Vcd);
 
     loop {
         let mut mark = [0u8; 4];
@@ -416,7 +417,7 @@ fn read_hierarchy(
                 tables.strings = table;
             }
             GHW_TYPE_SECTION => {
-                let table = read_type_section(header, input)?;
+                let table = read_type_section(header, &tables, input)?;
                 debug_assert!(
                     tables.types.is_empty(),
                     "unexpected second type table:\n{:?}\n{:?}",
@@ -429,14 +430,25 @@ fn read_hierarchy(
                 let wkts = read_well_known_types_section(input)?;
                 debug_assert!(wkts.is_empty() || !tables.types.is_empty());
 
-                // we need to patch our type table with the well known types info
+                // we should have already inferred the correct well know types, so we just check
+                // that we did so correctly
                 for (type_id, wkt) in wkts.into_iter() {
-                    let tpe = &mut tables.types[type_id.index()];
-                    tpe.well_known = wkt;
+                    let tpe = &tables.types[type_id.index()];
+                    match wkt {
+                        GhwWellKnownType::Unknown => {} // does not matter
+                        GhwWellKnownType::Boolean => todo!("add bool"),
+                        GhwWellKnownType::Bit => todo!("add bit"),
+                        GhwWellKnownType::StdULogic => {
+                            debug_assert!(
+                                matches!(tpe, VhdlType::NineValueBit(_, _)),
+                                "{tpe:?} not recognized a std_ulogic!"
+                            );
+                        }
+                    }
                 }
             }
             GHW_HIERARCHY_SECTION => {
-                let sigs = read_hierarchy_section(header, &tables, input, &mut h)?;
+                let sigs = read_hierarchy_section(header, &mut tables, input, &mut hb)?;
                 debug_assert!(
                     signals.is_empty(),
                     "unexpected second hierarchy section:\n{:?}\n{:?}",
@@ -455,7 +467,7 @@ fn read_hierarchy(
             }
         }
     }
-    let hierarchy = h.finish();
+    let hierarchy = hb.finish();
     Ok((signals, hierarchy))
 }
 
@@ -475,7 +487,7 @@ const GHW_END_DIRECTORY_SECTION: &[u8; 4] = b"EOD\x00";
 #[derive(Debug)]
 enum Section {
     StringTable(Vec<String>),
-    TypeTable(Vec<GhwTypeInfo>),
+    TypeTable(Vec<VhdlType>),
     WellKnownTypes(Vec<(TypeId, GhwWellKnownType)>),
     Hierarchy(Vec<SignalInfo>),
     EndOfHeader,
@@ -561,20 +573,24 @@ fn read_type_id(input: &mut impl BufRead) -> Result<TypeId> {
     Ok(TypeId(NonZeroU32::new(value as u32).unwrap()))
 }
 
-fn read_range(input: &mut impl BufRead) -> Result<GhwRange> {
+fn read_range(input: &mut impl BufRead) -> Result<Range> {
     let t = read_u8(input)?;
     let kind = GhwRtik::try_from_primitive(t & 0x7f)?;
-    let downto = (t & 0x80) != 0;
+    let dir = if (t & 0x80) != 0 {
+        RangeDir::Downto
+    } else {
+        RangeDir::To
+    };
     let range = match kind {
         GhwRtik::TypeE8 | GhwRtik::TypeB2 => {
             let mut buf = [0u8; 2];
             input.read_exact(&mut buf)?;
-            Range::U8(buf[0], buf[1])
+            Range::Int(IntRange(dir, buf[0] as i64, buf[1] as i64))
         }
         GhwRtik::TypeI32 | GhwRtik::TypeP32 | GhwRtik::TypeI64 | GhwRtik::TypeP64 => {
             let left = leb128::read::signed(input)?;
             let right = leb128::read::signed(input)?;
-            Range::I64(left, right)
+            Range::Int(IntRange(dir, left, right))
         }
         GhwRtik::TypeF64 => {
             todo!("float range!")
@@ -582,39 +598,43 @@ fn read_range(input: &mut impl BufRead) -> Result<GhwRange> {
         other => return Err(GhwParseError::UnexpectedType(other, "for range")),
     };
 
-    Ok(GhwRange {
-        kind,
-        downto,
-        range,
-    })
+    Ok(range)
 }
 
-fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<GhwTypeInfo>> {
+fn read_type_section(
+    header: &HeaderData,
+    tables: &GhwTables,
+    input: &mut impl BufRead,
+) -> Result<Vec<VhdlType>> {
     let mut h = [0u8; 8];
     input.read_exact(&mut h)?;
     check_header_zeros("type", &h)?;
 
     let type_num = header.read_u32(&mut &h[4..8])?;
-    let mut table: Vec<GhwTypeInfo> = Vec::with_capacity(type_num as usize);
+    let mut table = Vec::with_capacity(type_num as usize);
 
     for _ in 0..type_num {
         let t = read_u8(input)?;
         let kind = GhwRtik::try_from_primitive(t)?;
         let name = read_string_id(input)?;
-        let tpe = match kind {
+        println!("{kind:?}");
+        let tpe: VhdlType = match kind {
             GhwRtik::TypeE8 | GhwRtik::TypeB2 => {
                 let num_literals = leb128::read::unsigned(input)?;
                 let mut literals = Vec::with_capacity(num_literals as usize);
                 for _ in 0..num_literals {
                     literals.push(read_string_id(input)?);
                 }
-                GhwType::Enum { literals }
+                VhdlType::from_enum(tables, name, literals)
             }
-            GhwRtik::TypeI32 | GhwRtik::TypeI64 | GhwRtik::TypeF64 => GhwType::Scalar,
-            GhwRtik::SubtypeScalar => GhwType::SubtypeScalar {
-                base: read_type_id(input)?,
-                range: read_range(input)?,
-            },
+            GhwRtik::TypeI32 => VhdlType::I32(name, None),
+            GhwRtik::TypeI64 => VhdlType::I64(name, None),
+            GhwRtik::TypeF64 => VhdlType::F64(name, None),
+            GhwRtik::SubtypeScalar => {
+                let base = read_type_id(input)?;
+                let range = read_range(input)?;
+                VhdlType::from_subtype_scalar(name, &table, base, range)
+            }
             GhwRtik::TypeArray => {
                 let element_tpe = read_type_id(input)?;
                 let num_dims = leb128::read::unsigned(input)?;
@@ -622,48 +642,31 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
                 for _ in 0..num_dims {
                     dims.push(read_type_id(input)?);
                 }
-                GhwType::TypeArray { element_tpe, dims }
+                debug_assert!(!dims.is_empty());
+                if dims.len() > 1 {
+                    todo!("support multi-dimensional arrays!")
+                }
+                VhdlType::from_array(name, &table, element_tpe, dims[0])
             }
             GhwRtik::SubtypeArray => {
                 let base = read_type_id(input)?;
-                let base_tpe_id = table[base.index()].get_base_type_id(base);
-                let array = &table[base_tpe_id.index()];
-                if let GhwType::TypeArray { element_tpe, dims } = &array.tpe {
-                    // one range per array dimension
-                    let mut ranges = Vec::with_capacity(dims.len());
-                    for _ in 0..dims.len() {
-                        ranges.push(read_range(input)?);
-                    }
-
-                    let num_elements = table[element_tpe.index()].get_num_elements(&table)?;
-                    let element_tpe = match num_elements {
-                        // for bounded number of elements, we just use the array element type
-                        Some(_) => *element_tpe,
-                        // for unbounded, we need to derive it
-                        None => todo!("deal with unbounded!"),
-                    };
-
-                    GhwType::SubtypeArray {
-                        base,
-                        ranges,
-                        element_tpe,
-                    }
-                } else {
-                    return Err(GhwParseError::UnexpectedType(
-                        array.kind,
-                        "subtype array needs base to be an array!",
-                    ));
+                let range = read_range(input)?;
+                VhdlType::from_subtype_array(name, &table, base, range)
+            }
+            GhwRtik::TypeRecord => {
+                let num_fields = leb128::read::unsigned(input)?;
+                let mut fields = Vec::with_capacity(num_fields as usize);
+                for _ in 0..num_fields {
+                    let field_name = read_string_id(input)?;
+                    let field_tpe = lookup_concrete_type_id(&table, read_type_id(input)?);
+                    fields.push((field_name, field_tpe));
                 }
+                VhdlType::from_record(name, &table, fields)
             }
             other => todo!("Support: {other:?}"),
         };
-        let info = GhwTypeInfo {
-            kind,
-            name,
-            well_known: GhwWellKnownType::Unknown,
-            tpe,
-        };
-        table.push(info);
+        println!("{tpe:?}");
+        table.push(tpe);
     }
 
     // the type section should end in zero
@@ -675,6 +678,205 @@ fn read_type_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Ve
     } else {
         Ok(table)
     }
+}
+
+/// Our own custom representation of VHDL Types.
+/// During GHW parsing we convert the GHDL types to our own representation.
+#[derive(Debug)]
+enum VhdlType {
+    /// std_logic or std_ulogic with lut to convert to the `wellen` 9-value representation.
+    NineValueBit(StringId, [u8; 9]),
+    /// std_logic_vector or std_ulogic_vector with lut to convert to the `wellen` 9-value representation.
+    NineValueVec(StringId, [u8; 9], IntRange),
+    /// Type alias that does not restrict the underlying type in any way.
+    TypeAlias(StringId, TypeId),
+    /// Integer type with possible upper and lower bounds.
+    I32(StringId, Option<IntRange>),
+    /// Integer type with possible upper and lower bounds.
+    I64(StringId, Option<IntRange>),
+    /// Float type with possible upper and lower bounds.
+    F64(StringId, Option<FloatRange>),
+    /// Record with fields.
+    Record(StringId, Vec<(StringId, TypeId)>),
+    /// An enum that was not detected to be a 9-value bit.
+    Enum(StringId, Vec<StringId>),
+    /// Array
+    Array(StringId, TypeId, Option<IntRange>),
+}
+
+/// resolves 1 layer of type aliases
+fn lookup_concrete_type(types: &[VhdlType], type_id: TypeId) -> &VhdlType {
+    match &types[type_id.index()] {
+        VhdlType::TypeAlias(_, base_id) => {
+            debug_assert!(!matches!(
+                &types[base_id.index()],
+                VhdlType::TypeAlias(_, _)
+            ));
+            &types[base_id.index()]
+        }
+        other => other,
+    }
+}
+
+/// resolves 1 layer of type aliases
+fn lookup_concrete_type_id(types: &[VhdlType], type_id: TypeId) -> TypeId {
+    match &types[type_id.index()] {
+        VhdlType::TypeAlias(name, base_id) => {
+            debug_assert!(!matches!(
+                &types[base_id.index()],
+                VhdlType::TypeAlias(_, _)
+            ));
+            *base_id
+        }
+        _ => type_id,
+    }
+}
+
+impl VhdlType {
+    fn from_enum(tables: &GhwTables, name: StringId, literals: Vec<StringId>) -> Self {
+        if let Some(nine_value) = try_parse_nine_value_bit(tables, name, &literals) {
+            nine_value
+        } else {
+            VhdlType::Enum(name, literals)
+        }
+    }
+
+    fn from_array(name: StringId, types: &[VhdlType], element_tpe: TypeId, index: TypeId) -> Self {
+        let element_tpe_id = lookup_concrete_type_id(types, element_tpe);
+        let index_type = lookup_concrete_type(types, index);
+        let index_range = index_type.int_range();
+        if let (VhdlType::NineValueBit(_, lut), Some(range)) =
+            (&types[element_tpe_id.index()], index_range)
+        {
+            VhdlType::NineValueVec(name, lut.clone(), range)
+        } else {
+            VhdlType::Array(name, element_tpe_id, index_range)
+        }
+    }
+
+    fn from_record(name: StringId, types: &[VhdlType], fields: Vec<(StringId, TypeId)>) -> Self {
+        if cfg!(debug_assertions) {
+            for (_, tpe) in fields.iter() {
+                debug_assert!(!types[tpe.index()].is_alias());
+            }
+        }
+        VhdlType::Record(name, fields)
+    }
+
+    fn from_subtype_array(name: StringId, types: &[VhdlType], base: TypeId, range: Range) -> Self {
+        let base_tpe = lookup_concrete_type(types, base);
+        match (base_tpe, range) {
+            (VhdlType::Array(_, element_tpe, maybe_base_range), Range::Int(int_range)) => {
+                todo!()
+            }
+            (VhdlType::NineValueVec(_, lut, base_range), Range::Int(int_range)) => {
+                debug_assert!(
+                    int_range.is_subset_of(&base_range),
+                    "{int_range:?} {base_range:?}"
+                );
+                VhdlType::NineValueVec(name, lut.clone(), int_range)
+            }
+            other => todo!("Currently unsupported combination: {other:?}"),
+        }
+    }
+
+    fn from_subtype_scalar(name: StringId, types: &[VhdlType], base: TypeId, range: Range) -> Self {
+        let base_tpe = lookup_concrete_type(types, base);
+        match (base_tpe, range) {
+            (VhdlType::Enum(_, lits), Range::Int(int_range)) => {
+                let range = int_range.range();
+                debug_assert!(range.start >= 0 && range.start <= lits.len() as i64);
+                debug_assert!(range.end >= 0 && range.end <= lits.len() as i64);
+                // check to see if this is just an alias or if we need to create a new enum
+                if range.start == 0 && range.end == lits.len() as i64 {
+                    VhdlType::TypeAlias(name, base)
+                } else {
+                    todo!("actual sub enum!")
+                }
+            }
+            (VhdlType::NineValueBit(_, _), Range::Int(int_range)) => {
+                let range = int_range.range();
+                if range.start == 0 && range.end == 9 {
+                    VhdlType::TypeAlias(name, base)
+                } else {
+                    todo!("actual sub enum!")
+                }
+            }
+            (VhdlType::I32(_, maybe_base_range), Range::Int(int_range)) => {
+                let base_range = IntRange::from_i32_option(*maybe_base_range);
+                debug_assert!(
+                    int_range.is_subset_of(&base_range),
+                    "{int_range:?} {base_range:?}"
+                );
+                VhdlType::I32(name, Some(int_range))
+            }
+            other => todo!("Currently unsupported combination: {other:?}"),
+        }
+    }
+
+    fn name(&self) -> StringId {
+        match self {
+            VhdlType::NineValueBit(name, _) => *name,
+            VhdlType::NineValueVec(name, _, _) => *name,
+            VhdlType::TypeAlias(name, _) => *name,
+            VhdlType::I32(name, _) => *name,
+            VhdlType::I64(name, _) => *name,
+            VhdlType::F64(name, _) => *name,
+            VhdlType::Record(name, _) => *name,
+            VhdlType::Enum(name, _) => *name,
+            VhdlType::Array(name, _, _) => *name,
+        }
+    }
+
+    fn int_range(&self) -> Option<IntRange> {
+        match self {
+            VhdlType::NineValueBit(_, _) => Some(IntRange(RangeDir::To, 0, 8)),
+            VhdlType::I32(_, range) => *range,
+            VhdlType::I64(_, range) => *range,
+            VhdlType::Enum(_, lits) => Some(IntRange(RangeDir::To, 0, lits.len() as i64)),
+            _ => None,
+        }
+    }
+
+    fn is_alias(&self) -> bool {
+        matches!(self, VhdlType::TypeAlias(_, _))
+    }
+}
+
+/// Returns Some(VhdlType::NineValueBit(..)) if the enum corresponds to a 9-value bit type.
+fn try_parse_nine_value_bit(
+    tables: &GhwTables,
+    name: StringId,
+    literals: &[StringId],
+) -> Option<VhdlType> {
+    if literals.len() != 9 {
+        return None;
+    }
+
+    // try to build a translation table
+    let mut lut = [0u8; 9];
+    let mut out_covered = [false; 9];
+
+    // map to the wellen 9-state lookup: ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-'];
+    for (ii, lit_id) in literals.iter().enumerate() {
+        let lit = tables.get_str(*lit_id).as_bytes();
+        let cc = match lit.len() {
+            1 => lit[0],
+            3 => lit[1], // this is to account for GHDL encoding things as '0' (including the tick!)
+            _ => return None,
+        };
+        if let Some(out) = bit_char_to_num(cc) {
+            if out_covered[out as usize] {
+                return None; // duplicate detected
+            }
+            out_covered[out as usize] = true;
+            lut[ii] = out;
+        } else {
+            return None; // invalid character
+        }
+    }
+
+    Some(VhdlType::NineValueBit(name, lut))
 }
 
 fn read_well_known_types_section(
@@ -698,23 +900,47 @@ fn read_well_known_types_section(
 
 #[derive(Debug, Default)]
 struct GhwTables {
-    types: Vec<GhwTypeInfo>,
+    types: Vec<VhdlType>,
     strings: Vec<String>,
+    /// keps track of whether we have already added a string to the hierarchy
+    hier_string_ids: Vec<Option<HierarchyStringId>>,
 }
 
 impl GhwTables {
-    fn get_type(&self, type_id: TypeId) -> &GhwTypeInfo {
-        &self.types[type_id.index()]
+    fn get_type(&self, type_id: TypeId) -> &VhdlType {
+        lookup_concrete_type(&self.types, type_id)
+    }
+
+    fn get_type_and_name(&self, type_id: TypeId) -> (&VhdlType, &str) {
+        let name = self.get_str(self.types[type_id.index()].name());
+        (lookup_concrete_type(&self.types, type_id), name)
     }
 
     fn get_str(&self, string_id: StringId) -> &str {
         &self.strings[string_id.0]
     }
+
+    fn get_hier_str_id(
+        &mut self,
+        h: &mut HierarchyBuilder,
+        string_id: StringId,
+    ) -> HierarchyStringId {
+        if self.hier_string_ids.len() < self.strings.len() {
+            self.hier_string_ids.resize(self.strings.len(), None);
+        }
+        if let Some(id) = self.hier_string_ids[string_id.0] {
+            id
+        } else {
+            let id = h.add_string(self.strings[string_id.0].to_string());
+            self.hier_string_ids[string_id.0] = Some(id);
+            id
+        }
+    }
 }
 
 fn read_hierarchy_section(
     header: &HeaderData,
-    tables: &GhwTables,
+    tables: &mut GhwTables,
     input: &mut impl BufRead,
     h: &mut HierarchyBuilder,
 ) -> Result<Vec<SignalInfo>> {
@@ -821,7 +1047,7 @@ fn convert_scope_type(kind: GhwHierarchyKind) -> ScopeType {
 }
 
 fn read_hierarchy_var(
-    tables: &GhwTables,
+    tables: &mut GhwTables,
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
     signals: &mut [Option<SignalInfo>],
@@ -842,11 +1068,12 @@ fn add_var(
     name: String,
     type_id: TypeId,
 ) -> Result<()> {
-    let info = tables.get_type(type_id);
-    let (tpe, dir) = convert_var_kind(kind);
-    let tpe_name = tables.get_str(info.name).to_string();
-    match &info.tpe {
-        GhwType::Enum { literals } => {
+    let (vhdl_tpe, type_name) = tables.get_type_and_name(type_id);
+    let (var_tpe, dir) = convert_var_kind(kind);
+    let tpe_name = type_name.to_string();
+    match vhdl_tpe {
+        VhdlType::Enum(_, literals) => {
+            // TODO: add enum type lazily
             let mapping = literals
                 .iter()
                 .enumerate()
@@ -858,7 +1085,7 @@ fn add_var(
             let bits = 1;
             h.add_var(
                 name,
-                tpe,
+                var_tpe,
                 dir,
                 bits,
                 None,
@@ -867,34 +1094,56 @@ fn add_var(
                 Some(tpe_name),
             );
         }
-        GhwType::SubtypeScalar { base, .. } => {
-            // we ignore the range and just treat it like its base
-            add_var(tables, input, kind, signals, h, name, *base)?;
+        VhdlType::NineValueBit(_, _) => {
+            let index = read_signal_id(input, signals)?;
+            let signal_ref = SignalRef::from_index(index.0.get() as usize).unwrap();
+            h.add_var(
+                name,
+                var_tpe,
+                dir,
+                1,
+                None,
+                signal_ref,
+                None,
+                Some(tpe_name),
+            );
         }
-        GhwType::SubtypeArray {
-            base,
-            ranges,
-            element_tpe,
-        } => {
+        VhdlType::NineValueVec(_, _, range) => {
+            let num_bits = range.len() as u32;
+            let mut signal_ids = Vec::with_capacity(num_bits as usize);
+            for _ in 0..num_bits {
+                signal_ids.push(read_signal_id(input, signals)?);
+            }
+            println!("TODO: deal with multiple signal IDs for a single BitVector: {signal_ids:?}");
+            let signal_ref = SignalRef::from_index(signal_ids[0].0.get() as usize).unwrap();
+            h.add_var(
+                name,
+                var_tpe,
+                dir,
+                num_bits,
+                Some(range.as_var_index()),
+                signal_ref,
+                None,
+                Some(tpe_name),
+            );
+        }
+        VhdlType::Record(_, fields) => {
             h.add_scope(name, None, ScopeType::Module, None, None, false);
-            for range in ranges.iter() {
-                for bit in 0..range.get_len()? {
-                    add_var(
-                        tables,
-                        input,
-                        kind,
-                        signals,
-                        h,
-                        format!("{bit}"),
-                        *element_tpe,
-                    )?;
-                }
+            for (field_name, field_type) in fields.iter() {
+                add_var(
+                    tables,
+                    input,
+                    kind,
+                    signals,
+                    h,
+                    tables.get_str(*field_name).to_string(),
+                    *field_type,
+                )?;
             }
             h.pop_scope();
         }
-        other => {
-            println!("TODO: {other:?} {name}");
-        }
+
+        other => todo!("deal with {other:?}"),
     }
     Ok(())
 }
@@ -954,100 +1203,6 @@ impl TypeId {
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct SignalId(NonZeroU32);
 
-/// ???
-#[derive(Debug, Copy, Clone, PartialEq)]
-struct RangeId(usize);
-
-#[derive(Debug)]
-struct GhwTypeInfo {
-    kind: GhwRtik,
-    name: StringId,
-    well_known: GhwWellKnownType,
-    tpe: GhwType,
-}
-
-impl GhwTypeInfo {
-    fn get_base_type_id(&self, id: TypeId) -> TypeId {
-        match self.tpe {
-            GhwType::SubtypeScalar { base, .. } => base,
-            GhwType::SubtypeArray { base, .. } => base,
-            GhwType::SubtypeUnboundedArray { base, .. } => base,
-            _ => id, // return our own id
-        }
-    }
-
-    /// Returns `None` when the number is unbounded.
-    fn get_num_elements(&self, type_table: &[GhwTypeInfo]) -> Result<Option<u64>> {
-        match &self.tpe {
-            GhwType::Array { .. }
-            | GhwType::UnboundedArray { .. }
-            | GhwType::UnboundedRecord { .. } => Ok(None),
-            GhwType::SubtypeArray {
-                base,
-                ranges,
-                element_tpe,
-            } => {
-                let num_elements = &type_table[element_tpe.index()]
-                    .get_num_elements(type_table)?
-                    .unwrap_or_else(|| todo!());
-                let mut num_scalars = 1;
-                for r in ranges.iter() {
-                    num_scalars *= r.get_len()?;
-                }
-                Ok(Some(num_elements * num_scalars))
-            }
-            GhwType::TypeRecord { .. } => todo!(""),
-            GhwType::SubtypeRecord { .. } => todo!(""),
-            _ => Ok(Some(1)),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum GhwType {
-    Enum {
-        literals: Vec<StringId>,
-    },
-    Scalar,
-    Physical {
-        units: Vec<GhwUnit>,
-    },
-    Array {
-        elements: Vec<TypeId>,
-        dimensions: Vec<TypeId>,
-    },
-    UnboundedArray {
-        base: TypeId,
-    },
-    UnboundedRecord {
-        // TODO
-    },
-    SubtypeScalar {
-        base: TypeId,
-        range: GhwRange,
-    },
-    TypeArray {
-        element_tpe: TypeId,
-        dims: Vec<TypeId>,
-    },
-    SubtypeArray {
-        base: TypeId,
-        ranges: Vec<GhwRange>,
-        element_tpe: TypeId,
-    },
-    SubtypeUnboundedArray {
-        base: TypeId,
-        // TODO
-    },
-    TypeRecord {
-        // TODO
-    },
-    SubtypeRecord {
-        // TODO
-    },
-    // TODO
-}
-
 #[derive(Debug)]
 struct GhwRange {
     kind: GhwRtik,
@@ -1058,34 +1213,63 @@ struct GhwRange {
 
 impl GhwRange {
     fn get_len(&self) -> Result<u64> {
-        let (left, right) = self.get_i64_left_and_right()?;
-        let res = if self.downto {
-            left - right + 1
-        } else {
-            right - left + 1
-        };
-        Ok(std::cmp::max(res, 0) as u64)
-    }
-
-    fn get_i64_left_and_right(&self) -> Result<(i64, i64)> {
-        let res = match self.range {
-            Range::U8(left, right) => (left as i64, right as i64),
-            Range::I64(left, right) => (left, right),
-            Range::F64(left, right) => return Err(GhwParseError::FloatRangeLen(left, right)),
-        };
-        Ok(res)
+        todo!()
     }
 }
 
 #[derive(Debug)]
 enum Range {
-    /// `b2` and `e8`
-    U8(u8, u8),
-    /// `i32` and `i64`
-    I64(i64, i64),
-    /// `f64`
-    F64(f64, f64),
+    Int(IntRange),
+    Float(FloatRange),
 }
+
+#[derive(Debug, Copy, Clone)]
+enum RangeDir {
+    To,
+    Downto,
+}
+
+#[derive(Debug, Copy, Clone)]
+struct IntRange(RangeDir, i64, i64);
+
+impl IntRange {
+    fn range(&self) -> std::ops::Range<i64> {
+        match self.0 {
+            RangeDir::To => self.1..(self.2 + 1),
+            RangeDir::Downto => self.2..(self.1 + 1),
+        }
+    }
+
+    fn len(&self) -> i64 {
+        match self.0 {
+            RangeDir::To => self.2 - self.1 + 1,
+            RangeDir::Downto => self.1 - self.2 + 1,
+        }
+    }
+
+    fn as_var_index(&self) -> VarIndex {
+        let msb = self.1 as i32;
+        let lsb = self.2 as i32;
+        VarIndex::new(msb, lsb)
+    }
+
+    fn from_i32_option(opt: Option<Self>) -> Self {
+        opt.unwrap_or(Self(RangeDir::To, i32::MIN as i64, i32::MAX as i64))
+    }
+
+    fn from_i64_option(opt: Option<Self>) -> Self {
+        opt.unwrap_or(Self(RangeDir::To, i64::MIN, i64::MAX))
+    }
+
+    fn is_subset_of(&self, other: &Self) -> bool {
+        let self_range = self.range();
+        let other_range = other.range();
+        self_range.start >= other_range.start && self_range.end <= other_range.end
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct FloatRange(RangeDir, f64, f64);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct GhwUnit {
