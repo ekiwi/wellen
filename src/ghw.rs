@@ -3,10 +3,10 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::{HierarchyBuilder, HierarchyStringId};
-use crate::wavemem::bit_char_to_num;
+use crate::wavemem::{bit_char_to_num, Encoder};
 use crate::{
-    FileFormat, FileType, Hierarchy, ScopeType, SignalRef, VarDirection, VarIndex, VarType,
-    Waveform, WellenError,
+    FileFormat, FileType, Hierarchy, ScopeType, SignalRef, Timescale, TimescaleUnit, VarDirection,
+    VarIndex, VarType, Waveform, WellenError,
 };
 use num_enum::TryFromPrimitive;
 use std::io::{BufRead, Seek, SeekFrom};
@@ -83,8 +83,8 @@ fn read_internal(input: &mut (impl BufRead + Seek)) -> std::result::Result<Wavef
     input.seek(SeekFrom::Start(header_len))?;
     // TODO: use actual section positions
 
-    let (signals, hierarchy) = read_hierarchy(&header, input)?;
-    let wave_mem = read_signals(&header, &signals, &hierarchy, input)?;
+    let (decode_info, hierarchy) = read_hierarchy(&header, input)?;
+    let wave_mem = read_signals(&header, &decode_info, &hierarchy, input)?;
     Ok(Waveform::new(hierarchy, wave_mem))
 }
 
@@ -209,12 +209,12 @@ struct SectionPos {
 /// Reads the GHW signal values. `input` should be advanced until right after the end of hierarchy
 fn read_signals(
     header: &HeaderData,
-    signals: &[SignalInfo],
+    info: &GhwDecodeInfo,
     hierarchy: &Hierarchy,
     input: &mut impl BufRead,
 ) -> Result<Box<crate::wavemem::Reader>> {
     // TODO: multi-threading
-    let mut encoder = crate::wavemem::Encoder::new(hierarchy);
+    let mut encoder = Encoder::new(hierarchy);
 
     // loop over signal sections
     loop {
@@ -223,8 +223,8 @@ fn read_signals(
 
         // read_sm_hdr
         match &mark {
-            GHW_SNAPSHOT_SECTION => read_snapshot_section(header, signals, input)?,
-            GHW_CYCLE_SECTION => read_cycle_section(header, signals, input)?,
+            GHW_SNAPSHOT_SECTION => read_snapshot_section(header, info, &mut encoder, input)?,
+            GHW_CYCLE_SECTION => read_cycle_section(header, info, &mut encoder, input)?,
             GHW_DIRECTORY_SECTION => {
                 // skip the directory by reading it
                 let _ = read_directory(header, input)?;
@@ -245,7 +245,8 @@ fn read_signals(
 
 fn read_snapshot_section(
     header: &HeaderData,
-    signals: &[SignalInfo],
+    info: &GhwDecodeInfo,
+    enc: &mut Encoder,
     input: &mut impl BufRead,
 ) -> Result<()> {
     let mut h = [0u8; 12];
@@ -254,13 +255,10 @@ fn read_snapshot_section(
 
     // time in femto seconds
     let start_time = header.read_i64(&mut &h[4..12])? as u64;
-    println!("TODO: snapshot @ {start_time} fs");
+    enc.time_change(start_time);
 
-    for sig in signals.iter() {
-        for _ in 0..sig.len() {
-            let value = read_signal_value(sig.tpe, input)?;
-            println!("TODO: {} = {value:?}", sig.start_id.0.get());
-        }
+    for sig in info.signals.iter() {
+        read_signal_value(info, sig, enc, input)?;
     }
 
     // check for correct end magic
@@ -284,7 +282,8 @@ fn check_magic_end(input: &mut impl BufRead, section: &'static str, expected: &[
 
 fn read_cycle_section(
     header: &HeaderData,
-    signals: &[SignalInfo],
+    info: &GhwDecodeInfo,
+    enc: &mut Encoder,
     input: &mut impl BufRead,
 ) -> Result<()> {
     let mut h = [0u8; 8];
@@ -295,8 +294,8 @@ fn read_cycle_section(
     let mut start_time = header.read_i64(&mut &h[..])? as u64;
 
     loop {
-        println!("TODO: cycle @ {start_time} fs");
-        read_cycle_signals(signals, input)?;
+        enc.time_change(start_time);
+        read_cycle_signals(info, enc, input)?;
 
         let time_delta = leb128::read::signed(input)?;
         if time_delta < 0 {
@@ -312,7 +311,11 @@ fn read_cycle_section(
     Ok(())
 }
 
-fn read_cycle_signals(signals: &[SignalInfo], input: &mut impl BufRead) -> Result<()> {
+fn read_cycle_signals(
+    info: &GhwDecodeInfo,
+    enc: &mut Encoder,
+    input: &mut impl BufRead,
+) -> Result<()> {
     let mut pos_signal_index = 0;
     loop {
         let delta = leb128::read::unsigned(input)? as usize;
@@ -326,24 +329,42 @@ fn read_cycle_signals(signals: &[SignalInfo], input: &mut impl BufRead) -> Resul
                 "Expected a first delta > 0".to_string(),
             ));
         }
-        let sig = &signals[pos_signal_index - 1];
-        let value = read_signal_value(sig.tpe, input)?;
-        println!("TODO: {} = {value:?}", sig.start_id.0.get());
+        let sig = &info.signals[pos_signal_index - 1];
+        read_signal_value(info, sig, enc, input)?;
     }
     Ok(())
 }
 
-fn read_signal_value(tpe: SignalType, input: &mut impl BufRead) -> Result<SignalValue> {
-    match tpe {
-        SignalType::U8 => Ok(SignalValue::U8(read_u8(input)?)),
-        SignalType::I32 => {
-            let value = leb128::read::signed(input)?;
-            Ok(SignalValue::I32(value as i32))
+fn read_signal_value(
+    info: &GhwDecodeInfo,
+    signal: &GhwSignal,
+    enc: &mut Encoder,
+    input: &mut impl BufRead,
+) -> Result<()> {
+    match signal.tpe {
+        SignalType::NineState(lut) => {
+            let value = info.decode(read_u8(input)?, lut);
+            println!("TODO: {:?} = {value}", signal.signal_ref);
         }
-        SignalType::I64 => {
-            let value = leb128::read::signed(input)?;
-            Ok(SignalValue::I64(value))
+        SignalType::NineStateBit(lut, bit) => {
+            let value = info.decode(read_u8(input)?, lut);
+            println!("TODO: {:?}[{bit}] = {value}", signal.signal_ref);
         }
+        SignalType::U8(bits) => {
+            let value = read_u8(input)?;
+            if bits < 8 {
+                debug_assert!(value < (1u8 << bits));
+            }
+            println!("TODO: {:?} = {value}", signal.signal_ref);
+        }
+        SignalType::Leb128Signed(bits) => {
+            let value = leb128::read::signed(input)? as u64;
+            if bits < u64::BITS {
+                debug_assert!(value < (1u64 << bits));
+            }
+            println!("TODO: {:?} = {value}", signal.signal_ref);
+        }
+
         SignalType::F64 => {
             // we need to figure out the endianes here
             let mut buf = [0u8; 8];
@@ -355,51 +376,80 @@ fn read_signal_value(tpe: SignalType, input: &mut impl BufRead) -> Result<Signal
             )
         }
     }
+    Ok(())
+    // match tpe {
+    //     SignalType::U8 => Ok(SignalValue::U8(read_u8(input)?)),
+    //     SignalType::I32 => {
+    //         let value = leb128::read::signed(input)?;
+    //         Ok(SignalValue::I32(value as i32))
+    //     }
+    //     SignalType::I64 => {
+    //         let value = leb128::read::signed(input)?;
+    //         Ok(SignalValue::I64(value))
+    //     }
+    //     SignalType::F64 => {
+    //         // we need to figure out the endianes here
+    //         let mut buf = [0u8; 8];
+    //         input.read_exact(&mut buf)?;
+    //         todo!(
+    //             "float values: {} or {}?",
+    //             f64::from_le_bytes(buf.clone()),
+    //             f64::from_be_bytes(buf)
+    //         )
+    //     }
+    // }
+}
+
+/// Contains information needed in order to decode value changes.
+#[derive(Debug, Default)]
+struct GhwDecodeInfo {
+    signals: Vec<GhwSignal>,
+    luts: Vec<NineValueLut>,
+}
+
+impl GhwDecodeInfo {
+    fn decode(&self, value: u8, lut_id: NineValueLutId) -> u8 {
+        self.luts[lut_id.0 as usize][value as usize]
+    }
 }
 
 /// Holds information from the header needed in order to read the corresponding data in the signal section.
 #[derive(Debug, Clone)]
-struct SignalInfo {
-    start_id: SignalId,
-    end_id: SignalId,
+struct GhwSignal {
+    /// Signal ID in the wavemem Encoder.
+    signal_ref: SignalRef,
     tpe: SignalType,
 }
 
-impl SignalInfo {
-    fn len(&self) -> usize {
-        (self.end_id.0.get() - self.start_id.0.get() + 1) as usize
-    }
-}
+#[derive(Debug, PartialEq, Copy, Clone)]
+struct NineValueLutId(u8);
 
 /// Specifies the signal type info that is needed in order to read it.
 #[derive(Debug, PartialEq, Copy, Clone)]
 enum SignalType {
-    /// B2, E8
-    U8,
-    /// I32, P32
-    I32,
-    /// P64
-    I64,
-    /// F64
+    /// Nine value signal encoded as a single byte.
+    NineState(NineValueLutId),
+    /// A single bit in a nine value bit vector.
+    NineStateBit(NineValueLutId, u32),
+    /// Binary signal encoded as a single byte with N valid bits.
+    U8(u32),
+    /// Binary signal encoded as a variable number of bytes with N valid bits.
+    Leb128Signed(u32),
+    /// F64 (real)
     F64,
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-enum SignalValue {
-    U8(u8),
-    I32(i32),
-    I64(i64),
-    F64(f64),
 }
 
 /// Parses the beginning of the GHW file until the end of the hierarchy.
 fn read_hierarchy(
     header: &HeaderData,
     input: &mut impl BufRead,
-) -> Result<(Vec<SignalInfo>, Hierarchy)> {
+) -> Result<(GhwDecodeInfo, Hierarchy)> {
     let mut tables = GhwTables::default();
-    let mut signals = Vec::new();
+    let mut decode = GhwDecodeInfo::default();
     let mut hb = HierarchyBuilder::new(FileType::Vcd);
+
+    // GHW seems to always uses fs
+    hb.set_timescale(Timescale::new(1, TimescaleUnit::FemtoSeconds));
 
     loop {
         let mut mark = [0u8; 4];
@@ -417,14 +467,8 @@ fn read_hierarchy(
                 tables.strings = table;
             }
             GHW_TYPE_SECTION => {
-                let table = read_type_section(header, &tables, input)?;
-                debug_assert!(
-                    tables.types.is_empty(),
-                    "unexpected second type table:\n{:?}\n{:?}",
-                    &tables.types,
-                    &table
-                );
-                tables.types = table;
+                debug_assert!(tables.types.is_empty(), "unexpected second type table");
+                read_type_section(header, &mut tables, input)?;
             }
             GHW_WK_TYPE_SECTION => {
                 let wkts = read_well_known_types_section(input)?;
@@ -448,14 +492,14 @@ fn read_hierarchy(
                 }
             }
             GHW_HIERARCHY_SECTION => {
-                let sigs = read_hierarchy_section(header, &mut tables, input, &mut hb)?;
+                let dec = read_hierarchy_section(header, &mut tables, input, &mut hb)?;
                 debug_assert!(
-                    signals.is_empty(),
+                    decode.signals.is_empty(),
                     "unexpected second hierarchy section:\n{:?}\n{:?}",
-                    &signals,
-                    &sigs
+                    decode,
+                    dec
                 );
-                signals = sigs;
+                decode = dec;
             }
             GHW_END_OF_HEADER_SECTION => {
                 break; // done
@@ -468,7 +512,7 @@ fn read_hierarchy(
         }
     }
     let hierarchy = hb.finish();
-    Ok((signals, hierarchy))
+    Ok((decode, hierarchy))
 }
 
 const GHW_STRING_SECTION: &[u8; 4] = b"STR\x00";
@@ -489,7 +533,7 @@ enum Section {
     StringTable(Vec<String>),
     TypeTable(Vec<VhdlType>),
     WellKnownTypes(Vec<(TypeId, GhwWellKnownType)>),
-    Hierarchy(Vec<SignalInfo>),
+    Hierarchy(Vec<GhwSignal>),
     EndOfHeader,
 }
 
@@ -603,21 +647,20 @@ fn read_range(input: &mut impl BufRead) -> Result<Range> {
 
 fn read_type_section(
     header: &HeaderData,
-    tables: &GhwTables,
+    tables: &mut GhwTables,
     input: &mut impl BufRead,
-) -> Result<Vec<VhdlType>> {
+) -> Result<()> {
     let mut h = [0u8; 8];
     input.read_exact(&mut h)?;
     check_header_zeros("type", &h)?;
 
     let type_num = header.read_u32(&mut &h[4..8])?;
-    let mut table = Vec::with_capacity(type_num as usize);
+    tables.types = Vec::with_capacity(type_num as usize);
 
     for _ in 0..type_num {
         let t = read_u8(input)?;
         let kind = GhwRtik::try_from_primitive(t)?;
         let name = read_string_id(input)?;
-        println!("{kind:?}");
         let tpe: VhdlType = match kind {
             GhwRtik::TypeE8 | GhwRtik::TypeB2 => {
                 let num_literals = leb128::read::unsigned(input)?;
@@ -633,7 +676,7 @@ fn read_type_section(
             GhwRtik::SubtypeScalar => {
                 let base = read_type_id(input)?;
                 let range = read_range(input)?;
-                VhdlType::from_subtype_scalar(name, &table, base, range)
+                VhdlType::from_subtype_scalar(name, &tables.types, base, range)
             }
             GhwRtik::TypeArray => {
                 let element_tpe = read_type_id(input)?;
@@ -646,27 +689,26 @@ fn read_type_section(
                 if dims.len() > 1 {
                     todo!("support multi-dimensional arrays!")
                 }
-                VhdlType::from_array(name, &table, element_tpe, dims[0])
+                VhdlType::from_array(name, &tables.types, element_tpe, dims[0])
             }
             GhwRtik::SubtypeArray => {
                 let base = read_type_id(input)?;
                 let range = read_range(input)?;
-                VhdlType::from_subtype_array(name, &table, base, range)
+                VhdlType::from_subtype_array(name, &tables.types, base, range)
             }
             GhwRtik::TypeRecord => {
                 let num_fields = leb128::read::unsigned(input)?;
                 let mut fields = Vec::with_capacity(num_fields as usize);
                 for _ in 0..num_fields {
                     let field_name = read_string_id(input)?;
-                    let field_tpe = lookup_concrete_type_id(&table, read_type_id(input)?);
+                    let field_tpe = lookup_concrete_type_id(&tables.types, read_type_id(input)?);
                     fields.push((field_name, field_tpe));
                 }
-                VhdlType::from_record(name, &table, fields)
+                VhdlType::from_record(name, &tables.types, fields)
             }
             other => todo!("Support: {other:?}"),
         };
-        println!("{tpe:?}");
-        table.push(tpe);
+        tables.types.push(tpe);
     }
 
     // the type section should end in zero
@@ -676,18 +718,20 @@ fn read_type_section(
             "last byte should be 0".to_string(),
         ))
     } else {
-        Ok(table)
+        Ok(())
     }
 }
+
+type NineValueLut = [u8; 9];
 
 /// Our own custom representation of VHDL Types.
 /// During GHW parsing we convert the GHDL types to our own representation.
 #[derive(Debug)]
 enum VhdlType {
     /// std_logic or std_ulogic with lut to convert to the `wellen` 9-value representation.
-    NineValueBit(StringId, [u8; 9]),
+    NineValueBit(StringId, NineValueLutId),
     /// std_logic_vector or std_ulogic_vector with lut to convert to the `wellen` 9-value representation.
-    NineValueVec(StringId, [u8; 9], IntRange),
+    NineValueVec(StringId, NineValueLutId, IntRange),
     /// Type alias that does not restrict the underlying type in any way.
     TypeAlias(StringId, TypeId),
     /// Integer type with possible upper and lower bounds.
@@ -733,7 +777,7 @@ fn lookup_concrete_type_id(types: &[VhdlType], type_id: TypeId) -> TypeId {
 }
 
 impl VhdlType {
-    fn from_enum(tables: &GhwTables, name: StringId, literals: Vec<StringId>) -> Self {
+    fn from_enum(tables: &mut GhwTables, name: StringId, literals: Vec<StringId>) -> Self {
         if let Some(nine_value) = try_parse_nine_value_bit(tables, name, &literals) {
             nine_value
         } else {
@@ -845,7 +889,7 @@ impl VhdlType {
 
 /// Returns Some(VhdlType::NineValueBit(..)) if the enum corresponds to a 9-value bit type.
 fn try_parse_nine_value_bit(
-    tables: &GhwTables,
+    tables: &mut GhwTables,
     name: StringId,
     literals: &[StringId],
 ) -> Option<VhdlType> {
@@ -875,8 +919,8 @@ fn try_parse_nine_value_bit(
             return None; // invalid character
         }
     }
-
-    Some(VhdlType::NineValueBit(name, lut))
+    let lut_id = tables.get_lut_id(lut);
+    Some(VhdlType::NineValueBit(name, lut_id))
 }
 
 fn read_well_known_types_section(
@@ -902,6 +946,7 @@ fn read_well_known_types_section(
 struct GhwTables {
     types: Vec<VhdlType>,
     strings: Vec<String>,
+    luts: Vec<NineValueLut>,
     /// keps track of whether we have already added a string to the hierarchy
     hier_string_ids: Vec<Option<HierarchyStringId>>,
 }
@@ -936,6 +981,12 @@ impl GhwTables {
             id
         }
     }
+
+    fn get_lut_id(&mut self, lut: NineValueLut) -> NineValueLutId {
+        let id = NineValueLutId(self.luts.len() as u8);
+        self.luts.push(lut);
+        id
+    }
 }
 
 fn read_hierarchy_section(
@@ -943,7 +994,7 @@ fn read_hierarchy_section(
     tables: &mut GhwTables,
     input: &mut impl BufRead,
     h: &mut HierarchyBuilder,
-) -> Result<Vec<SignalInfo>> {
+) -> Result<GhwDecodeInfo> {
     let mut hdr = [0u8; 16];
     input.read_exact(&mut hdr)?;
     check_header_zeros("hierarchy", &hdr)?;
@@ -955,7 +1006,7 @@ fn read_hierarchy_section(
     let max_signal_id = header.read_u32(&mut &hdr[12..16])? as usize;
 
     let mut num_declared_vars = 0;
-    let mut signals: Vec<Option<SignalInfo>> = Vec::with_capacity(max_signal_id + 1);
+    let mut signals: Vec<Option<GhwSignal>> = Vec::with_capacity(max_signal_id + 1);
     signals.resize(max_signal_id + 1, None);
 
     loop {
@@ -1002,7 +1053,12 @@ fn read_hierarchy_section(
         }
     }
 
-    Ok(signals.into_iter().flatten().collect::<Vec<_>>())
+    let decode = GhwDecodeInfo {
+        signals: signals.into_iter().flatten().collect::<Vec<_>>(),
+        luts: tables.luts.clone(),
+    };
+
+    Ok(decode)
 }
 
 fn read_hierarchy_scope(
@@ -1050,7 +1106,7 @@ fn read_hierarchy_var(
     tables: &mut GhwTables,
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
-    signals: &mut [Option<SignalInfo>],
+    signals: &mut [Option<GhwSignal>],
     h: &mut HierarchyBuilder,
 ) -> Result<()> {
     let name_id = read_string_id(input)?;
@@ -1063,7 +1119,7 @@ fn add_var(
     tables: &GhwTables,
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
-    signals: &mut [Option<SignalInfo>],
+    signals: &mut [Option<GhwSignal>],
     h: &mut HierarchyBuilder,
     name: String,
     type_id: TypeId,
@@ -1093,8 +1149,11 @@ fn add_var(
                 Some(enum_type),
                 Some(tpe_name),
             );
+            // meta date for writing the signal later
+            let tpe = SignalType::U8(8); // TODO: try to find the actual number of bits used
+            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
         }
-        VhdlType::NineValueBit(_, _) => {
+        VhdlType::NineValueBit(_, lut) => {
             let index = read_signal_id(input, signals)?;
             let signal_ref = SignalRef::from_index(index.0.get() as usize).unwrap();
             h.add_var(
@@ -1107,14 +1166,16 @@ fn add_var(
                 None,
                 Some(tpe_name),
             );
+            // meta date for writing the signal later
+            let tpe = SignalType::NineState(*lut);
+            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
         }
-        VhdlType::NineValueVec(_, _, range) => {
+        VhdlType::NineValueVec(_, lut, range) => {
             let num_bits = range.len() as u32;
             let mut signal_ids = Vec::with_capacity(num_bits as usize);
             for _ in 0..num_bits {
                 signal_ids.push(read_signal_id(input, signals)?);
             }
-            println!("TODO: deal with multiple signal IDs for a single BitVector: {signal_ids:?}");
             let signal_ref = SignalRef::from_index(signal_ids[0].0.get() as usize).unwrap();
             h.add_var(
                 name,
@@ -1126,6 +1187,12 @@ fn add_var(
                 None,
                 Some(tpe_name),
             );
+            // meta date for writing the signal later
+            for (bit, index) in signal_ids.iter().enumerate() {
+                // TODO: are we iterating in the correct order?
+                let tpe = SignalType::NineStateBit(*lut, bit as u32);
+                signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
+            }
         }
         VhdlType::Record(_, fields) => {
             h.add_scope(name, None, ScopeType::Module, None, None, false);
@@ -1148,10 +1215,7 @@ fn add_var(
     Ok(())
 }
 
-fn read_signal_id(
-    input: &mut impl BufRead,
-    signals: &mut [Option<SignalInfo>],
-) -> Result<SignalId> {
+fn read_signal_id(input: &mut impl BufRead, signals: &mut [Option<GhwSignal>]) -> Result<SignalId> {
     let index = leb128::read::unsigned(input)? as usize;
     if index >= signals.len() {
         Err(GhwParseError::FailedToParseSection(
@@ -1160,15 +1224,6 @@ fn read_signal_id(
         ))
     } else {
         let id = SignalId(NonZeroU32::new(index as u32).unwrap());
-
-        // add signal info if not already available
-        if signals[index].is_none() {
-            signals[index] = Some(SignalInfo {
-                start_id: id,
-                end_id: id,
-                tpe: SignalType::U8,
-            })
-        }
         Ok(id)
     }
 }
@@ -1384,14 +1439,4 @@ enum GhwHierarchyKind {
     PortInOut = 19,
     Buffer = 20,
     Linkage = 21,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_simple_load() {
-        read("inputs/ghdl/tb_recv.ghw").unwrap();
-    }
 }
