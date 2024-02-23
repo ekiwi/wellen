@@ -3,7 +3,7 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::{HierarchyBuilder, HierarchyStringId};
-use crate::wavemem::{bit_char_to_num, Encoder};
+use crate::wavemem::{bit_char_to_num, Encoder, States};
 use crate::{
     FileFormat, FileType, Hierarchy, ScopeType, SignalRef, Timescale, TimescaleUnit, VarDirection,
     VarIndex, VarType, Waveform, WellenError,
@@ -343,26 +343,26 @@ fn read_signal_value(
 ) -> Result<()> {
     match signal.tpe {
         SignalType::NineState(lut) => {
-            let value = info.decode(read_u8(input)?, lut);
-            println!("TODO: {:?} = {value}", signal.signal_ref);
+            let value = [info.decode(read_u8(input)?, lut)];
+            enc.raw_value_change(signal.signal_ref, &value, States::Nine);
         }
         SignalType::NineStateBit(lut, bit) => {
             let value = info.decode(read_u8(input)?, lut);
             println!("TODO: {:?}[{bit}] = {value}", signal.signal_ref);
         }
         SignalType::U8(bits) => {
-            let value = read_u8(input)?;
+            let value = [read_u8(input)?];
             if bits < 8 {
-                debug_assert!(value < (1u8 << bits));
+                debug_assert!(value[0] < (1u8 << bits));
             }
-            println!("TODO: {:?} = {value}", signal.signal_ref);
+            enc.raw_value_change(signal.signal_ref, &value, States::Two);
         }
         SignalType::Leb128Signed(bits) => {
             let value = leb128::read::signed(input)? as u64;
             if bits < u64::BITS {
                 debug_assert!(value < (1u64 << bits));
             }
-            println!("TODO: {:?} = {value}", signal.signal_ref);
+            enc.raw_value_change(signal.signal_ref, &value.to_be_bytes(), States::Two);
         }
 
         SignalType::F64 => {
@@ -377,27 +377,6 @@ fn read_signal_value(
         }
     }
     Ok(())
-    // match tpe {
-    //     SignalType::U8 => Ok(SignalValue::U8(read_u8(input)?)),
-    //     SignalType::I32 => {
-    //         let value = leb128::read::signed(input)?;
-    //         Ok(SignalValue::I32(value as i32))
-    //     }
-    //     SignalType::I64 => {
-    //         let value = leb128::read::signed(input)?;
-    //         Ok(SignalValue::I64(value))
-    //     }
-    //     SignalType::F64 => {
-    //         // we need to figure out the endianes here
-    //         let mut buf = [0u8; 8];
-    //         input.read_exact(&mut buf)?;
-    //         todo!(
-    //             "float values: {} or {}?",
-    //             f64::from_le_bytes(buf.clone()),
-    //             f64::from_be_bytes(buf)
-    //         )
-    //     }
-    // }
 }
 
 /// Contains information needed in order to decode value changes.
@@ -1008,6 +987,7 @@ fn read_hierarchy_section(
     let mut num_declared_vars = 0;
     let mut signals: Vec<Option<GhwSignal>> = Vec::with_capacity(max_signal_id + 1);
     signals.resize(max_signal_id + 1, None);
+    let mut signal_ref_count = 0;
 
     loop {
         let kind = GhwHierarchyKind::try_from_primitive(read_u8(input)?)?;
@@ -1039,7 +1019,7 @@ fn read_hierarchy_section(
             | GhwHierarchyKind::PortInOut
             | GhwHierarchyKind::Buffer
             | GhwHierarchyKind::Linkage => {
-                read_hierarchy_var(tables, input, kind, &mut signals, h)?;
+                read_hierarchy_var(tables, input, kind, &mut signals, &mut signal_ref_count, h)?;
                 num_declared_vars += 1;
                 if num_declared_vars > expected_num_declared_vars {
                     return Err(GhwParseError::FailedToParseSection(
@@ -1107,12 +1087,13 @@ fn read_hierarchy_var(
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
     signals: &mut [Option<GhwSignal>],
+    signal_ref_count: &mut usize,
     h: &mut HierarchyBuilder,
 ) -> Result<()> {
     let name_id = read_string_id(input)?;
     let name = tables.get_str(name_id).to_string();
     let tpe = read_type_id(input)?;
-    add_var(tables, input, kind, signals, h, name, tpe)
+    add_var(tables, input, kind, signals, signal_ref_count, h, name, tpe)
 }
 
 fn add_var(
@@ -1120,6 +1101,7 @@ fn add_var(
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
     signals: &mut [Option<GhwSignal>],
+    signal_ref_count: &mut usize,
     h: &mut HierarchyBuilder,
     name: String,
     type_id: TypeId,
@@ -1137,7 +1119,8 @@ fn add_var(
                 .collect::<Vec<_>>();
             let enum_type = h.add_enum_type(tpe_name.clone(), mapping);
             let index = read_signal_id(input, signals)?;
-            let signal_ref = SignalRef::from_index(index.0.get() as usize).unwrap();
+            let signal_ref = SignalRef::from_index(*signal_ref_count).unwrap();
+            *signal_ref_count += 1;
             let bits = 1;
             h.add_var(
                 name,
@@ -1155,7 +1138,8 @@ fn add_var(
         }
         VhdlType::NineValueBit(_, lut) => {
             let index = read_signal_id(input, signals)?;
-            let signal_ref = SignalRef::from_index(index.0.get() as usize).unwrap();
+            let signal_ref = SignalRef::from_index(*signal_ref_count).unwrap();
+            *signal_ref_count += 1;
             h.add_var(
                 name,
                 var_tpe,
@@ -1176,7 +1160,8 @@ fn add_var(
             for _ in 0..num_bits {
                 signal_ids.push(read_signal_id(input, signals)?);
             }
-            let signal_ref = SignalRef::from_index(signal_ids[0].0.get() as usize).unwrap();
+            let signal_ref = SignalRef::from_index(*signal_ref_count).unwrap();
+            *signal_ref_count += 1;
             h.add_var(
                 name,
                 var_tpe,
@@ -1202,6 +1187,7 @@ fn add_var(
                     input,
                     kind,
                     signals,
+                    signal_ref_count,
                     h,
                     tables.get_str(*field_name).to_string(),
                     *field_type,
@@ -1257,20 +1243,6 @@ impl TypeId {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct SignalId(NonZeroU32);
-
-#[derive(Debug)]
-struct GhwRange {
-    kind: GhwRtik,
-    /// `to` instead of `downto` if `false`
-    downto: bool,
-    range: Range,
-}
-
-impl GhwRange {
-    fn get_len(&self) -> Result<u64> {
-        todo!()
-    }
-}
 
 #[derive(Debug)]
 enum Range {

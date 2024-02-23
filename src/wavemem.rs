@@ -503,6 +503,19 @@ impl Encoder {
         }
     }
 
+    /// Call with a value that is already encoded in our internal format.
+    pub fn raw_value_change(&mut self, id: SignalRef, value: &[u8], states: States) {
+        assert!(
+            !self.time_table.is_empty(),
+            "We need a call to time_change first!"
+        );
+        if !self.skipping_time_step {
+            let time_idx = (self.time_table.len() - 1) as u16;
+            self.signals[id.index()].add_n_bit_change(time_idx, value, states);
+            self.has_new_data = true;
+        }
+    }
+
     pub fn finish(mut self) -> Reader {
         // ensure that we have no open blocks
         self.finish_block();
@@ -661,6 +674,33 @@ const MIN_SIZE_TO_COMPRESS: usize = 32;
 const SKIP_COMPRESSION: bool = false;
 
 impl SignalEncoder {
+    /// Adds a 2, 4 or 9-value change that has already been converted into our internal format.
+    fn add_n_bit_change(&mut self, time_index: u16, value: &[u8], states: States) {
+        let time_idx_delta = time_index - self.prev_time_idx;
+        self.max_states = States::join(self.max_states, states);
+        match self.tpe {
+            SignalType::BitVector(len, _) => {
+                let bits = len.get();
+                debug_assert_eq!(
+                    value.len(),
+                    (bits as usize).div_ceil(states.bits_in_a_byte())
+                );
+                if bits == 1 {
+                    let write_value = ((time_idx_delta as u64) << 4) + value[0] as u64;
+                    leb128::write::unsigned(&mut self.data, write_value).unwrap();
+                } else {
+                    // write time and meta data
+                    let time_and_meta = (time_idx_delta as u64) << 2 | (states as u64);
+                    leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
+                    // raw data
+                    self.data.extend_from_slice(value);
+                }
+            }
+            other => unreachable!("Cannot call add_n_bit_change on signal of type: {other:?}"),
+        }
+    }
+
+    /// Adds a change from a VCD string.
     fn add_vcd_change(&mut self, time_index: u16, value: &[u8]) {
         let time_idx_delta = time_index - self.prev_time_idx;
         match self.tpe {
@@ -872,9 +912,9 @@ pub(crate) fn bit_char_to_num(value: u8) -> Option<u8> {
 }
 
 #[inline]
-fn try_write_1_bit_9_state(time_index: u16, value: u8, data: &mut Vec<u8>) -> Option<States> {
+fn try_write_1_bit_9_state(time_index_delta: u16, value: u8, data: &mut Vec<u8>) -> Option<States> {
     if let Some(bit_value) = bit_char_to_num(value) {
-        let write_value = ((time_index as u64) << 4) + bit_value as u64;
+        let write_value = ((time_index_delta as u64) << 4) + bit_value as u64;
         leb128::write::unsigned(data, write_value).unwrap();
         let states = States::from_value(bit_value);
         Some(states)
