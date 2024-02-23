@@ -265,6 +265,7 @@ fn read_snapshot_section(
     for sig in info.signals.iter() {
         read_signal_value(info, sig, vecs, enc, input)?;
     }
+    finish_time_step(vecs, enc);
 
     // check for correct end magic
     check_magic_end(input, "snapshot", GHW_END_SNAPSHOT_SECTION)?;
@@ -302,6 +303,7 @@ fn read_cycle_section(
     loop {
         enc.time_change(start_time);
         read_cycle_signals(info, vecs, enc, input)?;
+        finish_time_step(vecs, enc);
 
         let time_delta = leb128::read::signed(input)?;
         if time_delta < 0 {
@@ -340,6 +342,13 @@ fn read_cycle_signals(
         read_signal_value(info, sig, vecs, enc, input)?;
     }
     Ok(())
+}
+
+/// This dispatches any remaining vector changes.
+fn finish_time_step(vecs: &mut VecBuffer, enc: &mut Encoder) {
+    vecs.process_changed_signals(|signal_ref, data| {
+        enc.raw_value_change(signal_ref, data, States::Nine);
+    })
 }
 
 fn read_signal_value(
@@ -407,7 +416,9 @@ fn read_signal_value(
 struct VecBuffer {
     info: Vec<Option<VecBufferInfo>>,
     data: Vec<u8>,
-    change: Vec<u8>,
+    bit_change: Vec<u8>,
+    change_list: Vec<SignalRef>,
+    signal_change: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -449,20 +460,34 @@ impl VecBuffer {
             }
         }
 
-        let data_bytes = offset.div_ceil(2) as usize;
-        let change_bytes = offset.div_ceil(8) as usize;
-        let mut data = Vec::with_capacity(data_bytes);
-        data.resize(data_bytes, 0);
-        let mut change = Vec::with_capacity(change_bytes);
-        change.resize(change_bytes, 0);
+        let data = vec![0; offset.div_ceil(2) as usize];
+        let bit_change = vec![0; offset.div_ceil(8) as usize];
+        let change_list = vec![];
+        let signal_change = vec![0; signal_ref_count.div_ceil(8)];
 
-        Self { info, data, change }
+        Self {
+            info,
+            data,
+            bit_change,
+            change_list,
+            signal_change,
+        }
+    }
+
+    fn process_changed_signals(&mut self, mut callback: impl FnMut(SignalRef, &[u8])) {
+        let change_list = std::mem::take(&mut self.change_list);
+        for signal_ref in change_list.into_iter() {
+            if self.has_signal_changed(signal_ref) {
+                let data = self.get_full_value_and_clear_changes(signal_ref);
+                (callback)(signal_ref, data);
+            }
+        }
     }
 
     #[inline]
     fn is_second_change(&self, signal_ref: SignalRef, bit: u32, value: u8) -> bool {
         let info = (&self.info[signal_ref.index()].as_ref()).unwrap();
-        self.has_changed(info, bit) && self.get_value(info, bit) != value
+        self.has_bit_changed(info, bit) && self.get_value(info, bit) != value
     }
 
     #[inline]
@@ -470,8 +495,12 @@ impl VecBuffer {
         let info = (&self.info[signal_ref.index()].as_ref()).unwrap();
         let is_a_real_change = self.get_value(info, bit) != value;
         if is_a_real_change {
-            Self::mark_changed(&mut self.change, info, bit);
+            Self::mark_bit_changed(&mut self.bit_change, info, bit);
             Self::set_value(&mut self.data, info, bit, value);
+            // add signal to change list if it has not already been added
+            if !self.has_signal_changed(signal_ref) {
+                self.mark_signal_changed(signal_ref);
+            }
         }
     }
 
@@ -481,7 +510,7 @@ impl VecBuffer {
         let info = (&self.info[signal_ref.index()].as_ref()).unwrap();
 
         // check changes
-        let changes = &self.change[info.change_range()];
+        let changes = &self.bit_change[info.change_range()];
         let skip = if info.bits % 8 == 0 { 0 } else { 1 };
         for e in changes.iter().skip(skip) {
             if *e != 0xff {
@@ -503,12 +532,18 @@ impl VecBuffer {
     #[inline]
     fn get_full_value_and_clear_changes(&mut self, signal_ref: SignalRef) -> &[u8] {
         let info = (&self.info[signal_ref.index()].as_ref()).unwrap();
-        let changes = &mut self.change[info.change_range()];
 
-        // clear changes
+        // clear bit changes
+        let changes = &mut self.bit_change[info.change_range()];
         for e in changes.iter_mut() {
             *e = 0;
         }
+
+        // clear signal change
+        let byte = signal_ref.index() / 8;
+        let bit = signal_ref.index() % 8;
+        self.signal_change[byte] = self.signal_change[byte] & !(1u8 << bit);
+        // note, we keep the signal on the change list
 
         // return reference to value
         let data = &self.data[info.data_range()];
@@ -516,19 +551,34 @@ impl VecBuffer {
     }
 
     #[inline]
-    fn has_changed(&self, info: &VecBufferInfo, bit: u32) -> bool {
+    fn has_bit_changed(&self, info: &VecBufferInfo, bit: u32) -> bool {
         debug_assert!(bit < info.bits);
-        let valid = &self.change[info.change_range()];
+        let valid = &self.bit_change[info.change_range()];
         (valid[(bit / 8) as usize] >> (bit % 8)) & 1 == 1
     }
 
     #[inline]
-    fn mark_changed(change: &mut [u8], info: &VecBufferInfo, bit: u32) {
+    fn mark_bit_changed(change: &mut [u8], info: &VecBufferInfo, bit: u32) {
         debug_assert!(bit < info.bits);
         let index = (bit / 8) as usize;
         let changes = &mut change[info.change_range()][index..(index + 1)];
         let mask = 1u8 << (bit % 8);
         changes[0] |= mask;
+    }
+
+    #[inline]
+    fn has_signal_changed(&self, signal_ref: SignalRef) -> bool {
+        let byte = signal_ref.index() / 8;
+        let bit = signal_ref.index() % 8;
+        (self.signal_change[byte] >> bit) & 1 == 1
+    }
+
+    #[inline]
+    fn mark_signal_changed(&mut self, signal_ref: SignalRef) {
+        let byte = signal_ref.index() / 8;
+        let bit = signal_ref.index() % 8;
+        self.signal_change[byte] |= 1u8 << bit;
+        self.change_list.push(signal_ref);
     }
 
     #[inline]
@@ -924,7 +974,7 @@ fn lookup_concrete_type(types: &[VhdlType], type_id: TypeId) -> &VhdlType {
 /// resolves 1 layer of type aliases
 fn lookup_concrete_type_id(types: &[VhdlType], type_id: TypeId) -> TypeId {
     match &types[type_id.index()] {
-        VhdlType::TypeAlias(name, base_id) => {
+        VhdlType::TypeAlias(_name, base_id) => {
             debug_assert!(!matches!(
                 &types[base_id.index()],
                 VhdlType::TypeAlias(_, _)
