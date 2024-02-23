@@ -410,12 +410,13 @@ impl SignalChangeData {
                                 // otherwise the actual number of states is encoded in the meta data
                                 let meta_value = (raw_data[0] >> 6) & 0x3;
                                 let states = States::try_from_primitive(meta_value).unwrap();
-                                let ratio = states.bits_in_a_byte() / max_states.bits_in_a_byte();
-                                let signal_bytes = match ratio {
-                                    1 => data,
-                                    2 => &data[(data.len() / 2)..],
-                                    4 => &data[(data.len() / 4 * 3)..],
-                                    other => unreachable!("Ratio of: {other}"),
+                                let num_out_bytes =
+                                    (*bits as usize).div_ceil(states.bits_in_a_byte());
+                                debug_assert!(num_out_bytes <= data.len());
+                                let signal_bytes = if num_out_bytes == data.len() {
+                                    data
+                                } else {
+                                    &data[(data.len() - num_out_bytes)..]
                                 };
                                 match states {
                                     States::Two => SignalValue::Binary(signal_bytes, *bits),
