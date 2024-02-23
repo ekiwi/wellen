@@ -585,8 +585,9 @@ impl VecBuffer {
     fn get_value(&self, info: &VecBufferInfo, bit: u32) -> u8 {
         debug_assert!(bit < info.bits);
         let data = &self.data[info.data_range()];
-        let byte = data[(bit / 2) as usize];
-        if bit % 2 == 0 {
+        let (index, is_lsb) = Self::get_data_index(info.bits, bit);
+        let byte = data[index];
+        if is_lsb {
             byte & 0xf
         } else {
             (byte >> 4) & 0xf
@@ -595,15 +596,24 @@ impl VecBuffer {
 
     #[inline]
     fn set_value(data: &mut [u8], info: &VecBufferInfo, bit: u32, value: u8) {
-        debug_assert!(bit < info.bits);
         debug_assert!(value <= 0xf);
-        let index = (bit / 2) as usize;
+        let (index, is_lsb) = Self::get_data_index(info.bits, bit);
         let data = &mut data[info.data_range()][index..(index + 1)];
-        if bit % 2 == 0 {
+        if is_lsb {
             data[0] = (data[0] & 0xf0) | value;
         } else {
             data[0] = (data[0] & 0x0f) | (value << 4);
         }
+    }
+
+    /// We need to store "left-aligned", big endian 9-value bits.
+    #[inline]
+    fn get_data_index(bits: u32, bit: u32) -> (usize, bool) {
+        debug_assert!(bit < bits);
+        let mirrored = bits - 1 - bit;
+        let index = (mirrored / 2) as usize;
+        let is_lsb = mirrored % 2 == 1;
+        (index, is_lsb)
     }
 }
 
@@ -736,15 +746,6 @@ const GHW_TAILER_SECTION: &[u8; 4] = b"TAI\x00";
 const GHW_END_SNAPSHOT_SECTION: &[u8; 4] = b"ESN\x00";
 const GHW_END_CYCLE_SECTION: &[u8; 4] = b"ECY\x00";
 const GHW_END_DIRECTORY_SECTION: &[u8; 4] = b"EOD\x00";
-
-#[derive(Debug)]
-enum Section {
-    StringTable(Vec<String>),
-    TypeTable(Vec<VhdlType>),
-    WellKnownTypes(Vec<(TypeId, GhwWellKnownType)>),
-    Hierarchy(Vec<GhwSignal>),
-    EndOfHeader,
-}
 
 #[inline]
 fn read_u8(input: &mut impl BufRead) -> Result<u8> {
@@ -1413,8 +1414,7 @@ fn add_var(
                 Some(tpe_name),
             );
             // meta date for writing the signal later
-            for (bit, index) in signal_ids.iter().enumerate() {
-                // TODO: are we iterating in the correct order?
+            for (bit, index) in signal_ids.iter().rev().enumerate() {
                 let tpe = SignalType::NineStateBit(*lut, bit as u32, num_bits);
                 signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
             }
