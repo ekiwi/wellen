@@ -4,10 +4,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
-use wellen::{
-    FileType, Hierarchy, HierarchyItem, ScopeType, SignalRef, SignalValue, TimescaleUnit, VarType,
-    Waveform,
-};
+use wellen::*;
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
     run_diff_test_internal(vcd_filename, Some(fst_filename), false);

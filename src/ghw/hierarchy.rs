@@ -328,7 +328,8 @@ fn read_type_section(
                 let mut fields = Vec::with_capacity(num_fields as usize);
                 for _ in 0..num_fields {
                     let field_name = read_string_id(input)?;
-                    let field_tpe = lookup_concrete_type_id(&tables.types, read_type_id(input)?);
+                    // important: we do not want to resolve aliases here!
+                    let field_tpe = read_type_id(input)?;
                     fields.push((field_name, field_tpe));
                 }
                 VhdlType::from_record(name, &tables.types, fields)
@@ -424,11 +425,6 @@ impl VhdlType {
     }
 
     fn from_record(name: StringId, types: &[VhdlType], fields: Vec<(StringId, TypeId)>) -> Self {
-        if cfg!(debug_assertions) {
-            for (_, tpe) in fields.iter() {
-                debug_assert!(!types[tpe.index()].is_alias());
-            }
-        }
         VhdlType::Record(name, fields)
     }
 
@@ -438,12 +434,12 @@ impl VhdlType {
             (VhdlType::Array(_, element_tpe, maybe_base_range), Range::Int(int_range)) => {
                 todo!()
             }
-            (VhdlType::NineValueVec(_, lut, base_range), Range::Int(int_range)) => {
+            (VhdlType::NineValueVec(base_name, lut, base_range), Range::Int(int_range)) => {
                 debug_assert!(
                     int_range.is_subset_of(&base_range),
                     "{int_range:?} {base_range:?}"
                 );
-                VhdlType::NineValueVec(name, lut.clone(), int_range)
+                VhdlType::NineValueVec(pick_best_name(name, *base_name), lut.clone(), int_range)
             }
             other => todo!("Currently unsupported combination: {other:?}"),
         }
@@ -574,14 +570,25 @@ struct GhwTables {
     pub luts: Vec<NineValueLut>,
 }
 
+/// Returns a if it is a non-anonymous string, otherwise b.
+fn pick_best_name(a: StringId, b: StringId) -> StringId {
+    if a.0 == 0 {
+        b
+    } else {
+        a
+    }
+}
+
 impl GhwTables {
     fn get_type(&self, type_id: TypeId) -> &VhdlType {
         lookup_concrete_type(&self.types, type_id)
     }
 
     fn get_type_and_name(&self, type_id: TypeId) -> (&VhdlType, &str) {
-        let name = self.get_str(self.types[type_id.index()].name());
-        (lookup_concrete_type(&self.types, type_id), name)
+        let top_name = self.types[type_id.index()].name();
+        let tpe = lookup_concrete_type(&self.types, type_id);
+        let name = pick_best_name(top_name, tpe.name());
+        (tpe, self.get_str(name))
     }
 
     fn get_str(&self, string_id: StringId) -> &str {
@@ -696,7 +703,7 @@ fn convert_scope_type(kind: GhwHierarchyKind) -> ScopeType {
         GhwHierarchyKind::Block => ScopeType::VhdlBlock,
         GhwHierarchyKind::GenerateIf => ScopeType::VhdlIfGenerate,
         GhwHierarchyKind::GenerateFor => ScopeType::VhdlForGenerate,
-        GhwHierarchyKind::Instance => ScopeType::Interface,
+        GhwHierarchyKind::Instance => ScopeType::VhdlArchitecture,
         GhwHierarchyKind::Package => ScopeType::VhdlPackage,
         GhwHierarchyKind::Generic => ScopeType::GhwGeneric,
         GhwHierarchyKind::Process => ScopeType::VhdlProcess,
@@ -747,7 +754,7 @@ fn add_var(
     type_id: TypeId,
 ) -> Result<()> {
     let (vhdl_tpe, type_name) = tables.get_type_and_name(type_id);
-    let (var_tpe, dir) = convert_var_kind(kind);
+    let dir = convert_kind_to_dir(kind);
     let tpe_name = type_name.to_string();
     match vhdl_tpe {
         VhdlType::Enum(_, literals) => {
@@ -763,7 +770,7 @@ fn add_var(
             let bits = 1;
             h.add_var(
                 name,
-                var_tpe,
+                VarType::Enum,
                 dir,
                 bits,
                 None,
@@ -778,9 +785,14 @@ fn add_var(
         VhdlType::NineValueBit(_, lut) => {
             let index = read_signal_id(input, signals)?;
             let signal_ref = get_signal_ref(signals, signal_ref_count, index);
+            let var_type = match type_name.to_ascii_lowercase().as_str() {
+                "std_ulogic" => VarType::StdULogic,
+                "std_logic" => VarType::StdLogic,
+                _ => VarType::Wire,
+            };
             h.add_var(
                 name,
-                var_tpe,
+                var_type,
                 dir,
                 1,
                 None,
@@ -799,9 +811,14 @@ fn add_var(
                 signal_ids.push(read_signal_id(input, signals)?);
             }
             let signal_ref = get_signal_ref(signals, signal_ref_count, signal_ids[0]);
+            let var_type = match type_name.to_ascii_lowercase().as_str() {
+                "std_ulogic_vector" => VarType::StdULogicVector,
+                "std_logic_vector" => VarType::StdLogicVector,
+                _ => VarType::Wire,
+            };
             h.add_var(
                 name,
-                var_tpe,
+                var_type,
                 dir,
                 num_bits,
                 Some(range.as_var_index()),
@@ -816,7 +833,7 @@ fn add_var(
             }
         }
         VhdlType::Record(_, fields) => {
-            h.add_scope(name, None, ScopeType::Module, None, None, false);
+            h.add_scope(name, None, ScopeType::VhdlRecord, None, None, false);
             for (field_name, field_type) in fields.iter() {
                 add_var(
                     tables,
@@ -850,14 +867,14 @@ fn read_signal_id(input: &mut impl BufRead, signals: &mut [Option<GhwSignal>]) -
     }
 }
 
-fn convert_var_kind(kind: GhwHierarchyKind) -> (VarType, VarDirection) {
+fn convert_kind_to_dir(kind: GhwHierarchyKind) -> VarDirection {
     match kind {
-        GhwHierarchyKind::Signal => (VarType::Wire, VarDirection::Implicit),
-        GhwHierarchyKind::PortIn => (VarType::Port, VarDirection::Input),
-        GhwHierarchyKind::PortOut => (VarType::Port, VarDirection::Output),
-        GhwHierarchyKind::PortInOut => (VarType::Port, VarDirection::InOut),
-        GhwHierarchyKind::Buffer => (VarType::Wire, VarDirection::Buffer),
-        GhwHierarchyKind::Linkage => (VarType::Wire, VarDirection::Linkage),
+        GhwHierarchyKind::Signal => VarDirection::Implicit,
+        GhwHierarchyKind::PortIn => VarDirection::Input,
+        GhwHierarchyKind::PortOut => VarDirection::Output,
+        GhwHierarchyKind::PortInOut => VarDirection::InOut,
+        GhwHierarchyKind::Buffer => VarDirection::Buffer,
+        GhwHierarchyKind::Linkage => VarDirection::Linkage,
         other => {
             unreachable!("this kind ({other:?}) should have been handled by a different code path")
         }
