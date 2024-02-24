@@ -150,7 +150,13 @@ pub(crate) fn read_hierarchy(
                     let tpe = &tables.types[type_id.index()];
                     match wkt {
                         GhwWellKnownType::Unknown => {} // does not matter
-                        GhwWellKnownType::Boolean => todo!("add bool"),
+                        GhwWellKnownType::Boolean => {
+                            // we expect the bool to be represented as an enum
+                            debug_assert!(
+                                matches!(tpe, VhdlType::Enum(_, _)),
+                                "{tpe:?} not recognized a VHDL bool!"
+                            );
+                        }
                         GhwWellKnownType::Bit => {
                             debug_assert!(
                                 matches!(tpe, VhdlType::Bit(_)),

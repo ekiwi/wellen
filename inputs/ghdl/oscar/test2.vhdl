@@ -13,6 +13,7 @@ architecture foobar of test2 is
     signal ff: real := 1.234;
     signal ee: e := foo;
     signal ea: e_array := (foo, tada);
+    signal bbb: boolean := true;
 begin
 process 
 begin
@@ -23,6 +24,7 @@ begin
     bv(5 downto 2) <= "1111";
     ii <= ii + 12345 + 87654;
     ff <= ff * (-2.0);
+    bbb <= false;
     
 
     
@@ -33,6 +35,7 @@ begin
     bv <= "00000000";
     ii <= ii - 1;
     ff <= ff + 45.654;
+    bbb <= not bbb;
 
     wait for 50 ns;
     assert false;
