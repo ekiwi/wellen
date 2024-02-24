@@ -136,9 +136,18 @@ fn diff_signals(ghw: &mut Waveform, fst: &mut Waveform, time_factor: u64) {
     let all_signals_fst = get_all_signals(fst);
     assert_eq!(all_signals_ghw, all_signals_fst);
 
-    for signal in all_signals_ghw.iter() {
-        let g = ghw.get_signal(*signal).unwrap();
-        let f = fst.get_signal(*signal).unwrap();
+    let ghw_signal_vars: Vec<_> = ghw
+        .hierarchy()
+        .get_unique_signals_vars()
+        .iter()
+        .flatten()
+        .cloned()
+        .collect();
+
+    for g_signal_var in ghw_signal_vars.iter() {
+        let signal = g_signal_var.signal_ref();
+        let g = ghw.get_signal(signal).unwrap();
+        let f = fst.get_signal(signal).unwrap();
 
         for (idx, time) in time_table.iter().enumerate() {
             let offset_g = g.get_offset(idx as TimeTableIdx);
@@ -153,12 +162,27 @@ fn diff_signals(ghw: &mut Waveform, fst: &mut Waveform, time_factor: u64) {
                             assert_eq!(gs, fs, "{signal:?} @ {time}");
                         }
                         (g_value, SignalValue::String(fs)) => {
-                            // ghw.hierarchy().file_format()
-                            println!(
-                                "Ignoring: {signal:?} @ {time} = {:?} vs {}",
-                                g_value.to_bit_string(),
-                                fs
-                            )
+                            if let Some((_, mapping)) = g_signal_var.enum_type(ghw.hierarchy()) {
+                                // find enum value
+                                let g_value_str = g_value.to_bit_string().unwrap();
+                                let mut found = false;
+                                for (bits, name) in mapping.iter() {
+                                    if **bits == g_value_str {
+                                        assert_eq!(*name, fs);
+                                        found = true;
+                                    }
+                                }
+                                assert!(
+                                    found,
+                                    "Could not find mapping for {g_value_str}\n{mapping:?}"
+                                );
+                            } else {
+                                println!(
+                                    "Ignoring: {signal:?} @ {time} = {:?} vs {}",
+                                    g_value.to_bit_string(),
+                                    fs
+                                );
+                            }
                         }
                         (g_value, f_value) => {
                             assert_eq!(
