@@ -47,7 +47,7 @@ fn run_diff_test_internal(
 
 fn diff_test_one(vcd_filename: &str, mut our: Waveform, skip_content_comparison: bool) {
     let mut ref_parser =
-        vcd::Parser::new(BufReader::new(std::fs::File::open(vcd_filename).unwrap()));
+        ::vcd::Parser::new(BufReader::new(std::fs::File::open(vcd_filename).unwrap()));
     let ref_header = match ref_parser.parse_header() {
         Ok(parsed) => parsed,
         Err(e) => {
@@ -66,8 +66,8 @@ fn diff_test_one(vcd_filename: &str, mut our: Waveform, skip_content_comparison:
 
 fn diff_hierarchy(
     ours: &Hierarchy,
-    ref_header: &vcd::Header,
-    id_map: &mut HashMap<vcd::IdCode, SignalRef>,
+    ref_header: &::vcd::Header,
+    id_map: &mut HashMap<::vcd::IdCode, SignalRef>,
 ) {
     diff_meta(ours, ref_header);
 
@@ -75,26 +75,26 @@ fn diff_hierarchy(
         ref_header
             .items
             .iter()
-            .filter(|i| !matches!(i, vcd::ScopeItem::Comment(_))),
+            .filter(|i| !matches!(i, ::vcd::ScopeItem::Comment(_))),
         ours.items(),
     ) {
         diff_hierarchy_item(ref_child, our_child, ours, id_map);
     }
 }
 
-fn diff_meta(ours: &Hierarchy, ref_header: &vcd::Header) {
+fn diff_meta(ours: &Hierarchy, ref_header: &::vcd::Header) {
     match &ref_header.version {
-        None => match ours.file_type() {
-            FileType::Vcd => assert!(ours.version().is_empty(), "{}", ours.version()),
-            FileType::Fst => {}
+        None => match ours.file_format() {
+            FileFormat::Vcd => assert!(ours.version().is_empty(), "{}", ours.version()),
+            _ => {}
         },
         Some(version) => assert_eq!(version, ours.version()),
     }
 
     match &ref_header.date {
-        None => match ours.file_type() {
-            FileType::Vcd => assert!(ours.date().is_empty(), "{}", ours.date()),
-            FileType::Fst => {}
+        None => match ours.file_format() {
+            FileFormat::Vcd => assert!(ours.date().is_empty(), "{}", ours.date()),
+            _ => {}
         },
         Some(date) => assert_eq!(date, ours.date()),
     }
@@ -105,12 +105,12 @@ fn diff_meta(ours: &Hierarchy, ref_header: &vcd::Header) {
             let our_time = ours.timescale().unwrap();
             assert_eq!(factor, our_time.factor);
             match unit {
-                vcd::TimescaleUnit::S => assert_eq!(our_time.unit, TimescaleUnit::Seconds),
-                vcd::TimescaleUnit::MS => assert_eq!(our_time.unit, TimescaleUnit::MilliSeconds),
-                vcd::TimescaleUnit::US => assert_eq!(our_time.unit, TimescaleUnit::MicroSeconds),
-                vcd::TimescaleUnit::NS => assert_eq!(our_time.unit, TimescaleUnit::NanoSeconds),
-                vcd::TimescaleUnit::PS => assert_eq!(our_time.unit, TimescaleUnit::PicoSeconds),
-                vcd::TimescaleUnit::FS => assert_eq!(our_time.unit, TimescaleUnit::FemtoSeconds),
+                ::vcd::TimescaleUnit::S => assert_eq!(our_time.unit, TimescaleUnit::Seconds),
+                ::vcd::TimescaleUnit::MS => assert_eq!(our_time.unit, TimescaleUnit::MilliSeconds),
+                ::vcd::TimescaleUnit::US => assert_eq!(our_time.unit, TimescaleUnit::MicroSeconds),
+                ::vcd::TimescaleUnit::NS => assert_eq!(our_time.unit, TimescaleUnit::NanoSeconds),
+                ::vcd::TimescaleUnit::PS => assert_eq!(our_time.unit, TimescaleUnit::PicoSeconds),
+                ::vcd::TimescaleUnit::FS => assert_eq!(our_time.unit, TimescaleUnit::FemtoSeconds),
             }
         }
     }
@@ -157,13 +157,13 @@ fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
 }
 
 fn diff_hierarchy_item(
-    ref_item: &vcd::ScopeItem,
+    ref_item: &::vcd::ScopeItem,
     our_item: HierarchyItem,
     our_hier: &Hierarchy,
-    id_map: &mut HashMap<vcd::IdCode, SignalRef>,
+    id_map: &mut HashMap<::vcd::IdCode, SignalRef>,
 ) {
     match (ref_item, our_item) {
-        (vcd::ScopeItem::Scope(ref_scope), HierarchyItem::Scope(our_scope)) => {
+        (::vcd::ScopeItem::Scope(ref_scope), HierarchyItem::Scope(our_scope)) => {
             assert_eq!(ref_scope.identifier, our_scope.name(our_hier));
             assert_eq!(
                 ref_scope.scope_type.to_string(),
@@ -173,13 +173,13 @@ fn diff_hierarchy_item(
                 ref_scope
                     .items
                     .iter()
-                    .filter(|i| !matches!(i, vcd::ScopeItem::Comment(_))),
+                    .filter(|i| !matches!(i, ::vcd::ScopeItem::Comment(_))),
                 our_scope.items(our_hier),
             ) {
                 diff_hierarchy_item(ref_child, our_child, our_hier, id_map)
             }
         }
-        (vcd::ScopeItem::Var(ref_var), HierarchyItem::Var(our_var)) => {
+        (::vcd::ScopeItem::Var(ref_var), HierarchyItem::Var(our_var)) => {
             id_map.insert(ref_var.code, our_var.signal_ref());
             // this happens because simulators like GHDL forget the space before the index
             let ref_name_contains_index =
@@ -205,17 +205,17 @@ fn diff_hierarchy_item(
             }
             match ref_var.index {
                 None => assert!(our_var.index().is_none() || ref_name_contains_index),
-                Some(vcd::ReferenceIndex::BitSelect(bit)) => {
+                Some(::vcd::ReferenceIndex::BitSelect(bit)) => {
                     assert_eq!(our_var.index().unwrap().msb(), bit);
                     assert_eq!(our_var.index().unwrap().lsb(), bit);
                 }
-                Some(vcd::ReferenceIndex::Range(msb, lsb)) => {
+                Some(::vcd::ReferenceIndex::Range(msb, lsb)) => {
                     assert_eq!(our_var.index().unwrap().msb(), msb);
                     assert_eq!(our_var.index().unwrap().lsb(), lsb);
                 }
             }
         }
-        (vcd::ScopeItem::Comment(_), _) => {} // we do not care about comments
+        (::vcd::ScopeItem::Comment(_), _) => {} // we do not care about comments
         (other_ref, our) => panic!(
             "Unexpected combination of scope items: {:?} (expected) vs. {:?}",
             other_ref, our
@@ -235,9 +235,9 @@ fn load_all_signals(our: &mut Waveform) {
 }
 
 fn diff_signals<R: BufRead>(
-    ref_reader: &mut vcd::Parser<R>,
+    ref_reader: &mut ::vcd::Parser<R>,
     our: &mut Waveform,
-    id_map: &HashMap<vcd::IdCode, SignalRef>,
+    id_map: &HashMap<::vcd::IdCode, SignalRef>,
 ) {
     let time_table = our.time_table();
 
@@ -247,7 +247,7 @@ fn diff_signals<R: BufRead>(
     let mut delta_counter = HashMap::new();
     for cmd_res in ref_reader {
         match cmd_res.unwrap() {
-            vcd::Command::Timestamp(new_time) => {
+            ::vcd::Command::Timestamp(new_time) => {
                 match current_time {
                     None => {
                         current_time = Some(new_time);
@@ -264,7 +264,7 @@ fn diff_signals<R: BufRead>(
                 }
                 assert_eq!(current_time.unwrap(), time_table[time_table_idx]);
             }
-            vcd::Command::ChangeScalar(id, value) => {
+            ::vcd::Command::ChangeScalar(id, value) => {
                 let signal_ref = id_map[&id];
                 let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
                 let our_value_str = our_value.to_bit_string().unwrap();
@@ -280,7 +280,7 @@ fn diff_signals<R: BufRead>(
                     our_value_str
                 );
             }
-            vcd::Command::ChangeVector(id, value) => {
+            ::vcd::Command::ChangeVector(id, value) => {
                 let signal_ref = id_map[&id];
                 assert_eq!(current_time.unwrap_or(0), time_table[time_table_idx]);
                 let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
@@ -323,7 +323,7 @@ fn diff_signals<R: BufRead>(
                     );
                 }
             }
-            vcd::Command::ChangeReal(id, value) => {
+            ::vcd::Command::ChangeReal(id, value) => {
                 let signal_ref = id_map[&id];
                 assert_eq!(current_time.unwrap_or(0), time_table[time_table_idx]);
                 let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
@@ -333,16 +333,16 @@ fn diff_signals<R: BufRead>(
                     panic!("Expected real value, got: {our_value:?}");
                 }
             }
-            vcd::Command::ChangeString(id, value) => {
+            ::vcd::Command::ChangeString(id, value) => {
                 let signal_ref = id_map[&id];
                 assert_eq!(current_time.unwrap_or(0), time_table[time_table_idx]);
                 let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
                 let our_value_str = our_value.to_string();
                 assert_eq!(our_value_str, value);
             }
-            vcd::Command::Begin(_) => {}   // ignore
-            vcd::Command::End(_) => {}     // ignore
-            vcd::Command::Comment(_) => {} // ignore
+            ::vcd::Command::Begin(_) => {}   // ignore
+            ::vcd::Command::End(_) => {}     // ignore
+            ::vcd::Command::Comment(_) => {} // ignore
             other => panic!("Unhandled command: {:?}", other),
         }
     }

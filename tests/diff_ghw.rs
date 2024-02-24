@@ -4,12 +4,13 @@
 //
 // here we are comparing fst and ghw files, both loaded with wellen
 
-use std::collections::HashMap;
 use wellen::*;
 
 fn run_diff_test(ghw_filename: &str, fst_filename: &str) {
     let mut ghw_wave = ghw::read(ghw_filename).expect("failed to load GHW file!");
+    assert_eq!(ghw_wave.hierarchy().file_format(), FileFormat::Ghw);
     let mut fst_wave = fst::read(fst_filename).expect("failed to load FST file!");
+    assert_eq!(fst_wave.hierarchy().file_format(), FileFormat::Fst);
 
     let time_factor = diff_hierarchy(ghw_wave.hierarchy(), fst_wave.hierarchy());
 
@@ -90,8 +91,6 @@ fn diff_hierarchy_item(
                 g.var_type(),
                 f.var_type()
             );
-
-            println!("{}: {:?}", g.full_name(ghw), g.signal_ref());
         }
         (ghw, fst) => {
             panic!("Unexpected combination of scope items: {ghw:?} (ghw) vs. {fst:?} (fst)",)
@@ -154,6 +153,7 @@ fn diff_signals(ghw: &mut Waveform, fst: &mut Waveform, time_factor: u64) {
                             assert_eq!(gs, fs, "{signal:?} @ {time}");
                         }
                         (g_value, SignalValue::String(fs)) => {
+                            // ghw.hierarchy().file_format()
                             println!(
                                 "Ignoring: {signal:?} @ {time} = {:?} vs {}",
                                 g_value.to_bit_string(),
@@ -166,7 +166,6 @@ fn diff_signals(ghw: &mut Waveform, fst: &mut Waveform, time_factor: u64) {
                                 f_value.to_bit_string(),
                                 "{signal:?} @ {time}"
                             );
-                            println!("{signal:?} @ {time} = {}", g_value.to_bit_string().unwrap());
                         }
                     }
                 }

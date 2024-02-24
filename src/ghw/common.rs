@@ -24,6 +24,7 @@ pub(crate) enum GhwParseError {
     #[error("[ghw] expected positive integer, not: {0}")]
     ExpectedPositiveInteger(i64),
     #[error("[ghw] float range has no length: {0} .. {1}")]
+    #[allow(dead_code)]
     FloatRangeLen(f64, f64),
     #[error("[ghw] failed to parse GHDL RTIK.")]
     FailedToParseGhdlRtik(#[from] num_enum::TryFromPrimitiveError<GhwRtik>),
@@ -84,7 +85,9 @@ pub fn read_directory(header: &HeaderData, input: &mut impl BufRead) -> Result<V
 
 #[derive(Debug)]
 pub struct SectionPos {
+    #[allow(dead_code)]
     id: [u8; 4],
+    #[allow(dead_code)]
     pos: u32,
 }
 
@@ -213,8 +216,10 @@ pub enum SignalType {
     /// Binary signal encoded as a single byte with N valid bits.
     U8(u32),
     /// Binary signal encoded as a variable number of bytes with N valid bits.
+    #[allow(dead_code)]
     Leb128Signed(u32),
     /// F64 (real)
+    #[allow(dead_code)]
     F64,
 }
 

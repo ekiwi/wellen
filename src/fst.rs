@@ -6,7 +6,7 @@ use crate::hierarchy::*;
 use crate::signals::{Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
 use crate::vcd::{extract_index_from_name, parse_index};
 use crate::wavemem::{check_if_changed_and_truncate, check_states, write_n_state, States};
-use crate::{Waveform, WellenError};
+use crate::{FileFormat, Waveform, WellenError};
 use fst_native::*;
 use std::collections::HashMap;
 use std::io::{BufRead, Seek};
@@ -533,7 +533,7 @@ pub(crate) fn parse_scope_attributes(
 }
 
 fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
-    let mut h = HierarchyBuilder::new(FileType::Fst);
+    let mut h = HierarchyBuilder::new(FileFormat::Fst);
     // load meta-data
     let fst_header = reader.get_header();
     h.set_version(fst_header.version.trim().to_string());

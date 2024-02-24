@@ -10,7 +10,7 @@ use crate::ghw::common::*;
 use crate::hierarchy::HierarchyBuilder;
 use crate::wavemem::bit_char_to_num;
 use crate::{
-    FileType, Hierarchy, ScopeType, SignalRef, Timescale, TimescaleUnit, VarDirection, VarIndex,
+    FileFormat, Hierarchy, ScopeType, SignalRef, Timescale, TimescaleUnit, VarDirection, VarIndex,
     VarType,
 };
 use num_enum::TryFromPrimitive;
@@ -116,7 +116,7 @@ pub(crate) fn read_hierarchy(
 ) -> Result<(GhwDecodeInfo, usize, Hierarchy)> {
     let mut tables = GhwTables::default();
     let mut decode = GhwDecodeInfo::default();
-    let mut hb = HierarchyBuilder::new(FileType::Vcd);
+    let mut hb = HierarchyBuilder::new(FileFormat::Ghw);
     let mut signal_ref_count = 0;
 
     // GHW seems to always uses fs
@@ -332,7 +332,7 @@ fn read_type_section(
                     let field_tpe = read_type_id(input)?;
                     fields.push((field_name, field_tpe));
                 }
-                VhdlType::from_record(name, &tables.types, fields)
+                VhdlType::from_record(name, fields)
             }
             other => todo!("Support: {other:?}"),
         };
@@ -424,14 +424,14 @@ impl VhdlType {
         }
     }
 
-    fn from_record(name: StringId, types: &[VhdlType], fields: Vec<(StringId, TypeId)>) -> Self {
+    fn from_record(name: StringId, fields: Vec<(StringId, TypeId)>) -> Self {
         VhdlType::Record(name, fields)
     }
 
     fn from_subtype_array(name: StringId, types: &[VhdlType], base: TypeId, range: Range) -> Self {
         let base_tpe = lookup_concrete_type(types, base);
         match (base_tpe, range) {
-            (VhdlType::Array(_, element_tpe, maybe_base_range), Range::Int(int_range)) => {
+            (VhdlType::Array(_, _element_tpe, _maybe_base_range), Range::Int(_int_range)) => {
                 todo!()
             }
             (VhdlType::NineValueVec(base_name, lut, base_range), Range::Int(int_range)) => {
@@ -501,10 +501,6 @@ impl VhdlType {
             VhdlType::Enum(_, lits) => Some(IntRange(RangeDir::To, 0, lits.len() as i64)),
             _ => None,
         }
-    }
-
-    fn is_alias(&self) -> bool {
-        matches!(self, VhdlType::TypeAlias(_, _))
     }
 }
 
@@ -580,10 +576,6 @@ fn pick_best_name(a: StringId, b: StringId) -> StringId {
 }
 
 impl GhwTables {
-    fn get_type(&self, type_id: TypeId) -> &VhdlType {
-        lookup_concrete_type(&self.types, type_id)
-    }
-
     fn get_type_and_name(&self, type_id: TypeId) -> (&VhdlType, &str) {
         let top_name = self.types[type_id.index()].name();
         let tpe = lookup_concrete_type(&self.types, type_id);
@@ -681,7 +673,7 @@ fn read_hierarchy_scope(
     let name = read_string_id(input)?;
 
     if kind == GhwHierarchyKind::GenerateFor {
-        let iter_type = read_type_id(input)?;
+        let _iter_type = read_type_id(input)?;
         todo!("read value");
     }
 
@@ -900,6 +892,7 @@ struct SignalId(NonZeroU32);
 #[derive(Debug)]
 enum Range {
     Int(IntRange),
+    #[allow(dead_code)]
     Float(FloatRange),
 }
 

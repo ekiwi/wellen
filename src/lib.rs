@@ -44,7 +44,7 @@ pub enum WellenError {
 
 pub use detect::{detect_file_format, open_and_detect_file_format, FileFormat};
 pub use hierarchy::{
-    FileType, GetItem, Hierarchy, HierarchyItem, Scope, ScopeRef, ScopeType, SignalRef, Timescale,
+    GetItem, Hierarchy, HierarchyItem, Scope, ScopeRef, ScopeType, SignalRef, Timescale,
     TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
 };
 pub use signals::{Real, SignalValue, Time, TimeTableIdx, Waveform};

@@ -698,6 +698,8 @@ impl SignalEncoder {
             }
             other => unreachable!("Cannot call add_n_bit_change on signal of type: {other:?}"),
         }
+        // update time index to calculate next delta
+        self.prev_time_idx = time_index;
     }
 
     /// Adds a change from a VCD string.

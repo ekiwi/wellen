@@ -4,7 +4,7 @@
 
 use crate::fst::{parse_scope_attributes, parse_var_attributes, Attribute};
 use crate::hierarchy::*;
-use crate::{Waveform, WellenError};
+use crate::{FileFormat, Waveform, WellenError};
 use fst_native::{FstVhdlDataType, FstVhdlVarType};
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
@@ -116,7 +116,7 @@ fn read_hierarchy(
     options: &LoadOptions,
 ) -> Result<(usize, Hierarchy)> {
     let start = input.stream_position().unwrap();
-    let mut h = HierarchyBuilder::new(FileType::Vcd);
+    let mut h = HierarchyBuilder::new(FileFormat::Vcd);
     let mut attributes = Vec::new();
     let mut path_names = HashMap::new();
 

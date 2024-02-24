@@ -4,6 +4,7 @@
 //
 // Space efficient format for a wavedump hierarchy.
 
+use crate::FileFormat;
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -592,25 +593,19 @@ struct HierarchyMetaData {
     date: String,
     version: String,
     comments: Vec<String>,
-    file_type: FileType,
+    file_format: FileFormat,
 }
 
 impl HierarchyMetaData {
-    fn new(file_type: FileType) -> Self {
+    fn new(file_format: FileFormat) -> Self {
         HierarchyMetaData {
             timescale: None,
             date: "".to_string(),
             version: "".to_string(),
             comments: Vec::default(),
-            file_type,
+            file_format,
         }
     }
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum FileType {
-    Vcd,
-    Fst,
 }
 
 // public implementation
@@ -686,8 +681,8 @@ impl Hierarchy {
     pub fn timescale(&self) -> Option<Timescale> {
         self.meta.timescale
     }
-    pub fn file_type(&self) -> FileType {
-        self.meta.file_type
+    pub fn file_format(&self) -> FileFormat {
+        self.meta.file_format
     }
 
     pub fn lookup_scope<N: AsRef<str>>(&self, names: &[N]) -> Option<ScopeRef> {
@@ -796,7 +791,7 @@ pub struct HierarchyBuilder {
 }
 
 impl HierarchyBuilder {
-    pub(crate) fn new(file_type: FileType) -> Self {
+    pub(crate) fn new(file_type: FileFormat) -> Self {
         // we start with a fake entry in the scope stack to keep track of multiple items in the top scope
         let scope_stack = vec![ScopeStackEntry {
             scope_id: usize::MAX,
