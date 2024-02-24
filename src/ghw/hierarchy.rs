@@ -151,7 +151,12 @@ pub(crate) fn read_hierarchy(
                     match wkt {
                         GhwWellKnownType::Unknown => {} // does not matter
                         GhwWellKnownType::Boolean => todo!("add bool"),
-                        GhwWellKnownType::Bit => todo!("add bit"),
+                        GhwWellKnownType::Bit => {
+                            debug_assert!(
+                                matches!(tpe, VhdlType::Bit(_)),
+                                "{tpe:?} not recognized a VHDL bit!"
+                            );
+                        }
                         GhwWellKnownType::StdULogic => {
                             debug_assert!(
                                 matches!(tpe, VhdlType::NineValueBit(_)),
@@ -258,7 +263,9 @@ fn read_range(input: &mut impl BufRead) -> Result<Range> {
             Range::Int(IntRange(dir, left, right))
         }
         GhwRtik::TypeF64 => {
-            todo!("float range!")
+            let left = read_f64_le(input)?;
+            let right = read_f64_le(input)?;
+            Range::Float(FloatRange(dir, left, right))
         }
         other => {
             return Err(GhwParseError::UnexpectedType(
@@ -353,10 +360,14 @@ fn read_type_section(
 /// During GHW parsing we convert the GHDL types to our own representation.
 #[derive(Debug)]
 enum VhdlType {
-    /// std_logic or std_ulogic with lut to convert to the `wellen` 9-value representation.
+    /// std_logic or std_ulogic
     NineValueBit(StringId),
-    /// std_logic_vector or std_ulogic_vector with lut to convert to the `wellen` 9-value representation.
+    /// std_logic_vector or std_ulogic_vector
     NineValueVec(StringId, IntRange),
+    /// bit (2-state)
+    Bit(StringId),
+    /// bit_vector (2-state)
+    BitVec(StringId, IntRange),
     /// Type alias that does not restrict the underlying type in any way.
     TypeAlias(StringId, TypeId),
     /// Integer type with possible upper and lower bounds.
@@ -405,6 +416,8 @@ impl VhdlType {
     fn from_enum(tables: &mut GhwTables, name: StringId, literals: Vec<StringId>) -> Self {
         if let Some(nine_value) = try_parse_nine_value_bit(tables, name, &literals) {
             nine_value
+        } else if let Some(two_value) = try_parse_two_value_bit(tables, name, &literals) {
+            two_value
         } else {
             VhdlType::Enum(name, literals)
         }
@@ -414,12 +427,12 @@ impl VhdlType {
         let element_tpe_id = lookup_concrete_type_id(types, element_tpe);
         let index_type = lookup_concrete_type(types, index);
         let index_range = index_type.int_range();
-        if let (VhdlType::NineValueBit(_), Some(range)) =
-            (&types[element_tpe_id.index()], index_range)
-        {
-            VhdlType::NineValueVec(name, range)
-        } else {
-            VhdlType::Array(name, element_tpe_id, index_range)
+        // this one wont be an alias!
+        let concrete_element_type = &types[element_tpe_id.index()];
+        match (concrete_element_type, index_range) {
+            (VhdlType::NineValueBit(_), Some(range)) => VhdlType::NineValueVec(name, range),
+            (VhdlType::Bit(_), Some(range)) => VhdlType::BitVec(name, range),
+            _ => VhdlType::Array(name, element_tpe_id, index_range),
         }
     }
 
@@ -431,9 +444,16 @@ impl VhdlType {
         let base_tpe = lookup_concrete_type(types, base);
         match (base_tpe, range) {
             (VhdlType::Array(base_name, element_tpe, maybe_base_range), Range::Int(int_range)) => {
-                todo!(
-                    "{name:?} of {base_name:?} : {:?} {maybe_base_range:?} {int_range:?}",
-                    lookup_concrete_type(types, *element_tpe)
+                if let Some(base_range) = maybe_base_range {
+                    debug_assert!(
+                        int_range.is_subset_of(&base_range),
+                        "{int_range:?} {base_range:?}"
+                    );
+                }
+                VhdlType::Array(
+                    pick_best_name(name, *base_name),
+                    *element_tpe,
+                    Some(int_range),
                 )
             }
             (VhdlType::NineValueVec(base_name, base_range), Range::Int(int_range)) => {
@@ -442,6 +462,13 @@ impl VhdlType {
                     "{int_range:?} {base_range:?}"
                 );
                 VhdlType::NineValueVec(pick_best_name(name, *base_name), int_range)
+            }
+            (VhdlType::BitVec(base_name, base_range), Range::Int(int_range)) => {
+                debug_assert!(
+                    int_range.is_subset_of(&base_range),
+                    "{int_range:?} {base_range:?}"
+                );
+                VhdlType::BitVec(pick_best_name(name, *base_name), int_range)
             }
             other => todo!("Currently unsupported combination: {other:?}"),
         }
@@ -477,6 +504,14 @@ impl VhdlType {
                 );
                 VhdlType::I32(name, Some(int_range))
             }
+            (VhdlType::F64(_, maybe_base_range), Range::Float(float_range)) => {
+                let base_range = FloatRange::from_f64_option(*maybe_base_range);
+                debug_assert!(
+                    float_range.is_subset_of(&base_range),
+                    "{float_range:?} {base_range:?}"
+                );
+                VhdlType::F64(name, Some(float_range))
+            }
             other => todo!("Currently unsupported combination: {other:?}"),
         }
     }
@@ -485,6 +520,8 @@ impl VhdlType {
         match self {
             VhdlType::NineValueBit(name) => *name,
             VhdlType::NineValueVec(name, _) => *name,
+            VhdlType::Bit(name) => *name,
+            VhdlType::BitVec(name, _) => *name,
             VhdlType::TypeAlias(name, _) => *name,
             VhdlType::I32(name, _) => *name,
             VhdlType::I64(name, _) => *name,
@@ -508,28 +545,50 @@ impl VhdlType {
 
 /// Returns Some(VhdlType::NineValueBit(..)) if the enum corresponds to a 9-value bit type.
 fn try_parse_nine_value_bit(
-    tables: &mut GhwTables,
+    tables: &GhwTables,
     name: StringId,
     literals: &[StringId],
 ) -> Option<VhdlType> {
-    if literals.len() != 9 {
-        return None;
+    if check_literals_match(tables, literals, &STD_LOGIC_VALUES) {
+        Some(VhdlType::NineValueBit(name))
+    } else {
+        None
+    }
+}
+
+/// Returns Some(VhdlType::Bit(..)) if the enum corresponds to a 2-value bit type.
+fn try_parse_two_value_bit(
+    tables: &GhwTables,
+    name: StringId,
+    literals: &[StringId],
+) -> Option<VhdlType> {
+    if check_literals_match(tables, literals, &VHDL_BIT_VALUES) {
+        Some(VhdlType::Bit(name))
+    } else {
+        None
+    }
+}
+
+#[inline]
+fn check_literals_match(tables: &GhwTables, literals: &[StringId], expected: &[u8]) -> bool {
+    if literals.len() != expected.len() {
+        return false;
     }
 
     // check to see if it matches the standard std_logic enum
-    for (lit_id, expected) in literals.iter().zip(STD_LOGIC_VALUES.iter()) {
+    for (lit_id, expected) in literals.iter().zip(expected.iter()) {
         let lit = tables.get_str(*lit_id).as_bytes();
         let cc = match lit.len() {
             1 => lit[0],
             3 => lit[1], // this is to account for GHDL encoding things as '0' (including the tick!)
-            _ => return None,
+            _ => return false,
         };
         if !cc.eq_ignore_ascii_case(expected) {
-            return None; // encoding does not match
+            return false; // encoding does not match
         }
     }
 
-    Some(VhdlType::NineValueBit(name))
+    true
 }
 
 fn read_well_known_types_section(
@@ -758,12 +817,13 @@ fn add_var(
             let tpe = SignalType::U8(8); // TODO: try to find the actual number of bits used
             signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
         }
-        VhdlType::NineValueBit(_) => {
+        VhdlType::NineValueBit(_) | VhdlType::Bit(_) => {
             let index = read_signal_id(input, signals)?;
             let signal_ref = get_signal_ref(signals, signal_ref_count, index);
             let var_type = match type_name.to_ascii_lowercase().as_str() {
                 "std_ulogic" => VarType::StdULogic,
                 "std_logic" => VarType::StdLogic,
+                "bit" => VarType::Bit,
                 _ => VarType::Wire,
             };
             h.add_var(
@@ -777,10 +837,57 @@ fn add_var(
                 Some(tpe_name),
             );
             // meta date for writing the signal later
-            let tpe = SignalType::NineState;
+            let tpe = match vhdl_tpe {
+                VhdlType::Bit(_) => SignalType::TwoState,
+                _ => SignalType::NineState,
+            };
             signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
         }
-        VhdlType::NineValueVec(_, range) => {
+        VhdlType::I32(_, maybe_range) => {
+            // TODO: we could use the range to deduce indices and tighter widths
+            let _range = IntRange::from_i32_option(*maybe_range);
+            let bits = 32;
+            let index = read_signal_id(input, signals)?;
+            let signal_ref = get_signal_ref(signals, signal_ref_count, index);
+            let var_type = VarType::Integer;
+            h.add_var(
+                name,
+                var_type,
+                dir,
+                bits,
+                None,
+                signal_ref,
+                None,
+                Some(tpe_name),
+            );
+            // meta date for writing the signal later
+            let tpe = SignalType::Leb128Signed(bits);
+            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
+        }
+        VhdlType::F64(_, maybe_range) => {
+            // TODO: we could use the range to deduce indices and tighter widths
+            let _range = FloatRange::from_f64_option(*maybe_range);
+            let bits = 64;
+            let index = read_signal_id(input, signals)?;
+            let signal_ref = get_signal_ref(signals, signal_ref_count, index);
+            let var_type = VarType::Real;
+            h.add_var(
+                name,
+                var_type,
+                dir,
+                bits,
+                None,
+                signal_ref,
+                None,
+                Some(tpe_name),
+            );
+            // meta date for writing the signal later
+            signals[index.0.get() as usize] = Some(GhwSignal {
+                signal_ref,
+                tpe: SignalType::F64,
+            })
+        }
+        VhdlType::NineValueVec(_, range) | VhdlType::BitVec(_, range) => {
             let num_bits = range.len() as u32;
             let mut signal_ids = Vec::with_capacity(num_bits as usize);
             for _ in 0..num_bits {
@@ -790,6 +897,7 @@ fn add_var(
             let var_type = match type_name.to_ascii_lowercase().as_str() {
                 "std_ulogic_vector" => VarType::StdULogicVector,
                 "std_logic_vector" => VarType::StdLogicVector,
+                "bit_vector" => VarType::BitVector,
                 _ => VarType::Wire,
             };
             h.add_var(
@@ -803,8 +911,13 @@ fn add_var(
                 Some(tpe_name),
             );
             // meta date for writing the signal later
+            let is_bitvec = matches!(vhdl_tpe, VhdlType::BitVec(_, _));
             for (bit, index) in signal_ids.iter().rev().enumerate() {
-                let tpe = SignalType::NineStateBit(bit as u32, num_bits);
+                let tpe = if is_bitvec {
+                    SignalType::TwoStateBit(bit as u32, num_bits)
+                } else {
+                    SignalType::NineStateBit(bit as u32, num_bits)
+                };
                 signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
             }
         }
@@ -824,7 +937,25 @@ fn add_var(
             }
             h.pop_scope();
         }
-
+        // we treat arrays like records
+        VhdlType::Array(_, element_tpe, maybe_range) => {
+            let range = IntRange::from_i32_option(*maybe_range);
+            h.add_scope(name, None, ScopeType::VhdlArray, None, None, false);
+            for element_id in range.range() {
+                let name = format!("[{element_id}]");
+                add_var(
+                    tables,
+                    input,
+                    kind,
+                    signals,
+                    signal_ref_count,
+                    h,
+                    name,
+                    *element_tpe,
+                )?;
+            }
+            h.pop_scope();
+        }
         other => todo!("deal with {other:?}"),
     }
     Ok(())
@@ -923,6 +1054,25 @@ impl IntRange {
 
 #[derive(Debug, Copy, Clone)]
 struct FloatRange(RangeDir, f64, f64);
+
+impl FloatRange {
+    fn range(&self) -> std::ops::RangeInclusive<f64> {
+        match self.0 {
+            RangeDir::To => self.1..=(self.2),
+            RangeDir::Downto => self.2..=(self.1),
+        }
+    }
+
+    fn from_f64_option(opt: Option<Self>) -> Self {
+        opt.unwrap_or(Self(RangeDir::To, f64::MIN, f64::MAX))
+    }
+
+    fn is_subset_of(&self, other: &Self) -> bool {
+        let self_range = self.range();
+        let other_range = other.range();
+        self_range.start() >= other_range.start() && self_range.end() <= other_range.end()
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct GhwUnit {

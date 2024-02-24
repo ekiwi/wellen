@@ -140,6 +140,7 @@ pub enum ScopeType {
     VhdlPackage,
     // from GHW
     GhwGeneric,
+    VhdlArray,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -133,8 +133,8 @@ fn read_cycle_signals(
 
 /// This dispatches any remaining vector changes.
 fn finish_time_step(vecs: &mut VecBuffer, enc: &mut Encoder) {
-    vecs.process_changed_signals(|signal_ref, data| {
-        enc.raw_value_change(signal_ref, data, States::Nine);
+    vecs.process_changed_signals(|signal_ref, data, states| {
+        enc.raw_value_change(signal_ref, data, states);
     })
 }
 
@@ -149,6 +149,11 @@ fn read_signal_value(
             let ghdl_value = read_u8(input)?;
             let value = [STD_LOGIC_LUT[ghdl_value as usize]];
             enc.raw_value_change(signal.signal_ref, &value, States::Nine);
+        }
+        SignalType::TwoState => {
+            let value = [read_u8(input)?];
+            debug_assert!(value[0] <= 1);
+            enc.raw_value_change(signal.signal_ref, &value, States::Two);
         }
         SignalType::NineStateBit(bit, _) => {
             let ghdl_value = read_u8(input)?;
@@ -170,6 +175,26 @@ fn read_signal_value(
                 enc.raw_value_change(signal.signal_ref, data, States::Nine);
             }
         }
+        SignalType::TwoStateBit(bit, _) => {
+            let value = read_u8(input)?;
+            debug_assert!(value <= 1);
+
+            // check to see if we already had a change to this same bit in the current time step
+            if vecs.is_second_change(signal.signal_ref, bit, value) {
+                // immediately dispatch the change to properly reflect the delta cycle
+                let data = vecs.get_full_value_and_clear_changes(signal.signal_ref);
+                enc.raw_value_change(signal.signal_ref, data, States::Two);
+            }
+
+            // update value
+            vecs.update_value(signal.signal_ref, bit, value);
+
+            // check to see if we need to report a change
+            if vecs.full_signal_has_changed(signal.signal_ref) {
+                let data = vecs.get_full_value_and_clear_changes(signal.signal_ref);
+                enc.raw_value_change(signal.signal_ref, data, States::Two);
+            }
+        }
         SignalType::U8(bits) => {
             let value = [read_u8(input)?];
             if bits < 8 {
@@ -178,22 +203,30 @@ fn read_signal_value(
             enc.raw_value_change(signal.signal_ref, &value, States::Two);
         }
         SignalType::Leb128Signed(bits) => {
-            let value = leb128::read::signed(input)? as u64;
+            let signed_value = leb128::read::signed(input)?;
+            let value = signed_value as u64;
             if bits < u64::BITS {
-                debug_assert!(value < (1u64 << bits));
+                if signed_value >= 0 {
+                    debug_assert!(
+                        value < (1u64 << bits),
+                        "{value} does not fit into 32 {bits}"
+                    );
+                } else {
+                    let non_sign_mask = (1u64 << (bits - 1)) - 1;
+                    let sign_bits = value & !non_sign_mask;
+                    debug_assert_eq!(sign_bits, !non_sign_mask);
+                }
             }
-            enc.raw_value_change(signal.signal_ref, &value.to_be_bytes(), States::Two);
+            let num_bytes = bits.div_ceil(8) as usize;
+            let bytes = &value.to_be_bytes()[(8 - num_bytes)..];
+            debug_assert_eq!(bytes.len(), num_bytes);
+            enc.raw_value_change(signal.signal_ref, bytes, States::Two);
         }
 
         SignalType::F64 => {
             // we need to figure out the endianes here
-            let mut buf = [0u8; 8];
-            input.read_exact(&mut buf)?;
-            todo!(
-                "float values: {} or {}?",
-                f64::from_le_bytes(buf.clone()),
-                f64::from_be_bytes(buf)
-            )
+            let value = read_f64_le(input)?;
+            enc.real_change(signal.signal_ref, value);
         }
     }
     Ok(())
@@ -211,22 +244,25 @@ struct VecBuffer {
 
 #[derive(Debug, Clone)]
 struct VecBufferInfo {
-    /// Offset in bits
-    offset: u64,
+    /// start as byte index
+    data_start: u32,
+    /// start as byte index
+    bit_change_start: u32,
     bits: u32,
+    states: States,
 }
 
 impl VecBufferInfo {
     fn change_range(&self) -> std::ops::Range<usize> {
         // whether a bit has been changed is stored with 8 bits per byte
-        let start = self.offset.div_ceil(8) as usize;
+        let start = self.bit_change_start as usize;
         let len = self.bits.div_ceil(8) as usize;
         start..(start + len)
     }
     fn data_range(&self) -> std::ops::Range<usize> {
-        // data is stored with 2 bits per byte
-        let start = self.offset.div_ceil(2) as usize;
-        let len = self.bits.div_ceil(2) as usize;
+        // data is stored with N bits per byte depending on the states
+        let start = self.data_start as usize;
+        let len = (self.bits as usize).div_ceil(self.states.bits_in_a_byte());
         start..(start + len)
     }
 }
@@ -235,21 +271,34 @@ impl VecBuffer {
     fn from_decode_info(decode_info: &GhwDecodeInfo, signal_ref_count: usize) -> Self {
         let mut info = Vec::with_capacity(signal_ref_count);
         info.resize(signal_ref_count, None);
-        let mut offset = 0;
+        let mut data_start = 0;
+        let mut bit_change_start = 0;
 
         for signal in decode_info.signals.iter() {
-            if let SignalType::NineStateBit(0, bits) = signal.tpe {
-                if info[signal.signal_ref.index()].is_none() {
-                    info[signal.signal_ref.index()] = Some(VecBufferInfo { offset, bits });
-                    // pad offset to ensure that each value starts with its own byte
-                    let offset_delta = bits.div_ceil(8) * 8;
-                    offset += offset_delta as u64;
+            if info[signal.signal_ref.index()].is_none() {
+                match signal.tpe {
+                    SignalType::NineStateBit(0, bits) | SignalType::TwoStateBit(0, bits) => {
+                        let states = if matches!(signal.tpe, SignalType::TwoStateBit(_, _)) {
+                            States::Two
+                        } else {
+                            States::Nine
+                        };
+                        info[signal.signal_ref.index()] = Some(VecBufferInfo {
+                            data_start: data_start as u32,
+                            bit_change_start: bit_change_start as u32,
+                            bits,
+                            states,
+                        });
+                        data_start += (bits as usize).div_ceil(states.bits_in_a_byte());
+                        bit_change_start += (bits as usize).div_ceil(8);
+                    }
+                    _ => {} // do nothing
                 }
             }
         }
 
-        let data = vec![0; offset.div_ceil(2) as usize];
-        let bit_change = vec![0; offset.div_ceil(8) as usize];
+        let data = vec![0; data_start as usize];
+        let bit_change = vec![0; bit_change_start as usize];
         let change_list = vec![];
         let signal_change = vec![0; signal_ref_count.div_ceil(8)];
 
@@ -262,12 +311,13 @@ impl VecBuffer {
         }
     }
 
-    fn process_changed_signals(&mut self, mut callback: impl FnMut(SignalRef, &[u8])) {
+    fn process_changed_signals(&mut self, mut callback: impl FnMut(SignalRef, &[u8], States)) {
         let change_list = std::mem::take(&mut self.change_list);
         for signal_ref in change_list.into_iter() {
             if self.has_signal_changed(signal_ref) {
+                let states = (&self.info[signal_ref.index()].as_ref()).unwrap().states;
                 let data = self.get_full_value_and_clear_changes(signal_ref);
-                (callback)(signal_ref, data);
+                (callback)(signal_ref, data, states);
             }
         }
     }
@@ -373,34 +423,26 @@ impl VecBuffer {
     fn get_value(&self, info: &VecBufferInfo, bit: u32) -> u8 {
         debug_assert!(bit < info.bits);
         let data = &self.data[info.data_range()];
-        let (index, is_lsb) = Self::get_data_index(info.bits, bit);
+        let (index, shift) = Self::get_data_index(info.bits, bit, info.states);
         let byte = data[index];
-        if is_lsb {
-            byte & 0xf
-        } else {
-            (byte >> 4) & 0xf
-        }
+        (byte >> shift) & info.states.mask()
     }
 
     #[inline]
     fn set_value(data: &mut [u8], info: &VecBufferInfo, bit: u32, value: u8) {
         debug_assert!(value <= 0xf);
-        let (index, is_lsb) = Self::get_data_index(info.bits, bit);
+        let (index, shift) = Self::get_data_index(info.bits, bit, info.states);
         let data = &mut data[info.data_range()][index..(index + 1)];
-        if is_lsb {
-            data[0] = (data[0] & 0xf0) | value;
-        } else {
-            data[0] = (data[0] & 0x0f) | (value << 4);
-        }
+        let old_data = data[0] & !(info.states.mask() << shift);
+        data[0] = old_data | (value << shift);
     }
 
-    /// We need to store "left-aligned", big endian 9-value bits.
     #[inline]
-    fn get_data_index(bits: u32, bit: u32) -> (usize, bool) {
+    fn get_data_index(bits: u32, bit: u32, states: States) -> (usize, usize) {
         debug_assert!(bit < bits);
         let mirrored = bits - 1 - bit;
-        let index = (mirrored / 2) as usize;
-        let is_lsb = mirrored % 2 == 1;
-        (index, is_lsb)
+        let index = mirrored as usize / states.bits_in_a_byte();
+        let shift = (bit as usize % states.bits_in_a_byte()) * states.bits();
+        (index, shift)
     }
 }

@@ -516,6 +516,18 @@ impl Encoder {
         }
     }
 
+    pub fn real_change(&mut self, id: SignalRef, value: f64) {
+        assert!(
+            !self.time_table.is_empty(),
+            "We need a call to time_change first!"
+        );
+        if !self.skipping_time_step {
+            let time_idx = (self.time_table.len() - 1) as u16;
+            self.signals[id.index()].add_real_change(time_idx, value);
+            self.has_new_data = true;
+        }
+    }
+
     pub fn finish(mut self) -> Reader {
         // ensure that we have no open blocks
         self.finish_block();
@@ -707,6 +719,17 @@ impl SignalEncoder {
             }
             other => unreachable!("Cannot call add_n_bit_change on signal of type: {other:?}"),
         }
+        // update time index to calculate next delta
+        self.prev_time_idx = time_index;
+    }
+
+    fn add_real_change(&mut self, time_index: u16, value: f64) {
+        let time_idx_delta = time_index - self.prev_time_idx;
+
+        // write var-length time index + fixed little endian float bytes
+        leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
+        self.data.extend_from_slice(&value.to_le_bytes());
+
         // update time index to calculate next delta
         self.prev_time_idx = time_index;
     }

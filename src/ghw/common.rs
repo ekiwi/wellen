@@ -137,6 +137,13 @@ pub fn read_u8(input: &mut impl BufRead) -> Result<u8> {
     Ok(buf[0])
 }
 
+#[inline]
+pub fn read_f64_le(input: &mut impl BufRead) -> Result<f64> {
+    let mut buf = [0u8; 8];
+    input.read_exact(&mut buf)?;
+    Ok(f64::from_le_bytes(buf))
+}
+
 #[derive(Debug)]
 pub struct HeaderData {
     pub version: u8,
@@ -199,8 +206,12 @@ pub struct GhwSignal {
 pub enum SignalType {
     /// Nine value signal encoded as a single byte.
     NineState,
-    /// A single bit in a nine value bit vector. bit N / M bits.
+    /// A single bit in a 9 value bit vector. bit N / M bits.
     NineStateBit(u32, u32),
+    /// Two value signal encoded as a single byte.
+    TwoState,
+    /// A single bit in a 2 value bit vector. bit N / M bits.
+    TwoStateBit(u32, u32),
     /// Binary signal encoded as a single byte with N valid bits.
     U8(u32),
     /// Binary signal encoded as a variable number of bytes with N valid bits.
@@ -281,3 +292,6 @@ pub enum GhwHierarchyKind {
 pub const STD_LOGIC_VALUES: [u8; 9] = [b'u', b'x', b'0', b'1', b'z', b'w', b'l', b'h', b'-'];
 /// Mapping from STD_LOGIC value to the `wellen` nine state encoding: ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-']
 pub const STD_LOGIC_LUT: [u8; 9] = [5, 2, 0, 1, 3, 6, 7, 4, 8];
+
+/// The order in which the two values appear in the BIT enum.
+pub const VHDL_BIT_VALUES: [u8; 2] = [b'0', b'1'];
