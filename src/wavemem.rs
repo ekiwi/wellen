@@ -567,7 +567,10 @@ impl Encoder {
         // the next block might continue the time step
         let end_time = *self.time_table.last().unwrap();
         let new_time_table = vec![end_time];
-        let time_table = std::mem::replace(&mut self.time_table, new_time_table);
+        let mut time_table = std::mem::replace(&mut self.time_table, new_time_table);
+        time_table.shrink_to_fit();
+        offsets.shrink_to_fit();
+        data.shrink_to_fit();
         let block = Block {
             start_time,
             time_table,
