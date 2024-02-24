@@ -71,7 +71,7 @@ fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
     };
     let bits_per_byte = states.bits_in_a_byte() as u32;
     let states_bits = states.bits() as u32;
-    let mask = (1u8 << states_bits) - 1;
+    let mask = states.mask();
 
     let mut out = String::with_capacity(bits as usize);
     if bits == 0 {

@@ -692,11 +692,17 @@ impl SignalEncoder {
                     let write_value = ((time_idx_delta as u64) << 4) + value[0] as u64;
                     leb128::write::unsigned(&mut self.data, write_value).unwrap();
                 } else {
+                    // we automatically compress the signal to its minimum states encoding
+                    let min_states = check_min_state(value, states);
                     // write time and meta data
-                    let time_and_meta = (time_idx_delta as u64) << 2 | (states as u64);
+                    let time_and_meta = (time_idx_delta as u64) << 2 | (min_states as u64);
                     leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
-                    // raw data
-                    self.data.extend_from_slice(value);
+                    if min_states == states {
+                        // raw data
+                        self.data.extend_from_slice(value);
+                    } else {
+                        compress(value, states, min_states, bits as usize, &mut self.data);
+                    }
                 }
             }
             other => unreachable!("Cannot call add_n_bit_change on signal of type: {other:?}"),
@@ -877,6 +883,15 @@ impl States {
         }
     }
 
+    #[inline]
+    pub(crate) fn mask(&self) -> u8 {
+        match self {
+            States::Two => 0x1,
+            States::Four => 0x3,
+            States::Nine => 0xf,
+        }
+    }
+
     /// Returns how many signal bits can be encoded in a u8.
     #[inline]
     pub(crate) fn bits_in_a_byte(&self) -> usize {
@@ -887,6 +902,39 @@ impl States {
 #[cfg(feature = "benchmark")]
 pub fn check_states_pub(value: &[u8]) -> Option<usize> {
     check_states(value).map(|s| s.bits())
+}
+
+#[inline]
+fn check_min_state(value: &[u8], states: States) -> States {
+    if states == States::Two {
+        return States::Two;
+    }
+
+    let mut union = 0;
+    for v in value.iter() {
+        for ii in 0..states.bits_in_a_byte() {
+            union |= ((*v) >> (ii * states.bits())) & states.mask();
+        }
+    }
+    States::from_value(union)
+}
+
+fn compress(value: &[u8], in_states: States, out_states: States, bits: usize, out: &mut Vec<u8>) {
+    debug_assert!(in_states.bits_in_a_byte() < out_states.bits_in_a_byte());
+    let mut working_byte = 0u8;
+    for bit in (0..bits).rev() {
+        let rev_bit = bits - bit - 1;
+        let in_byte = value[rev_bit / in_states.bits_in_a_byte()];
+        let in_value =
+            (in_byte >> ((bit % in_states.bits_in_a_byte()) * in_states.bits())) & in_states.mask();
+        debug_assert!(in_value <= out_states.mask(), "{in_value:?}");
+
+        working_byte = (working_byte << out_states.bits()) + in_value;
+        if bit % out_states.bits_in_a_byte() == 0 {
+            out.push(working_byte);
+            working_byte = 0;
+        }
+    }
 }
 
 #[inline]
@@ -1049,23 +1097,4 @@ mod tests {
             }
         }
     }
-
-    // #[test]
-    // fn test_four_state_to_two_state() {
-    //     let mut input0 = vec![0b01010001u8, 0b00010100u8, 0b00010000u8];
-    //     let expected0 = [0b1101u8, 0b01100100u8];
-    //     four_state_to_two_state(&mut input0);
-    //     assert_eq!(input0, expected0);
-    //
-    //     // example from the try_write_4_state test
-    //     let mut input1 = vec![
-    //         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    //         0, 0, 0, 0, 0b0101, 0b01, 0, 0b0101, 0b01000101, 0b0101,
-    //     ];
-    //     let expected1 = [
-    //         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b110001, 0b11, 0b10110011,
-    //     ];
-    //     four_state_to_two_state(&mut input1);
-    //     assert_eq!(input1, expected1);
-    // }
 }

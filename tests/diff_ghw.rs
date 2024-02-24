@@ -156,7 +156,9 @@ fn diff_signals(ghw: &mut Waveform, fst: &mut Waveform, time_factor: u64) {
                 (Some(og), Some(of)) => {
                     assert_eq!(og.elements, of.elements, "{signal:?} @ {time}");
                     let g_value = g.get_value_at(&og, 0);
+                    ensure_minimal_format(g_value);
                     let f_value = f.get_value_at(&of, 0);
+                    ensure_minimal_format(f_value);
                     match (g_value, f_value) {
                         (SignalValue::String(gs), SignalValue::String(fs)) => {
                             assert_eq!(gs, fs, "{signal:?} @ {time}");
@@ -196,6 +198,31 @@ fn diff_signals(ghw: &mut Waveform, fst: &mut Waveform, time_factor: u64) {
                 _ => assert_eq!(offset_g, offset_f),
             }
         }
+    }
+}
+
+/// Checks to make sure that 4 and 9 state signals are only used when they are required.
+fn ensure_minimal_format(signal_value: SignalValue) {
+    match signal_value {
+        SignalValue::FourValue(_, _) => {
+            let value_str = signal_value.to_bit_string().unwrap();
+            assert!(
+                value_str.contains('x') || value_str.contains('z'),
+                "{value_str} does not need to be represented as a 4-state signal"
+            )
+        }
+        SignalValue::NineValue(_, _) => {
+            let value_str = signal_value.to_bit_string().unwrap();
+            assert!(
+                value_str.contains('h')
+                    || value_str.contains('u')
+                    || value_str.contains('w')
+                    || value_str.contains('l')
+                    || value_str.contains('-'),
+                "{value_str} does not need to be represented as a 9-state signal"
+            )
+        }
+        _ => {} // no check
     }
 }
 
