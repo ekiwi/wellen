@@ -64,7 +64,7 @@ fn read_snapshot_section(
     enc.time_change(start_time);
 
     for sig in info.signals.iter() {
-        read_signal_value(info, sig, vecs, enc, input)?;
+        read_signal_value(sig, vecs, enc, input)?;
     }
     finish_time_step(vecs, enc);
 
@@ -126,7 +126,7 @@ fn read_cycle_signals(
             ));
         }
         let sig = &info.signals[pos_signal_index - 1];
-        read_signal_value(info, sig, vecs, enc, input)?;
+        read_signal_value(sig, vecs, enc, input)?;
     }
     Ok(())
 }
@@ -139,19 +139,20 @@ fn finish_time_step(vecs: &mut VecBuffer, enc: &mut Encoder) {
 }
 
 fn read_signal_value(
-    info: &GhwDecodeInfo,
     signal: &GhwSignal,
     vecs: &mut VecBuffer,
     enc: &mut Encoder,
     input: &mut impl BufRead,
 ) -> Result<()> {
     match signal.tpe {
-        SignalType::NineState(lut) => {
-            let value = [info.decode(read_u8(input)?, lut)];
+        SignalType::NineState => {
+            let ghdl_value = read_u8(input)?;
+            let value = [STD_LOGIC_LUT[ghdl_value as usize]];
             enc.raw_value_change(signal.signal_ref, &value, States::Nine);
         }
-        SignalType::NineStateBit(lut, bit, _) => {
-            let value = info.decode(read_u8(input)?, lut);
+        SignalType::NineStateBit(bit, _) => {
+            let ghdl_value = read_u8(input)?;
+            let value = STD_LOGIC_LUT[ghdl_value as usize];
 
             // check to see if we already had a change to this same bit in the current time step
             if vecs.is_second_change(signal.signal_ref, bit, value) {
@@ -237,7 +238,7 @@ impl VecBuffer {
         let mut offset = 0;
 
         for signal in decode_info.signals.iter() {
-            if let SignalType::NineStateBit(_, 0, bits) = signal.tpe {
+            if let SignalType::NineStateBit(0, bits) = signal.tpe {
                 if info[signal.signal_ref.index()].is_none() {
                     info[signal.signal_ref.index()] = Some(VecBufferInfo { offset, bits });
                     // pad offset to ensure that each value starts with its own byte

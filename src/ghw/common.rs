@@ -184,13 +184,6 @@ impl HeaderData {
 #[derive(Debug, Default)]
 pub struct GhwDecodeInfo {
     pub signals: Vec<GhwSignal>,
-    pub luts: Vec<NineValueLut>,
-}
-
-impl GhwDecodeInfo {
-    pub fn decode(&self, value: u8, lut_id: NineValueLutId) -> u8 {
-        self.luts[lut_id.0 as usize][value as usize]
-    }
 }
 
 /// Holds information from the header needed in order to read the corresponding data in the signal section.
@@ -201,18 +194,13 @@ pub struct GhwSignal {
     pub tpe: SignalType,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub struct NineValueLutId(pub u8);
-
-pub type NineValueLut = [u8; 9];
-
 /// Specifies the signal type info that is needed in order to read it.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum SignalType {
     /// Nine value signal encoded as a single byte.
-    NineState(NineValueLutId),
+    NineState,
     /// A single bit in a nine value bit vector. bit N / M bits.
-    NineStateBit(NineValueLutId, u32, u32),
+    NineStateBit(u32, u32),
     /// Binary signal encoded as a single byte with N valid bits.
     U8(u32),
     /// Binary signal encoded as a variable number of bytes with N valid bits.
@@ -288,3 +276,8 @@ pub enum GhwHierarchyKind {
     Buffer = 20,
     Linkage = 21,
 }
+
+/// The order in which the nine values appear in the STD_LOGIC enum.
+pub const STD_LOGIC_VALUES: [u8; 9] = [b'u', b'x', b'0', b'1', b'z', b'w', b'l', b'h', b'-'];
+/// Mapping from STD_LOGIC value to the `wellen` nine state encoding: ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-']
+pub const STD_LOGIC_LUT: [u8; 9] = [5, 2, 0, 1, 3, 6, 7, 4, 8];

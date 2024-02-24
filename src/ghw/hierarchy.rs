@@ -8,7 +8,6 @@
 
 use crate::ghw::common::*;
 use crate::hierarchy::HierarchyBuilder;
-use crate::wavemem::bit_char_to_num;
 use crate::{
     FileFormat, Hierarchy, ScopeType, SignalRef, Timescale, TimescaleUnit, VarDirection, VarIndex,
     VarType,
@@ -155,7 +154,7 @@ pub(crate) fn read_hierarchy(
                         GhwWellKnownType::Bit => todo!("add bit"),
                         GhwWellKnownType::StdULogic => {
                             debug_assert!(
-                                matches!(tpe, VhdlType::NineValueBit(_, _)),
+                                matches!(tpe, VhdlType::NineValueBit(_)),
                                 "{tpe:?} not recognized a std_ulogic!"
                             );
                         }
@@ -355,9 +354,9 @@ fn read_type_section(
 #[derive(Debug)]
 enum VhdlType {
     /// std_logic or std_ulogic with lut to convert to the `wellen` 9-value representation.
-    NineValueBit(StringId, NineValueLutId),
+    NineValueBit(StringId),
     /// std_logic_vector or std_ulogic_vector with lut to convert to the `wellen` 9-value representation.
-    NineValueVec(StringId, NineValueLutId, IntRange),
+    NineValueVec(StringId, IntRange),
     /// Type alias that does not restrict the underlying type in any way.
     TypeAlias(StringId, TypeId),
     /// Integer type with possible upper and lower bounds.
@@ -415,10 +414,10 @@ impl VhdlType {
         let element_tpe_id = lookup_concrete_type_id(types, element_tpe);
         let index_type = lookup_concrete_type(types, index);
         let index_range = index_type.int_range();
-        if let (VhdlType::NineValueBit(_, lut), Some(range)) =
+        if let (VhdlType::NineValueBit(_), Some(range)) =
             (&types[element_tpe_id.index()], index_range)
         {
-            VhdlType::NineValueVec(name, lut.clone(), range)
+            VhdlType::NineValueVec(name, range)
         } else {
             VhdlType::Array(name, element_tpe_id, index_range)
         }
@@ -437,12 +436,12 @@ impl VhdlType {
                     lookup_concrete_type(types, *element_tpe)
                 )
             }
-            (VhdlType::NineValueVec(base_name, lut, base_range), Range::Int(int_range)) => {
+            (VhdlType::NineValueVec(base_name, base_range), Range::Int(int_range)) => {
                 debug_assert!(
                     int_range.is_subset_of(&base_range),
                     "{int_range:?} {base_range:?}"
                 );
-                VhdlType::NineValueVec(pick_best_name(name, *base_name), lut.clone(), int_range)
+                VhdlType::NineValueVec(pick_best_name(name, *base_name), int_range)
             }
             other => todo!("Currently unsupported combination: {other:?}"),
         }
@@ -462,7 +461,7 @@ impl VhdlType {
                     todo!("actual sub enum!")
                 }
             }
-            (VhdlType::NineValueBit(_, _), Range::Int(int_range)) => {
+            (VhdlType::NineValueBit(_), Range::Int(int_range)) => {
                 let range = int_range.range();
                 if range.start == 0 && range.end == 9 {
                     VhdlType::TypeAlias(name, base)
@@ -484,8 +483,8 @@ impl VhdlType {
 
     fn name(&self) -> StringId {
         match self {
-            VhdlType::NineValueBit(name, _) => *name,
-            VhdlType::NineValueVec(name, _, _) => *name,
+            VhdlType::NineValueBit(name) => *name,
+            VhdlType::NineValueVec(name, _) => *name,
             VhdlType::TypeAlias(name, _) => *name,
             VhdlType::I32(name, _) => *name,
             VhdlType::I64(name, _) => *name,
@@ -498,7 +497,7 @@ impl VhdlType {
 
     fn int_range(&self) -> Option<IntRange> {
         match self {
-            VhdlType::NineValueBit(_, _) => Some(IntRange(RangeDir::To, 0, 8)),
+            VhdlType::NineValueBit(_) => Some(IntRange(RangeDir::To, 0, 8)),
             VhdlType::I32(_, range) => *range,
             VhdlType::I64(_, range) => *range,
             VhdlType::Enum(_, lits) => Some(IntRange(RangeDir::To, 0, lits.len() as i64)),
@@ -517,30 +516,20 @@ fn try_parse_nine_value_bit(
         return None;
     }
 
-    // try to build a translation table
-    let mut lut = [0u8; 9];
-    let mut out_covered = [false; 9];
-
-    // map to the wellen 9-state lookup: ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-'];
-    for (ii, lit_id) in literals.iter().enumerate() {
+    // check to see if it matches the standard std_logic enum
+    for (lit_id, expected) in literals.iter().zip(STD_LOGIC_VALUES.iter()) {
         let lit = tables.get_str(*lit_id).as_bytes();
         let cc = match lit.len() {
             1 => lit[0],
             3 => lit[1], // this is to account for GHDL encoding things as '0' (including the tick!)
             _ => return None,
         };
-        if let Some(out) = bit_char_to_num(cc) {
-            if out_covered[out as usize] {
-                return None; // duplicate detected
-            }
-            out_covered[out as usize] = true;
-            lut[ii] = out;
-        } else {
-            return None; // invalid character
+        if !cc.eq_ignore_ascii_case(expected) {
+            return None; // encoding does not match
         }
     }
-    let lut_id = tables.get_lut_id(lut);
-    Some(VhdlType::NineValueBit(name, lut_id))
+
+    Some(VhdlType::NineValueBit(name))
 }
 
 fn read_well_known_types_section(
@@ -566,7 +555,6 @@ fn read_well_known_types_section(
 struct GhwTables {
     types: Vec<VhdlType>,
     strings: Vec<String>,
-    pub luts: Vec<NineValueLut>,
 }
 
 /// Returns a if it is a non-anonymous string, otherwise b.
@@ -588,12 +576,6 @@ impl GhwTables {
 
     fn get_str(&self, string_id: StringId) -> &str {
         &self.strings[string_id.0]
-    }
-
-    fn get_lut_id(&mut self, lut: NineValueLut) -> NineValueLutId {
-        let id = NineValueLutId(self.luts.len() as u8);
-        self.luts.push(lut);
-        id
     }
 }
 
@@ -661,7 +643,6 @@ fn read_hierarchy_section(
 
     let decode = GhwDecodeInfo {
         signals: signals.into_iter().flatten().collect::<Vec<_>>(),
-        luts: tables.luts.clone(),
     };
 
     Ok((decode, signal_ref_count))
@@ -777,7 +758,7 @@ fn add_var(
             let tpe = SignalType::U8(8); // TODO: try to find the actual number of bits used
             signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
         }
-        VhdlType::NineValueBit(_, lut) => {
+        VhdlType::NineValueBit(_) => {
             let index = read_signal_id(input, signals)?;
             let signal_ref = get_signal_ref(signals, signal_ref_count, index);
             let var_type = match type_name.to_ascii_lowercase().as_str() {
@@ -796,10 +777,10 @@ fn add_var(
                 Some(tpe_name),
             );
             // meta date for writing the signal later
-            let tpe = SignalType::NineState(*lut);
+            let tpe = SignalType::NineState;
             signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
         }
-        VhdlType::NineValueVec(_, lut, range) => {
+        VhdlType::NineValueVec(_, range) => {
             let num_bits = range.len() as u32;
             let mut signal_ids = Vec::with_capacity(num_bits as usize);
             for _ in 0..num_bits {
@@ -823,7 +804,7 @@ fn add_var(
             );
             // meta date for writing the signal later
             for (bit, index) in signal_ids.iter().rev().enumerate() {
-                let tpe = SignalType::NineStateBit(*lut, bit as u32, num_bits);
+                let tpe = SignalType::NineStateBit(bit as u32, num_bits);
                 signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
             }
         }
