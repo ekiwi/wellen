@@ -431,8 +431,11 @@ impl VhdlType {
     fn from_subtype_array(name: StringId, types: &[VhdlType], base: TypeId, range: Range) -> Self {
         let base_tpe = lookup_concrete_type(types, base);
         match (base_tpe, range) {
-            (VhdlType::Array(_, _element_tpe, _maybe_base_range), Range::Int(_int_range)) => {
-                todo!()
+            (VhdlType::Array(base_name, element_tpe, maybe_base_range), Range::Int(int_range)) => {
+                todo!(
+                    "{name:?} of {base_name:?} : {:?} {maybe_base_range:?} {int_range:?}",
+                    lookup_concrete_type(types, *element_tpe)
+                )
             }
             (VhdlType::NineValueVec(base_name, lut, base_range), Range::Int(int_range)) => {
                 debug_assert!(
