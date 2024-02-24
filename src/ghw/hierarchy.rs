@@ -802,7 +802,8 @@ fn add_var(
             let enum_type = h.add_enum_type(tpe_name.clone(), mapping);
             let index = read_signal_id(input, signals)?;
             let signal_ref = get_signal_ref(signals, signal_ref_count, index);
-            let bits = 1;
+            let max_value = literals.len() as u64 - 1;
+            let bits = u64::BITS - max_value.leading_zeros();
             h.add_var(
                 name,
                 VarType::Enum,
