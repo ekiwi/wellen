@@ -324,7 +324,9 @@ impl VecBuffer {
 
     #[inline]
     fn is_second_change(&self, signal_ref: SignalRef, bit: u32, value: u8) -> bool {
-        let info = (&self.info[signal_ref.index()].as_ref()).unwrap();
+        let info = (&self.info[signal_ref.index()].as_ref()).unwrap_or_else(|| {
+            panic!("failed to find signal {signal_ref:?} which has a change! Why is there no read info?")
+        });
         self.has_bit_changed(info, bit) && self.get_value(info, bit) != value
     }
 
