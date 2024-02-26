@@ -713,6 +713,45 @@ fn read_hierarchy_section(
     Ok((decode, signal_ref_count))
 }
 
+fn dummy_read_signal_value(
+    tables: &GhwTables,
+    tpe: &VhdlType,
+    input: &mut impl BufRead,
+) -> Result<()> {
+    match tpe {
+        VhdlType::NineValueBit(_) | VhdlType::Bit(_) | VhdlType::Enum(_, _) => {
+            let _dummy = read_u8(input)?;
+        }
+        VhdlType::NineValueVec(_, range) | VhdlType::BitVec(_, range) => {
+            for _ in range.range() {
+                let _dummy = read_u8(input)?;
+            }
+        }
+        VhdlType::I32(_, _) | VhdlType::I64(_, _) => {
+            let _dummy = leb128::read::signed(input)?;
+        }
+        VhdlType::F64(_, _) => {
+            let _dummy = read_f64_le(input)?;
+        }
+        VhdlType::Record(_, fields) => {
+            for (_, tpe_id) in fields.iter() {
+                let (f_tpe, _) = tables.get_type_and_name(*tpe_id);
+                dummy_read_signal_value(tables, f_tpe, input)?;
+            }
+        }
+        VhdlType::Array(_, el_tpe_id, maybe_range) => {
+            let (element_tpe, _) = tables.get_type_and_name(*el_tpe_id);
+            if let Some(range) = maybe_range {
+                for _ in range.range() {
+                    dummy_read_signal_value(tables, element_tpe, input)?;
+                }
+            }
+        }
+        VhdlType::TypeAlias(_, _) => unreachable!("type should have been resolved"),
+    }
+    Ok(())
+}
+
 fn read_hierarchy_scope(
     tables: &GhwTables,
     input: &mut impl BufRead,
@@ -722,8 +761,10 @@ fn read_hierarchy_scope(
     let name = read_string_id(input)?;
 
     if kind == GhwHierarchyKind::GenerateFor {
-        let _iter_type = read_type_id(input)?;
-        todo!("read value");
+        let iter_tpe_id = read_type_id(input)?;
+        let (iter_tpe, _) = tables.get_type_and_name(iter_tpe_id);
+        dummy_read_signal_value(tables, iter_tpe, input)?;
+        // we currently do not make use of the actual value
     }
 
     h.add_scope(
@@ -895,7 +936,11 @@ fn add_var(
             })
         }
         VhdlType::NineValueVec(_, range) | VhdlType::BitVec(_, range) => {
-            let num_bits = range.len() as u32;
+            let num_bits = range.len().abs() as u32;
+            if num_bits == 0 {
+                // TODO: how should we correctly deal with an empty vector?
+                return Ok(());
+            }
             let mut signal_ids = Vec::with_capacity(num_bits as usize);
             for _ in 0..num_bits {
                 signal_ids.push(read_signal_id(input, signals)?);

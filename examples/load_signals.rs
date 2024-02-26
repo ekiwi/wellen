@@ -67,6 +67,7 @@ fn main() {
         "vcd" => {
             wellen::vcd::read_with_options(&args.filename, VCD_OPTS).expect("Failed to load VCD.")
         }
+        "ghw" => wellen::ghw::read(&args.filename).expect("Failed to load GHW."),
         other => panic!("Unsupported file extension: {other}"),
     };
     let load_duration = start.elapsed();
