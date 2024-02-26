@@ -7,12 +7,13 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::ghw::common::*;
-use crate::hierarchy::HierarchyBuilder;
+use crate::hierarchy::{EnumTypeId, HierarchyBuilder, HierarchyStringId};
 use crate::{
     FileFormat, Hierarchy, ScopeType, SignalRef, Timescale, TimescaleUnit, VarDirection, VarIndex,
     VarType,
 };
 use num_enum::TryFromPrimitive;
+use std::collections::HashMap;
 use std::io::{BufRead, Seek, SeekFrom};
 use std::num::NonZeroU32;
 
@@ -114,6 +115,7 @@ pub(crate) fn read_hierarchy(
     input: &mut impl BufRead,
 ) -> Result<(GhwDecodeInfo, usize, Hierarchy)> {
     let mut tables = GhwTables::default();
+    let mut strings = Vec::new();
     let mut decode = GhwDecodeInfo::default();
     let mut hb = HierarchyBuilder::new(FileFormat::Ghw);
     let mut signal_ref_count = 0;
@@ -129,16 +131,22 @@ pub(crate) fn read_hierarchy(
             GHW_STRING_SECTION => {
                 let table = read_string_section(header, input)?;
                 debug_assert!(
-                    tables.strings.is_empty(),
+                    strings.is_empty(),
                     "unexpected second string table:\n{:?}\n{:?}",
-                    &tables.strings,
+                    &strings,
                     &table
                 );
-                tables.strings = table;
+                strings = table;
+                // add all strings to the hierarchy
+                tables.strings = strings.iter().cloned().map(|s| hb.add_string(s)).collect();
             }
             GHW_TYPE_SECTION => {
                 debug_assert!(tables.types.is_empty(), "unexpected second type table");
-                read_type_section(header, &mut tables, input)?;
+                let types = read_type_section(header, &strings, input)?;
+                tables.types = types;
+
+                // add enums to the table
+                tables.enums = add_enums_to_wellen_hierarchy(&tables, &mut hb)?;
             }
             GHW_WK_TYPE_SECTION => {
                 let wkts = read_well_known_types_section(input)?;
@@ -153,7 +161,7 @@ pub(crate) fn read_hierarchy(
                         GhwWellKnownType::Boolean => {
                             // we expect the bool to be represented as an enum
                             debug_assert!(
-                                matches!(tpe, VhdlType::Enum(_, _)),
+                                matches!(tpe, VhdlType::Enum(_, _, _)),
                                 "{tpe:?} not recognized a VHDL bool!"
                             );
                         }
@@ -195,6 +203,48 @@ pub(crate) fn read_hierarchy(
     }
     let hierarchy = hb.finish();
     Ok((decode, signal_ref_count, hierarchy))
+}
+
+/// adds all enums to the hierarchy and
+fn add_enums_to_wellen_hierarchy(
+    tables: &GhwTables,
+    hb: &mut HierarchyBuilder,
+) -> Result<Vec<EnumTypeId>> {
+    let mut string_cache: HashMap<(u16, u16), HierarchyStringId> = HashMap::new();
+    let mut out = Vec::new();
+    for tpe in tables.types.iter() {
+        if let VhdlType::Enum(name, lits, enum_id) = tpe {
+            let bits = get_enum_bits(&lits) as u16;
+            let literals: Vec<_> = lits
+                .iter()
+                .enumerate()
+                .map(|(ii, str_id)| {
+                    // generate a string representation of the enum encoding
+                    let key = (bits, ii as u16);
+                    let index_str_id = match string_cache.get(&key) {
+                        Some(id) => *id,
+                        None => {
+                            let name = format!("{ii:0bits$b}", bits = bits as usize);
+                            let id = hb.add_string(name);
+                            string_cache.insert(key, id);
+                            id
+                        }
+                    };
+                    (index_str_id, tables.strings[str_id.0])
+                })
+                .collect();
+            let enum_type_id = hb.add_enum_type(tables.strings[name.0], literals);
+            assert_eq!(out.len(), (*enum_id) as usize);
+            out.push(enum_type_id)
+        }
+    }
+    Ok(out)
+}
+
+fn get_enum_bits(literals: &[StringId]) -> u32 {
+    let max_value = literals.len() as u64 - 1;
+    let bits = u64::BITS - max_value.leading_zeros();
+    bits
 }
 
 fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<String>> {
@@ -286,15 +336,16 @@ fn read_range(input: &mut impl BufRead) -> Result<Range> {
 
 fn read_type_section(
     header: &HeaderData,
-    tables: &mut GhwTables,
+    strings: &[String],
     input: &mut impl BufRead,
-) -> Result<()> {
+) -> Result<Vec<VhdlType>> {
     let mut h = [0u8; 8];
     input.read_exact(&mut h)?;
     check_header_zeros("type", &h)?;
 
     let type_num = header.read_u32(&mut &h[4..8])?;
-    tables.types = Vec::with_capacity(type_num as usize);
+    let mut types = Vec::with_capacity(type_num as usize);
+    let mut enum_count = 0;
 
     for _ in 0..type_num {
         let t = read_u8(input)?;
@@ -307,7 +358,7 @@ fn read_type_section(
                 for _ in 0..num_literals {
                     literals.push(read_string_id(input)?);
                 }
-                VhdlType::from_enum(tables, name, literals)
+                VhdlType::from_enum(strings, &mut enum_count, name, literals)
             }
             GhwRtik::TypeI32 => VhdlType::I32(name, None),
             GhwRtik::TypeI64 => VhdlType::I64(name, None),
@@ -315,7 +366,7 @@ fn read_type_section(
             GhwRtik::SubtypeScalar => {
                 let base = read_type_id(input)?;
                 let range = read_range(input)?;
-                VhdlType::from_subtype_scalar(name, &tables.types, base, range)
+                VhdlType::from_subtype_scalar(name, &types, base, range)
             }
             GhwRtik::TypeArray => {
                 let element_tpe = read_type_id(input)?;
@@ -328,12 +379,12 @@ fn read_type_section(
                 if dims.len() > 1 {
                     todo!("support multi-dimensional arrays!")
                 }
-                VhdlType::from_array(name, &tables.types, element_tpe, dims[0])
+                VhdlType::from_array(name, &types, element_tpe, dims[0])
             }
             GhwRtik::SubtypeArray => {
                 let base = read_type_id(input)?;
                 let range = read_range(input)?;
-                VhdlType::from_subtype_array(name, &tables.types, base, range)
+                VhdlType::from_subtype_array(name, &types, base, range)
             }
             GhwRtik::TypeRecord => {
                 let num_fields = leb128::read::unsigned(input)?;
@@ -348,7 +399,7 @@ fn read_type_section(
             }
             other => todo!("Support: {other:?}"),
         };
-        tables.types.push(tpe);
+        types.push(tpe);
     }
 
     // the type section should end in zero
@@ -358,7 +409,7 @@ fn read_type_section(
             "last byte should be 0".to_string(),
         ))
     } else {
-        Ok(())
+        Ok(types)
     }
 }
 
@@ -384,8 +435,8 @@ enum VhdlType {
     F64(StringId, Option<FloatRange>),
     /// Record with fields.
     Record(StringId, Vec<(StringId, TypeId)>),
-    /// An enum that was not detected to be a 9-value bit.
-    Enum(StringId, Vec<StringId>),
+    /// An enum that was not detected to be a 9-value bit. The last entry is a unique ID, starting at 0.
+    Enum(StringId, Vec<StringId>, u16),
     /// Array
     Array(StringId, TypeId, Option<IntRange>),
 }
@@ -419,13 +470,20 @@ fn lookup_concrete_type_id(types: &[VhdlType], type_id: TypeId) -> TypeId {
 }
 
 impl VhdlType {
-    fn from_enum(tables: &mut GhwTables, name: StringId, literals: Vec<StringId>) -> Self {
-        if let Some(nine_value) = try_parse_nine_value_bit(tables, name, &literals) {
+    fn from_enum(
+        strings: &[String],
+        enum_count: &mut u16,
+        name: StringId,
+        literals: Vec<StringId>,
+    ) -> Self {
+        if let Some(nine_value) = try_parse_nine_value_bit(strings, name, &literals) {
             nine_value
-        } else if let Some(two_value) = try_parse_two_value_bit(tables, name, &literals) {
+        } else if let Some(two_value) = try_parse_two_value_bit(strings, name, &literals) {
             two_value
         } else {
-            VhdlType::Enum(name, literals)
+            let e = VhdlType::Enum(name, literals, *enum_count);
+            *enum_count += 1;
+            e
         }
     }
 
@@ -483,7 +541,7 @@ impl VhdlType {
     fn from_subtype_scalar(name: StringId, types: &[VhdlType], base: TypeId, range: Range) -> Self {
         let base_tpe = lookup_concrete_type(types, base);
         match (base_tpe, range) {
-            (VhdlType::Enum(_, lits), Range::Int(int_range)) => {
+            (VhdlType::Enum(_, lits, _), Range::Int(int_range)) => {
                 let range = int_range.range();
                 debug_assert!(range.start >= 0 && range.start <= lits.len() as i64);
                 debug_assert!(range.end >= 0 && range.end <= lits.len() as i64);
@@ -533,7 +591,7 @@ impl VhdlType {
             VhdlType::I64(name, _) => *name,
             VhdlType::F64(name, _) => *name,
             VhdlType::Record(name, _) => *name,
-            VhdlType::Enum(name, _) => *name,
+            VhdlType::Enum(name, _, _) => *name,
             VhdlType::Array(name, _, _) => *name,
         }
     }
@@ -543,7 +601,7 @@ impl VhdlType {
             VhdlType::NineValueBit(_) => Some(IntRange(RangeDir::To, 0, 8)),
             VhdlType::I32(_, range) => *range,
             VhdlType::I64(_, range) => *range,
-            VhdlType::Enum(_, lits) => Some(IntRange(RangeDir::To, 0, lits.len() as i64)),
+            VhdlType::Enum(_, lits, _) => Some(IntRange(RangeDir::To, 0, lits.len() as i64)),
             _ => None,
         }
     }
@@ -551,11 +609,11 @@ impl VhdlType {
 
 /// Returns Some(VhdlType::NineValueBit(..)) if the enum corresponds to a 9-value bit type.
 fn try_parse_nine_value_bit(
-    tables: &GhwTables,
+    strings: &[String],
     name: StringId,
     literals: &[StringId],
 ) -> Option<VhdlType> {
-    if check_literals_match(tables, literals, &STD_LOGIC_VALUES) {
+    if check_literals_match(strings, literals, &STD_LOGIC_VALUES) {
         Some(VhdlType::NineValueBit(name))
     } else {
         None
@@ -564,11 +622,11 @@ fn try_parse_nine_value_bit(
 
 /// Returns Some(VhdlType::Bit(..)) if the enum corresponds to a 2-value bit type.
 fn try_parse_two_value_bit(
-    tables: &GhwTables,
+    strings: &[String],
     name: StringId,
     literals: &[StringId],
 ) -> Option<VhdlType> {
-    if check_literals_match(tables, literals, &VHDL_BIT_VALUES) {
+    if check_literals_match(strings, literals, &VHDL_BIT_VALUES) {
         Some(VhdlType::Bit(name))
     } else {
         None
@@ -576,14 +634,14 @@ fn try_parse_two_value_bit(
 }
 
 #[inline]
-fn check_literals_match(tables: &GhwTables, literals: &[StringId], expected: &[u8]) -> bool {
+fn check_literals_match(strings: &[String], literals: &[StringId], expected: &[u8]) -> bool {
     if literals.len() != expected.len() {
         return false;
     }
 
     // check to see if it matches the standard std_logic enum
     for (lit_id, expected) in literals.iter().zip(expected.iter()) {
-        let lit = tables.get_str(*lit_id).as_bytes();
+        let lit = strings[lit_id.0].as_bytes();
         let cc = match lit.len() {
             1 => lit[0],
             3 => lit[1], // this is to account for GHDL encoding things as '0' (including the tick!)
@@ -619,7 +677,8 @@ fn read_well_known_types_section(
 #[derive(Debug, Default)]
 struct GhwTables {
     types: Vec<VhdlType>,
-    strings: Vec<String>,
+    strings: Vec<HierarchyStringId>,
+    enums: Vec<EnumTypeId>,
 }
 
 /// Returns a if it is a non-anonymous string, otherwise b.
@@ -632,15 +691,15 @@ fn pick_best_name(a: StringId, b: StringId) -> StringId {
 }
 
 impl GhwTables {
-    fn get_type_and_name(&self, type_id: TypeId) -> (&VhdlType, &str) {
+    fn get_type_and_name(&self, type_id: TypeId) -> (&VhdlType, HierarchyStringId) {
         let top_name = self.types[type_id.index()].name();
         let tpe = lookup_concrete_type(&self.types, type_id);
         let name = pick_best_name(top_name, tpe.name());
         (tpe, self.get_str(name))
     }
 
-    fn get_str(&self, string_id: StringId) -> &str {
-        &self.strings[string_id.0]
+    fn get_str(&self, string_id: StringId) -> HierarchyStringId {
+        self.strings[string_id.0]
     }
 }
 
@@ -664,6 +723,7 @@ fn read_hierarchy_section(
     let mut signals: Vec<Option<GhwSignal>> = Vec::with_capacity(max_signal_id + 1);
     signals.resize(max_signal_id + 1, None);
     let mut signal_ref_count = 0;
+    let mut index_string_cache = IndexCache::new();
 
     loop {
         let kind = GhwHierarchyKind::try_from_primitive(read_u8(input)?)?;
@@ -692,7 +752,15 @@ fn read_hierarchy_section(
             | GhwHierarchyKind::PortInOut
             | GhwHierarchyKind::Buffer
             | GhwHierarchyKind::Linkage => {
-                read_hierarchy_var(tables, input, kind, &mut signals, &mut signal_ref_count, h)?;
+                read_hierarchy_var(
+                    tables,
+                    input,
+                    kind,
+                    &mut signals,
+                    &mut signal_ref_count,
+                    &mut index_string_cache,
+                    h,
+                )?;
                 num_declared_vars += 1;
                 if num_declared_vars > expected_num_declared_vars {
                     return Err(GhwParseError::FailedToParseSection(
@@ -719,7 +787,7 @@ fn dummy_read_signal_value(
     input: &mut impl BufRead,
 ) -> Result<()> {
     match tpe {
-        VhdlType::NineValueBit(_) | VhdlType::Bit(_) | VhdlType::Enum(_, _) => {
+        VhdlType::NineValueBit(_) | VhdlType::Bit(_) | VhdlType::Enum(_, _, _) => {
             let _dummy = read_u8(input)?;
         }
         VhdlType::NineValueVec(_, range) | VhdlType::BitVec(_, range) => {
@@ -769,7 +837,7 @@ fn read_hierarchy_scope(
 
     h.add_scope(
         // TODO: this does not take advantage of the string duplication done in GHW
-        tables.get_str(name).to_string(),
+        tables.get_str(name),
         None, // TODO: do we know, e.g., the name of a module if we have an instance?
         convert_scope_type(kind),
         None, // no source info in GHW
@@ -801,12 +869,23 @@ fn read_hierarchy_var(
     kind: GhwHierarchyKind,
     signals: &mut [Option<GhwSignal>],
     signal_ref_count: &mut usize,
+    index_string_cache: &mut IndexCache,
     h: &mut HierarchyBuilder,
 ) -> Result<()> {
     let name_id = read_string_id(input)?;
-    let name = tables.get_str(name_id).to_string();
+    let name = tables.get_str(name_id);
     let tpe = read_type_id(input)?;
-    add_var(tables, input, kind, signals, signal_ref_count, h, name, tpe)
+    add_var(
+        tables,
+        input,
+        kind,
+        signals,
+        signal_ref_count,
+        index_string_cache,
+        h,
+        name,
+        tpe,
+    )
 }
 
 /// Creates a new signal ref unless one is already available (because of aliasing!)
@@ -825,32 +904,42 @@ fn get_signal_ref(
     }
 }
 
+type IndexCache = HashMap<i64, HierarchyStringId>;
+
+fn get_index_string(
+    index_string_cache: &mut IndexCache,
+    h: &mut HierarchyBuilder,
+    element_id: i64,
+) -> HierarchyStringId {
+    match index_string_cache.get(&element_id) {
+        Some(id) => *id,
+        None => {
+            let id = h.add_string(format!("[{element_id}]"));
+            index_string_cache.insert(element_id, id);
+            id
+        }
+    }
+}
+
 fn add_var(
     tables: &GhwTables,
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
     signals: &mut [Option<GhwSignal>],
     signal_ref_count: &mut usize,
+    index_string_cache: &mut IndexCache,
     h: &mut HierarchyBuilder,
-    name: String,
+    name: HierarchyStringId,
     type_id: TypeId,
 ) -> Result<()> {
-    let (vhdl_tpe, type_name) = tables.get_type_and_name(type_id);
+    let (vhdl_tpe, tpe_name) = tables.get_type_and_name(type_id);
     let dir = convert_kind_to_dir(kind);
-    let tpe_name = type_name.to_string();
     match vhdl_tpe {
-        VhdlType::Enum(_, literals) => {
-            // TODO: add enum type lazily
-            let mapping = literals
-                .iter()
-                .enumerate()
-                .map(|(ii, lit)| (format!("{ii}"), tables.get_str(*lit).to_string()))
-                .collect::<Vec<_>>();
-            let enum_type = h.add_enum_type(tpe_name.clone(), mapping);
+        VhdlType::Enum(_, literals, enum_id) => {
+            let enum_type = tables.enums[*enum_id as usize];
             let index = read_signal_id(input, signals)?;
             let signal_ref = get_signal_ref(signals, signal_ref_count, index);
-            let max_value = literals.len() as u64 - 1;
-            let bits = u64::BITS - max_value.leading_zeros();
+            let bits = get_enum_bits(&literals);
             h.add_var(
                 name,
                 VarType::Enum,
@@ -868,7 +957,7 @@ fn add_var(
         VhdlType::NineValueBit(_) | VhdlType::Bit(_) => {
             let index = read_signal_id(input, signals)?;
             let signal_ref = get_signal_ref(signals, signal_ref_count, index);
-            let var_type = match type_name.to_ascii_lowercase().as_str() {
+            let var_type = match h.get_str(tpe_name).to_ascii_lowercase().as_str() {
                 "std_ulogic" => VarType::StdULogic,
                 "std_logic" => VarType::StdLogic,
                 "bit" => VarType::Bit,
@@ -946,7 +1035,7 @@ fn add_var(
                 signal_ids.push(read_signal_id(input, signals)?);
             }
             let signal_ref = get_signal_ref(signals, signal_ref_count, signal_ids[0]);
-            let var_type = match type_name.to_ascii_lowercase().as_str() {
+            let var_type = match h.get_str(tpe_name).to_ascii_lowercase().as_str() {
                 "std_ulogic_vector" => VarType::StdULogicVector,
                 "std_logic_vector" => VarType::StdLogicVector,
                 "bit_vector" => VarType::BitVector,
@@ -982,8 +1071,9 @@ fn add_var(
                     kind,
                     signals,
                     signal_ref_count,
+                    index_string_cache,
                     h,
-                    tables.get_str(*field_name).to_string(),
+                    tables.get_str(*field_name),
                     *field_type,
                 )?;
             }
@@ -994,13 +1084,14 @@ fn add_var(
             let range = IntRange::from_i32_option(*maybe_range);
             h.add_scope(name, None, ScopeType::VhdlArray, None, None, false);
             for element_id in range.range() {
-                let name = format!("[{element_id}]");
+                let name = get_index_string(index_string_cache, h, element_id);
                 add_var(
                     tables,
                     input,
                     kind,
                     signals,
                     signal_ref_count,
+                    index_string_cache,
                     h,
                     name,
                     *element_tpe,

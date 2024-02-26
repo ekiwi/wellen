@@ -791,6 +791,8 @@ pub struct HierarchyBuilder {
     meta: HierarchyMetaData,
 }
 
+const EMPTY_STRING: HierarchyStringId = HierarchyStringId(unsafe { NonZeroU32::new_unchecked(1) });
+
 impl HierarchyBuilder {
     pub(crate) fn new(file_type: FileFormat) -> Self {
         // we start with a fake entry in the scope stack to keep track of multiple items in the top scope
@@ -804,7 +806,7 @@ impl HierarchyBuilder {
             scopes: Vec::default(),
             first_item: None,
             scope_stack,
-            strings: Vec::default(),
+            strings: vec!["".to_string()], // string 0 is ""
             source_locs: Vec::default(),
             enums: Vec::default(),
             handle_to_node: Vec::default(),
@@ -834,11 +836,18 @@ impl HierarchyBuilder {
     }
 
     pub(crate) fn add_string(&mut self, value: String) -> HierarchyStringId {
+        if value.is_empty() {
+            return EMPTY_STRING;
+        }
         // we assign each string a unique ID, currently we make no effort to avoid saving the same string twice
         let sym = HierarchyStringId::from_index(self.strings.len());
         self.strings.push(value);
         debug_assert_eq!(self.strings.len(), sym.index() + 1);
         sym
+    }
+
+    pub(crate) fn get_str(&self, id: HierarchyStringId) -> &str {
+        &self.strings[id.index()]
     }
 
     pub(crate) fn add_source_loc(
@@ -858,15 +867,9 @@ impl HierarchyBuilder {
 
     pub(crate) fn add_enum_type(
         &mut self,
-        name: String,
-        mapping: Vec<(String, String)>,
+        name: HierarchyStringId,
+        mapping: Vec<(HierarchyStringId, HierarchyStringId)>,
     ) -> EnumTypeId {
-        let name = self.add_string(name);
-        let mapping = mapping
-            .into_iter()
-            .map(|(a, b)| (self.add_string(a), self.add_string(b)))
-            .collect::<Vec<_>>();
-
         let sym = EnumTypeId::from_index(self.enums.len());
         self.enums.push(EnumType { name, mapping });
         sym
@@ -908,8 +911,8 @@ impl HierarchyBuilder {
 
     pub fn add_scope(
         &mut self,
-        name: String,
-        component: Option<String>,
+        name: HierarchyStringId,
+        component: Option<HierarchyStringId>,
         tpe: ScopeType,
         declaration_source: Option<SourceLocId>,
         instance_source: Option<SourceLocId>,
@@ -940,10 +943,10 @@ impl HierarchyBuilder {
             let component = match component {
                 None => None,
                 Some(name) => {
-                    if name.is_empty() {
+                    if name == EMPTY_STRING {
                         None
                     } else {
-                        Some(self.add_string(name))
+                        Some(name)
                     }
                 }
             };
@@ -953,7 +956,7 @@ impl HierarchyBuilder {
                 parent,
                 child: None,
                 next: None,
-                name: self.add_string(name),
+                name,
                 component,
                 tpe,
                 declaration_source,
@@ -965,14 +968,14 @@ impl HierarchyBuilder {
 
     pub fn add_var(
         &mut self,
-        name: String,
+        name: HierarchyStringId,
         tpe: VarType,
         direction: VarDirection,
         raw_length: u32,
         index: Option<VarIndex>,
         signal_idx: SignalRef,
         enum_type: Option<EnumTypeId>,
-        vhdl_type_name: Option<String>,
+        vhdl_type_name: Option<HierarchyStringId>,
     ) {
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
@@ -999,14 +1002,14 @@ impl HierarchyBuilder {
         // now we can build the node data structure and store it
         let node = Var {
             parent,
-            name: self.add_string(name),
+            name,
             var_tpe: tpe,
             direction,
             signal_tpe,
             signal_idx,
             enum_type,
             next: None,
-            vhdl_type_name: vhdl_type_name.map(|s| self.add_string(s)),
+            vhdl_type_name,
         };
         self.vars.push(node);
     }

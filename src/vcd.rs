@@ -125,8 +125,9 @@ fn read_hierarchy(
             let flatten = options.remove_scopes_with_empty_name && name.is_empty();
             let (declaration_source, instance_source) =
                 parse_scope_attributes(&mut attributes, &mut h)?;
+            let name = h.add_string(std::str::from_utf8(name)?.to_string());
             h.add_scope(
-                std::str::from_utf8(name)?.to_string(),
+                name,
                 None, // VCDs do not contain component names
                 convert_scope_tpe(tpe)?,
                 declaration_source,
@@ -144,8 +145,10 @@ fn read_hierarchy(
             let (var_name, index) = extract_index_from_name(name);
             let (type_name, var_type, enum_type) =
                 parse_var_attributes(&mut attributes, convert_var_tpe(tpe)?, &var_name)?;
+            let name = h.add_string(var_name);
+            let type_name = type_name.map(|s| h.add_string(s));
             h.add_var(
-                var_name,
+                name,
                 var_type,
                 VarDirection::vcd_default(),
                 u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
@@ -171,8 +174,10 @@ fn read_hierarchy(
             let var_name = std::str::from_utf8(name).unwrap().to_string();
             let (type_name, var_type, enum_type) =
                 parse_var_attributes(&mut attributes, convert_var_tpe(tpe)?, &var_name)?;
+            let name = h.add_string(var_name);
+            let type_name = type_name.map(|s| h.add_string(s));
             h.add_var(
-                var_name,
+                name,
                 var_type,
                 VarDirection::vcd_default(),
                 length,

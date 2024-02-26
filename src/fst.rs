@@ -553,9 +553,11 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
             } => {
                 let (declaration_source, instance_source) =
                     parse_scope_attributes(&mut attributes, &mut h).unwrap();
+                let name_id = h.add_string(name);
+                let component_id = h.add_string(component);
                 h.add_scope(
-                    name,
-                    Some(component),
+                    name_id,
+                    Some(component_id),
                     convert_scope_tpe(tpe),
                     declaration_source,
                     instance_source,
@@ -580,8 +582,10 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
 
                 let (type_name, var_type, enum_type) =
                     parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name).unwrap();
+                let name_id = h.add_string(var_name);
+                let type_name = type_name.map(|s| h.add_string(s));
                 h.add_var(
-                    var_name,
+                    name_id,
                     var_type,
                     convert_var_direction(direction),
                     length,
@@ -609,6 +613,11 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
                 handle,
                 mapping,
             } => {
+                let mapping = mapping
+                    .into_iter()
+                    .map(|(a, b)| (h.add_string(a), h.add_string(b)))
+                    .collect::<Vec<_>>();
+                let name = h.add_string(name);
                 let enum_ref = h.add_enum_type(name, mapping);
                 // remember enum table by handle
                 enums.insert(handle, enum_ref);
