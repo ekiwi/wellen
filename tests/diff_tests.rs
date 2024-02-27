@@ -536,6 +536,12 @@ fn diff_riviera_pro_dump() {
     );
 }
 
+/// This VCD file contains very large signal references which cannot directly be converted to a SignalRef
+#[test]
+fn diff_specs_tracefile() {
+    run_diff_test_vcd_only("inputs/specs/tracefile.vcd");
+}
+
 #[test]
 fn diff_surfer_counter() {
     run_diff_test("inputs/surfer/counter.vcd", "inputs/surfer/counter.vcd.fst");

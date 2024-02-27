@@ -42,14 +42,16 @@ pub fn read_with_options(filename: &str, options: LoadOptions) -> Result<Wavefor
     // load file into memory (lazily)
     let input_file = std::fs::File::open(filename).expect("failed to open input file!");
     let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
-    let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&mmap[..]), &options)?;
-    let wave_mem = read_values(&mmap[header_len..], &options, &hierarchy)?;
+    let (header_len, hierarchy, lookup) =
+        read_hierarchy(&mut std::io::Cursor::new(&mmap[..]), &options)?;
+    let wave_mem = read_values(&mmap[header_len..], &options, &hierarchy, &lookup)?;
     Ok(Waveform::new(hierarchy, wave_mem))
 }
 
 pub fn read_from_bytes_with_options(bytes: &[u8], options: LoadOptions) -> Result<Waveform> {
-    let (header_len, hierarchy) = read_hierarchy(&mut std::io::Cursor::new(&bytes), &options)?;
-    let wave_mem = read_values(&bytes[header_len..], &options, &hierarchy)?;
+    let (header_len, hierarchy, lookup) =
+        read_hierarchy(&mut std::io::Cursor::new(&bytes), &options)?;
+    let wave_mem = read_values(&bytes[header_len..], &options, &hierarchy, &lookup)?;
     Ok(Waveform::new(hierarchy, wave_mem))
 }
 
@@ -111,14 +113,48 @@ fn parse_attribute(
     }
 }
 
+type IdLookup = Option<HashMap<Vec<u8>, SignalRef>>;
+
 fn read_hierarchy(
     input: &mut (impl BufRead + Seek),
     options: &LoadOptions,
-) -> Result<(usize, Hierarchy)> {
+) -> Result<(usize, Hierarchy, IdLookup)> {
     let start = input.stream_position().unwrap();
     let mut h = HierarchyBuilder::new(FileFormat::Vcd);
     let mut attributes = Vec::new();
     let mut path_names = HashMap::new();
+    // this map is used to translate identifiers to signal references for cases where we detect ids that are too large
+    let mut id_map: HashMap<Vec<u8>, SignalRef> = HashMap::new();
+    let mut use_id_map = false;
+    let mut var_count = 0u64;
+
+    let mut id_to_signal_ref = |id: &[u8], var_count: u64| -> SignalRef {
+        // currently we only make a decision of whether to switch to a hash_map based lookup when we are at the first variable
+        if var_count == 0 {
+            if let Some(id_value) = id_to_int(id) {
+                if id_value < 1024 * 1024 {
+                    return SignalRef::from_index(id_value as usize).unwrap();
+                } else {
+                    use_id_map = true;
+                }
+            } else {
+                use_id_map = true;
+            }
+        }
+
+        if use_id_map {
+            match id_map.get(id) {
+                Some(signal_ref) => *signal_ref,
+                None => {
+                    let signal_ref = SignalRef::from_index(id_map.len() + 1).unwrap();
+                    id_map.insert(id.to_vec(), signal_ref);
+                    signal_ref
+                }
+            }
+        } else {
+            SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap()
+        }
+    };
 
     let foo = |cmd: HeaderCmd| match cmd {
         HeaderCmd::Scope(tpe, name) => {
@@ -153,10 +189,11 @@ fn read_hierarchy(
                 VarDirection::vcd_default(),
                 u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10).unwrap(),
                 index,
-                SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
+                id_to_signal_ref(id, var_count),
                 enum_type,
                 type_name,
             );
+            var_count += 1;
             Ok(())
         }
         HeaderCmd::VectorVar(tpe, size, id, name, index) => {
@@ -182,10 +219,11 @@ fn read_hierarchy(
                 VarDirection::vcd_default(),
                 length,
                 index,
-                SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap(),
+                id_to_signal_ref(id, var_count),
                 enum_type,
                 type_name,
             );
+            var_count += 1;
             Ok(())
         }
         HeaderCmd::Date(value) => {
@@ -217,7 +255,8 @@ fn read_hierarchy(
     read_header(input, foo).unwrap();
     let end = input.stream_position().unwrap();
     let hierarchy = h.finish();
-    Ok(((end - start) as usize, hierarchy))
+    let lookup = if use_id_map { Some(id_map) } else { None };
+    Ok(((end - start) as usize, hierarchy, lookup))
 }
 
 /// Tries to see if the name contains an index that is not white-space separated.
@@ -706,6 +745,7 @@ fn read_values(
     input: &[u8],
     options: &LoadOptions,
     hierarchy: &Hierarchy,
+    lookup: &IdLookup,
 ) -> Result<Box<crate::wavemem::Reader>> {
     if options.multi_thread {
         let chunks = determine_thread_chunks(input.len());
@@ -727,6 +767,7 @@ fn read_values(
                     is_first,
                     starts_on_new_line,
                     hierarchy,
+                    lookup,
                 )
             })
             .collect();
@@ -739,7 +780,8 @@ fn read_values(
         }
         Ok(Box::new(encoder.finish()))
     } else {
-        let encoder = read_single_stream_of_values(input, input.len() - 1, true, true, hierarchy);
+        let encoder =
+            read_single_stream_of_values(input, input.len() - 1, true, true, hierarchy, lookup);
         Ok(Box::new(encoder.finish()))
     }
 }
@@ -750,6 +792,7 @@ fn read_single_stream_of_values<'a>(
     is_first: bool,
     starts_on_new_line: bool,
     hierarchy: &Hierarchy,
+    lookup: &IdLookup,
 ) -> crate::wavemem::Encoder {
     let mut encoder = crate::wavemem::Encoder::new(hierarchy);
 
@@ -783,7 +826,11 @@ fn read_single_stream_of_values<'a>(
                         found_first_time_step = true;
                     }
                     if found_first_time_step {
-                        encoder.vcd_value_change(id_to_int(id).unwrap(), value);
+                        let num_id = match lookup {
+                            None => id_to_int(id).unwrap(),
+                            Some(lookup) => lookup[id].index() as u64,
+                        };
+                        encoder.vcd_value_change(num_id, value);
                     }
                 }
             };
