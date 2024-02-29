@@ -536,6 +536,11 @@ fn diff_riviera_pro_dump() {
     );
 }
 
+#[test]
+fn diff_sigrok_libsigrok() {
+    run_diff_test_vcd_only("inputs/sigrok/libsigrok.vcd");
+}
+
 /// This VCD file contains very large signal references which cannot directly be converted to a SignalRef
 #[test]
 fn diff_specs_tracefile() {
