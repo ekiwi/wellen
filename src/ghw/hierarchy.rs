@@ -724,6 +724,7 @@ fn read_hierarchy_section(
     signals.resize(max_signal_id + 1, None);
     let mut signal_ref_count = 0;
     let mut index_string_cache = IndexCache::new();
+    let mut aliases = AliasTable::default();
 
     loop {
         let kind = GhwHierarchyKind::try_from_primitive(read_u8(input)?)?;
@@ -760,6 +761,7 @@ fn read_hierarchy_section(
                     &mut signal_ref_count,
                     &mut index_string_cache,
                     h,
+                    &mut aliases,
                 )?;
                 num_declared_vars += 1;
                 if num_declared_vars > expected_num_declared_vars {
@@ -871,6 +873,7 @@ fn read_hierarchy_var(
     signal_ref_count: &mut usize,
     index_string_cache: &mut IndexCache,
     h: &mut HierarchyBuilder,
+    aliases: &mut AliasTable,
 ) -> Result<()> {
     let name_id = read_string_id(input)?;
     let name = tables.get_str(name_id);
@@ -883,6 +886,7 @@ fn read_hierarchy_var(
         signal_ref_count,
         index_string_cache,
         h,
+        aliases,
         name,
         tpe,
     )
@@ -921,6 +925,44 @@ fn get_index_string(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct AliasInfo {
+    min: u32,
+    max: u32,
+    name: HierarchyStringId,
+}
+
+
+// tracking aliasing of BitVec and Bits
+#[derive(Debug, Default)]
+struct AliasTable {
+    info: Vec<AliasInfo>,
+}
+
+impl AliasTable {
+    fn check(&mut self, h: &HierarchyBuilder, prev: Option<&GhwSignal>, min: SignalId, max: SignalId, name: HierarchyStringId) -> NonZeroU32 {
+        let (min, max) = (min.0.get, max.0.get())
+            if let Some(prev_signal) = prev {
+            let id = prev_signal.alias_entry.unwrap();
+            debug_assert!(prev_signal.alias_entry.is_some(), "Expected an alias entry!");
+            let entry = self.info[(id.get() - 1) as usize].clone();
+
+            if entry.min == min && entry.max == max {
+                id
+            } else {
+                panic!("Incompatible aliasing between {} ({:?}..{:?}) and {} ({:?}..{:?})",h.get_str(entry.name), entry.min, entry.max, h.get_str(name), min, max)
+            }
+        } else {
+            // allocate new entry
+            let id = NonZeroU32::new(self.info.len() as u32 + 1).unwrap();
+            self.info.push(AliasInfo {
+                min, max, name
+            });
+            id
+        }
+    }
+}
+
 fn add_var(
     tables: &GhwTables,
     input: &mut impl BufRead,
@@ -929,6 +971,7 @@ fn add_var(
     signal_ref_count: &mut usize,
     index_string_cache: &mut IndexCache,
     h: &mut HierarchyBuilder,
+    aliases: &mut AliasTable,
     name: HierarchyStringId,
     type_id: TypeId,
 ) -> Result<()> {
@@ -952,7 +995,7 @@ fn add_var(
             );
             // meta date for writing the signal later
             let tpe = SignalType::U8(8); // TODO: try to find the actual number of bits used
-            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
+            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe, alias_entry: None })
         }
         VhdlType::NineValueBit(_) | VhdlType::Bit(_) => {
             let index = read_signal_id(input, signals)?;
@@ -978,7 +1021,8 @@ fn add_var(
                 VhdlType::Bit(_) => SignalType::TwoState,
                 _ => SignalType::NineState,
             };
-            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
+            let alias_entry = Some(aliases.check(h, signals[index.0.get() as usize].as_ref(), index, index, name));
+            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe,  alias_entry})
         }
         VhdlType::I32(_, maybe_range) => {
             // TODO: we could use the range to deduce indices and tighter widths
@@ -999,7 +1043,7 @@ fn add_var(
             );
             // meta date for writing the signal later
             let tpe = SignalType::Leb128Signed(bits);
-            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
+            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe, alias_entry: None })
         }
         VhdlType::F64(_, maybe_range) => {
             // TODO: we could use the range to deduce indices and tighter widths
@@ -1022,6 +1066,7 @@ fn add_var(
             signals[index.0.get() as usize] = Some(GhwSignal {
                 signal_ref,
                 tpe: SignalType::F64,
+                alias_entry: None,
             })
         }
         VhdlType::NineValueVec(_, range) | VhdlType::BitVec(_, range) => {
@@ -1033,6 +1078,9 @@ fn add_var(
             let mut signal_ids = Vec::with_capacity(num_bits as usize);
             for _ in 0..num_bits {
                 signal_ids.push(read_signal_id(input, signals)?);
+            }
+            for (prev, cur) in signal_ids.iter().take(signal_ids.len() -1).zip(signal_ids.iter().skip(1)) {
+                debug_assert_eq!(prev.0 .get()+ 1, cur.0.get(), "We expected signal ids increasing by exactly 1, not {prev:?} -> {cur:?}");
             }
             let signal_ref = get_signal_ref(signals, signal_ref_count, signal_ids[0]);
             let var_type = match h.get_str(tpe_name).to_ascii_lowercase().as_str() {
@@ -1053,13 +1101,16 @@ fn add_var(
             );
             // meta date for writing the signal later
             let is_bitvec = matches!(vhdl_tpe, VhdlType::BitVec(_, _));
+            let min = signal_ids.first().unwrap().clone();
+            let max = signal_ids.last().unwrap().clone();
             for (bit, index) in signal_ids.iter().rev().enumerate() {
                 let tpe = if is_bitvec {
                     SignalType::TwoStateBit(bit as u32, num_bits)
                 } else {
                     SignalType::NineStateBit(bit as u32, num_bits)
                 };
-                signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe })
+                let alias_entry = Some(aliases.check(h, signals[index.0.get() as usize].as_ref(), min, max, name));
+                signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe, alias_entry })
             }
         }
         VhdlType::Record(_, fields) => {
@@ -1073,6 +1124,7 @@ fn add_var(
                     signal_ref_count,
                     index_string_cache,
                     h,
+                    aliases,
                     tables.get_str(*field_name),
                     *field_type,
                 )?;
@@ -1093,6 +1145,7 @@ fn add_var(
                     signal_ref_count,
                     index_string_cache,
                     h,
+                    aliases,
                     name,
                     *element_tpe,
                 )?;

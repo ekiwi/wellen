@@ -5,6 +5,7 @@
 use crate::{FileFormat, SignalRef, WellenError};
 use num_enum::TryFromPrimitive;
 use std::io::BufRead;
+use std::num::NonZeroU32;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -199,6 +200,8 @@ pub struct GhwSignal {
     /// Signal ID in the wavemem Encoder.
     pub signal_ref: SignalRef,
     pub tpe: SignalType,
+    // currently used for debugging
+    pub alias_entry: Option<NonZeroU32>,
 }
 
 /// Specifies the signal type info that is needed in order to read it.
