@@ -113,12 +113,11 @@ pub(crate) fn try_read_directory(
 pub(crate) fn read_hierarchy(
     header: &HeaderData,
     input: &mut impl BufRead,
-) -> Result<(GhwDecodeInfo, usize, Hierarchy)> {
+) -> Result<(GhwDecodeInfo, Hierarchy)> {
     let mut tables = GhwTables::default();
     let mut strings = Vec::new();
     let mut decode = GhwDecodeInfo::default();
     let mut hb = HierarchyBuilder::new(FileFormat::Ghw);
-    let mut signal_ref_count = 0;
 
     // GHW seems to always uses fs
     hb.set_timescale(Timescale::new(1, TimescaleUnit::FemtoSeconds));
@@ -181,15 +180,14 @@ pub(crate) fn read_hierarchy(
                 }
             }
             GHW_HIERARCHY_SECTION => {
-                let (dec, ref_count) = read_hierarchy_section(header, &mut tables, input, &mut hb)?;
+                let dec = read_hierarchy_section(header, &mut tables, input, &mut hb)?;
                 debug_assert!(
-                    decode.signals.is_empty(),
+                    decode.is_empty(),
                     "unexpected second hierarchy section:\n{:?}\n{:?}",
                     decode,
                     dec
                 );
                 decode = dec;
-                signal_ref_count = ref_count;
             }
             GHW_END_OF_HEADER_SECTION => {
                 break; // done
@@ -202,7 +200,7 @@ pub(crate) fn read_hierarchy(
         }
     }
     let hierarchy = hb.finish();
-    Ok((decode, signal_ref_count, hierarchy))
+    Ok((decode, hierarchy))
 }
 
 /// adds all enums to the hierarchy and
@@ -708,7 +706,7 @@ fn read_hierarchy_section(
     tables: &mut GhwTables,
     input: &mut impl BufRead,
     h: &mut HierarchyBuilder,
-) -> Result<(GhwDecodeInfo, usize)> {
+) -> Result<GhwDecodeInfo> {
     let mut hdr = [0u8; 16];
     input.read_exact(&mut hdr)?;
     check_header_zeros("hierarchy", &hdr)?;
@@ -717,14 +715,13 @@ fn read_hierarchy_section(
     let _expected_num_scopes = header.read_u32(&mut &hdr[4..8])?;
     // declared signals, may be composite
     let expected_num_declared_vars = header.read_u32(&mut &hdr[8..12])?;
-    let max_signal_id = header.read_u32(&mut &hdr[12..16])? as usize;
+    let max_signal_id = header.read_u32(&mut &hdr[12..16])?;
+    println!("Max signal id: {max_signal_id}");
+    println!("expected_num_declared_vars {expected_num_declared_vars}");
 
     let mut num_declared_vars = 0;
-    let mut signals: Vec<Option<GhwSignal>> = Vec::with_capacity(max_signal_id + 1);
-    signals.resize(max_signal_id + 1, None);
-    let mut signal_ref_count = 0;
     let mut index_string_cache = IndexCache::new();
-    let mut aliases = AliasTable::default();
+    let mut signal_info = GhwSignals::new(max_signal_id);
 
     loop {
         let kind = GhwHierarchyKind::try_from_primitive(read_u8(input)?)?;
@@ -757,11 +754,9 @@ fn read_hierarchy_section(
                     tables,
                     input,
                     kind,
-                    &mut signals,
-                    &mut signal_ref_count,
+                    &mut signal_info,
                     &mut index_string_cache,
                     h,
-                    &mut aliases,
                 )?;
                 num_declared_vars += 1;
                 if num_declared_vars > expected_num_declared_vars {
@@ -776,11 +771,12 @@ fn read_hierarchy_section(
         }
     }
 
-    let decode = GhwDecodeInfo {
-        signals: signals.into_iter().flatten().collect::<Vec<_>>(),
-    };
+    println!("Wellen Signal Refs: {}", signal_info.signal_ref_count);
+    let decode_info = signal_info.into_decode_info();
+    println!("GHW Signals: {}", decode_info.signal_len());
+    println!("Vectors: {}", decode_info.vectors().len());
 
-    Ok((decode, signal_ref_count))
+    Ok(decode_info)
 }
 
 fn dummy_read_signal_value(
@@ -869,11 +865,9 @@ fn read_hierarchy_var(
     tables: &mut GhwTables,
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
-    signals: &mut [Option<GhwSignal>],
-    signal_ref_count: &mut usize,
+    signals: &mut GhwSignals,
     index_string_cache: &mut IndexCache,
     h: &mut HierarchyBuilder,
-    aliases: &mut AliasTable,
 ) -> Result<()> {
     let name_id = read_string_id(input)?;
     let name = tables.get_str(name_id);
@@ -883,29 +877,11 @@ fn read_hierarchy_var(
         input,
         kind,
         signals,
-        signal_ref_count,
         index_string_cache,
         h,
-        aliases,
         name,
         tpe,
     )
-}
-
-/// Creates a new signal ref unless one is already available (because of aliasing!)
-fn get_signal_ref(
-    signals: &[Option<GhwSignal>],
-    signal_ref_count: &mut usize,
-    index: SignalId,
-) -> SignalRef {
-    match &signals[index.0.get() as usize] {
-        None => {
-            let signal_ref = SignalRef::from_index(*signal_ref_count).unwrap();
-            *signal_ref_count += 1;
-            signal_ref
-        }
-        Some(signal) => signal.signal_ref,
-    }
 }
 
 type IndexCache = HashMap<i64, HierarchyStringId>;
@@ -925,41 +901,152 @@ fn get_index_string(
     }
 }
 
+/// Collects information for every signal id in the GHW file.
+/// We store the type information needed to decode the signal as well as
+/// information that is needed in order to map the bit-wise signal encoding
+/// in a GHW to the bit-vector signal encoding used in our `wellen` wavemem.
+#[derive(Debug)]
+struct GhwSignals {
+    signals: Vec<Option<GhwSignalInfo>>,
+    signal_ref_count: usize,
+    vectors: Vec<GhwVecInfo>,
+    aliases: Vec<AliasInfo>,
+}
+
+/// Used to define aliased signals in the `wellen` wavemem.
 #[derive(Debug, Clone, Copy)]
 struct AliasInfo {
-    min: u32,
     max: u32,
-    name: HierarchyStringId,
+    min: u32,
 }
 
+impl GhwSignals {
+    fn new(max_signal_id: u32) -> Self {
+        let signals = vec![None; max_signal_id as usize];
+        let signal_ref_count = 0;
+        let vectors = vec![];
+        let aliases = vec![];
+        Self {
+            signals,
+            signal_ref_count,
+            vectors,
+            aliases,
+        }
+    }
 
-// tracking aliasing of BitVec and Bits
-#[derive(Debug, Default)]
-struct AliasTable {
-    info: Vec<AliasInfo>,
-}
+    fn into_decode_info(self) -> GhwDecodeInfo {
+        let mut signals: Vec<_> = self.signals.into_iter().flatten().collect();
+        signals.shrink_to_fit();
+        GhwDecodeInfo::new(signals, self.vectors)
+    }
 
-impl AliasTable {
-    fn check(&mut self, h: &HierarchyBuilder, prev: Option<&GhwSignal>, min: SignalId, max: SignalId, name: HierarchyStringId) -> NonZeroU32 {
-        let (min, max) = (min.0.get, max.0.get())
-            if let Some(prev_signal) = prev {
-            let id = prev_signal.alias_entry.unwrap();
-            debug_assert!(prev_signal.alias_entry.is_some(), "Expected an alias entry!");
-            let entry = self.info[(id.get() - 1) as usize].clone();
+    fn max_signal_id(&self) -> usize {
+        self.signals.len()
+    }
 
-            if entry.min == min && entry.max == max {
-                id
-            } else {
-                panic!("Incompatible aliasing between {} ({:?}..{:?}) and {} ({:?}..{:?})",h.get_str(entry.name), entry.min, entry.max, h.get_str(name), min, max)
-            }
+    /// used for f64, i32, i64 and u8
+    fn register_scalar(&mut self, signal_id: GhwSignalId, tpe: SignalType) -> SignalRef {
+        if let Some(prev) = &self.signals[signal_id.index()] {
+            debug_assert_eq!(prev.tpe(), tpe, "{signal_id:?}");
+            prev.signal_ref()
         } else {
-            // allocate new entry
-            let id = NonZeroU32::new(self.info.len() as u32 + 1).unwrap();
-            self.info.push(AliasInfo {
-                min, max, name
-            });
+            // create new id
+            let id = self.new_signal_ref();
+            // we do not need to store any extra aliasing info
+            self.signals[signal_id.index()] = Some(GhwSignalInfo::new(tpe, id, None));
             id
         }
+    }
+
+    fn new_signal_ref(&mut self) -> SignalRef {
+        let id = SignalRef::from_index(self.signal_ref_count).unwrap();
+        self.signal_ref_count += 1;
+        id
+    }
+
+    fn register_bit_vec(
+        &mut self,
+        min_id: GhwSignalId,
+        max_id: GhwSignalId,
+        is_binary: bool,
+    ) -> SignalRef {
+        let (min, max) = (min_id.index(), max_id.index());
+        debug_assert!(max >= min);
+
+        // check to see if there is already a vector that this signal aliases with
+        let maybe_vector = self.find_vec(min, max).map(|i| &self.vectors[i.index()]);
+        if let Some(vector) = maybe_vector {
+            let (prev_min, prev_max) = (vector.min().index(), vector.max().index());
+            if max == prev_max && min == prev_min {
+                // perfect alias
+                // just return the signal ref
+                self.signals[min].unwrap().signal_ref()
+            } else if prev_min as usize <= min && prev_max as usize >= max {
+                todo!("sub signal alias!")
+            } else if prev_min as usize >= min && prev_max as usize <= max {
+                todo!("super signal alias!")
+            } else {
+                todo!("overlapped aliased vectors")
+            }
+        } else {
+            // no existing vector to alias with
+            if min == max {
+                // single bit with no aliased vector behaves essentially like a scalar
+                if is_binary {
+                    self.register_scalar(min_id, SignalType::TwoState)
+                } else {
+                    self.register_scalar(min_id, SignalType::NineState)
+                }
+            } else {
+                // for a vector we want to make sure that there are no bits that alias this vector
+                for ii in min..=max {
+                    // this situation is very unlikely since assigning bit ids first would make it harder for GHDL
+                    // to assign contiguous vec ids
+                    assert!(
+                        self.signals[ii].is_none(),
+                        "TODO: deal with bit that aliases with vector"
+                    );
+                }
+
+                // create a new vec entry
+                let vec_id = self.vectors.len();
+                self.vectors
+                    .push(GhwVecInfo::new(min_id, max_id, is_binary));
+                let tpe = if is_binary {
+                    SignalType::TwoStateVec
+                } else {
+                    SignalType::NineStateVec
+                };
+                let id = self.new_signal_ref();
+
+                // update all bits
+                for ii in min..=max {
+                    self.signals[ii] = Some(GhwSignalInfo::new(tpe, id, Some(vec_id)));
+                }
+                id
+            }
+        }
+    }
+
+    /// Searches for vector info in the specified range.
+    #[inline]
+    fn find_vec(&self, min: usize, max: usize) -> Option<GhwVecId> {
+        let mut res = None;
+        for ii in min..=max {
+            if let Some(info) = &self.signals[ii] {
+                let vec_id = info.vec_id();
+                debug_assert!(
+                    res.is_none() || vec_id.is_none() || res == vec_id,
+                    "Signal spans several sub-vectors"
+                );
+                res = vec_id;
+                // early returns in release mode
+                if !cfg!(debug_assertions) && res.is_some() {
+                    return res;
+                }
+            }
+        }
+        res
     }
 }
 
@@ -967,11 +1054,9 @@ fn add_var(
     tables: &GhwTables,
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
-    signals: &mut [Option<GhwSignal>],
-    signal_ref_count: &mut usize,
+    signals: &mut GhwSignals,
     index_string_cache: &mut IndexCache,
     h: &mut HierarchyBuilder,
-    aliases: &mut AliasTable,
     name: HierarchyStringId,
     type_id: TypeId,
 ) -> Result<()> {
@@ -980,9 +1065,9 @@ fn add_var(
     match vhdl_tpe {
         VhdlType::Enum(_, literals, enum_id) => {
             let enum_type = tables.enums[*enum_id as usize];
-            let index = read_signal_id(input, signals)?;
-            let signal_ref = get_signal_ref(signals, signal_ref_count, index);
+            let index = read_signal_id(input, signals.max_signal_id())?;
             let bits = get_enum_bits(&literals);
+            let signal_ref = signals.register_scalar(index, SignalType::U8);
             h.add_var(
                 name,
                 VarType::Enum,
@@ -993,13 +1078,11 @@ fn add_var(
                 Some(enum_type),
                 Some(tpe_name),
             );
-            // meta date for writing the signal later
-            let tpe = SignalType::U8(8); // TODO: try to find the actual number of bits used
-            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe, alias_entry: None })
         }
         VhdlType::NineValueBit(_) | VhdlType::Bit(_) => {
-            let index = read_signal_id(input, signals)?;
-            let signal_ref = get_signal_ref(signals, signal_ref_count, index);
+            let index = read_signal_id(input, signals.max_signal_id())?;
+            let is_binary = matches!(vhdl_tpe, VhdlType::Bit(_));
+            let signal_ref = signals.register_bit_vec(index, index, is_binary);
             let var_type = match h.get_str(tpe_name).to_ascii_lowercase().as_str() {
                 "std_ulogic" => VarType::StdULogic,
                 "std_logic" => VarType::StdLogic,
@@ -1016,20 +1099,13 @@ fn add_var(
                 None,
                 Some(tpe_name),
             );
-            // meta date for writing the signal later
-            let tpe = match vhdl_tpe {
-                VhdlType::Bit(_) => SignalType::TwoState,
-                _ => SignalType::NineState,
-            };
-            let alias_entry = Some(aliases.check(h, signals[index.0.get() as usize].as_ref(), index, index, name));
-            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe,  alias_entry})
         }
         VhdlType::I32(_, maybe_range) => {
             // TODO: we could use the range to deduce indices and tighter widths
             let _range = IntRange::from_i32_option(*maybe_range);
             let bits = 32;
-            let index = read_signal_id(input, signals)?;
-            let signal_ref = get_signal_ref(signals, signal_ref_count, index);
+            let index = read_signal_id(input, signals.max_signal_id())?;
+            let signal_ref = signals.register_scalar(index, SignalType::Leb128Signed);
             let var_type = VarType::Integer;
             h.add_var(
                 name,
@@ -1041,16 +1117,13 @@ fn add_var(
                 None,
                 Some(tpe_name),
             );
-            // meta date for writing the signal later
-            let tpe = SignalType::Leb128Signed(bits);
-            signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe, alias_entry: None })
         }
         VhdlType::F64(_, maybe_range) => {
             // TODO: we could use the range to deduce indices and tighter widths
             let _range = FloatRange::from_f64_option(*maybe_range);
             let bits = 64;
-            let index = read_signal_id(input, signals)?;
-            let signal_ref = get_signal_ref(signals, signal_ref_count, index);
+            let index = read_signal_id(input, signals.max_signal_id())?;
+            let signal_ref = signals.register_scalar(index, SignalType::F64);
             let var_type = VarType::Real;
             h.add_var(
                 name,
@@ -1062,12 +1135,6 @@ fn add_var(
                 None,
                 Some(tpe_name),
             );
-            // meta date for writing the signal later
-            signals[index.0.get() as usize] = Some(GhwSignal {
-                signal_ref,
-                tpe: SignalType::F64,
-                alias_entry: None,
-            })
         }
         VhdlType::NineValueVec(_, range) | VhdlType::BitVec(_, range) => {
             let num_bits = range.len().abs() as u32;
@@ -1075,14 +1142,29 @@ fn add_var(
                 // TODO: how should we correctly deal with an empty vector?
                 return Ok(());
             }
+
             let mut signal_ids = Vec::with_capacity(num_bits as usize);
             for _ in 0..num_bits {
-                signal_ids.push(read_signal_id(input, signals)?);
+                signal_ids.push(read_signal_id(input, signals.max_signal_id())?);
             }
-            for (prev, cur) in signal_ids.iter().take(signal_ids.len() -1).zip(signal_ids.iter().skip(1)) {
-                debug_assert_eq!(prev.0 .get()+ 1, cur.0.get(), "We expected signal ids increasing by exactly 1, not {prev:?} -> {cur:?}");
+
+            // check assumption that all IDs are continuous
+            for (prev, cur) in signal_ids
+                .iter()
+                .take(signal_ids.len() - 1)
+                .zip(signal_ids.iter().skip(1))
+            {
+                debug_assert_eq!(
+                    prev.index() + 1,
+                    cur.index(),
+                    "We expected signal ids increasing by exactly 1, not {prev:?} -> {cur:?}"
+                );
             }
-            let signal_ref = get_signal_ref(signals, signal_ref_count, signal_ids[0]);
+
+            let is_binary = matches!(vhdl_tpe, VhdlType::BitVec(_, _));
+            let min = signal_ids.first().unwrap().clone();
+            let max = signal_ids.last().unwrap().clone();
+            let signal_ref = signals.register_bit_vec(min, max, is_binary);
             let var_type = match h.get_str(tpe_name).to_ascii_lowercase().as_str() {
                 "std_ulogic_vector" => VarType::StdULogicVector,
                 "std_logic_vector" => VarType::StdLogicVector,
@@ -1099,19 +1181,6 @@ fn add_var(
                 None,
                 Some(tpe_name),
             );
-            // meta date for writing the signal later
-            let is_bitvec = matches!(vhdl_tpe, VhdlType::BitVec(_, _));
-            let min = signal_ids.first().unwrap().clone();
-            let max = signal_ids.last().unwrap().clone();
-            for (bit, index) in signal_ids.iter().rev().enumerate() {
-                let tpe = if is_bitvec {
-                    SignalType::TwoStateBit(bit as u32, num_bits)
-                } else {
-                    SignalType::NineStateBit(bit as u32, num_bits)
-                };
-                let alias_entry = Some(aliases.check(h, signals[index.0.get() as usize].as_ref(), min, max, name));
-                signals[index.0.get() as usize] = Some(GhwSignal { signal_ref, tpe, alias_entry })
-            }
         }
         VhdlType::Record(_, fields) => {
             h.add_scope(name, None, ScopeType::VhdlRecord, None, None, false);
@@ -1121,10 +1190,8 @@ fn add_var(
                     input,
                     kind,
                     signals,
-                    signal_ref_count,
                     index_string_cache,
                     h,
-                    aliases,
                     tables.get_str(*field_name),
                     *field_type,
                 )?;
@@ -1142,10 +1209,8 @@ fn add_var(
                     input,
                     kind,
                     signals,
-                    signal_ref_count,
                     index_string_cache,
                     h,
-                    aliases,
                     name,
                     *element_tpe,
                 )?;
@@ -1157,15 +1222,15 @@ fn add_var(
     Ok(())
 }
 
-fn read_signal_id(input: &mut impl BufRead, signals: &mut [Option<GhwSignal>]) -> Result<SignalId> {
+fn read_signal_id(input: &mut impl BufRead, max_signal_id: usize) -> Result<GhwSignalId> {
     let index = leb128::read::unsigned(input)? as usize;
-    if index >= signals.len() {
+    if index > max_signal_id {
         Err(GhwParseError::FailedToParseSection(
             "hierarchy",
-            format!("SignalId too large {index} > {}", signals.len()),
+            format!("SignalId too large {index} > {}", max_signal_id),
         ))
     } else {
-        let id = SignalId(NonZeroU32::new(index as u32).unwrap());
+        let id = GhwSignalId::new(index as u32);
         Ok(id)
     }
 }
@@ -1196,9 +1261,6 @@ impl TypeId {
         (self.0.get() - 1) as usize
     }
 }
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-struct SignalId(NonZeroU32);
 
 #[derive(Debug)]
 enum Range {

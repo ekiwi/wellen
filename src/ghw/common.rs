@@ -188,40 +188,151 @@ impl HeaderData {
     }
 }
 
+/// Information needed to read a signal value.
+#[derive(Debug, Clone, Copy)]
+pub struct GhwSignalInfo {
+    tpe_and_vec: NonZeroU32,
+    signal_ref: SignalRef,
+}
+
+impl GhwSignalInfo {
+    pub fn new(tpe: SignalType, signal_ref: SignalRef, vector: Option<usize>) -> Self {
+        let raw_tpe = ((tpe as u8) as u32) + 1;
+        debug_assert_eq!(raw_tpe & 0x7, raw_tpe);
+        let tpe_and_vec = if let Some(vector) = vector {
+            let raw_vector_id = (vector as u32) + 1;
+            debug_assert_eq!((raw_vector_id << 3) >> 3, raw_vector_id);
+            NonZeroU32::new((raw_vector_id << 3) | raw_tpe).unwrap()
+        } else {
+            NonZeroU32::new(raw_tpe).unwrap()
+        };
+        Self {
+            tpe_and_vec,
+            signal_ref,
+        }
+    }
+
+    pub fn signal_ref(&self) -> SignalRef {
+        self.signal_ref
+    }
+
+    pub fn vec_id(&self) -> Option<GhwVecId> {
+        let vec_id = self.tpe_and_vec.get() >> 3;
+        if vec_id == 0 {
+            None
+        } else {
+            Some(GhwVecId::new(vec_id as usize))
+        }
+    }
+
+    pub fn tpe(&self) -> SignalType {
+        let value = self.tpe_and_vec.get();
+        let raw_tpe = (value & 0x7) as u8;
+        let tpe = SignalType::try_from_primitive(raw_tpe - 1).unwrap();
+        tpe
+    }
+}
+
 /// Contains information needed in order to decode value changes.
 #[derive(Debug, Default)]
 pub struct GhwDecodeInfo {
-    pub signals: Vec<GhwSignal>,
+    /// Type and signal reference info. Indexed by `GhwSignalId`
+    signals: Vec<GhwSignalInfo>,
+    /// Vector info. Indexed by `GhwVecId`.
+    vectors: Vec<GhwVecInfo>,
 }
 
-/// Holds information from the header needed in order to read the corresponding data in the signal section.
-#[derive(Debug, Clone)]
-pub struct GhwSignal {
-    /// Signal ID in the wavemem Encoder.
-    pub signal_ref: SignalRef,
-    pub tpe: SignalType,
-    // currently used for debugging
-    pub alias_entry: Option<NonZeroU32>,
+impl GhwDecodeInfo {
+    pub fn new(signals: Vec<GhwSignalInfo>, vectors: Vec<GhwVecInfo>) -> Self {
+        Self { signals, vectors }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.signals.is_empty()
+    }
+    pub fn get_info(&self, signal_id: GhwSignalId) -> &GhwSignalInfo {
+        &self.signals[signal_id.index()]
+    }
+    pub fn vectors(&self) -> &[GhwVecInfo] {
+        &self.vectors
+    }
+    pub fn signal_len(&self) -> usize {
+        self.signals.len()
+    }
+}
+
+/// Pointer to a `GhwVecInfo`
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GhwVecId(NonZeroU32);
+
+impl GhwVecId {
+    pub fn new(pos_id: usize) -> Self {
+        Self(NonZeroU32::new(pos_id as u32).unwrap())
+    }
+
+    pub fn index(&self) -> usize {
+        (self.0.get() - 1) as usize
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct GhwSignalId(NonZeroU32);
+
+impl GhwSignalId {
+    #[inline]
+    pub fn index(&self) -> usize {
+        (self.0.get() - 1) as usize
+    }
+    pub fn new(pos_id: u32) -> Self {
+        Self(NonZeroU32::new(pos_id).unwrap())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GhwVecInfo {
+    max: GhwSignalId,
+    min: GhwSignalId,
+    two_state: bool,
+}
+
+impl GhwVecInfo {
+    pub fn new(min: GhwSignalId, max: GhwSignalId, two_state: bool) -> Self {
+        Self {
+            min,
+            max,
+            two_state,
+        }
+    }
+    pub fn bits(&self) -> u32 {
+        (self.max.index() - self.min.index() + 1) as u32
+    }
+    pub fn is_two_state(&self) -> bool {
+        self.two_state
+    }
+    pub fn min(&self) -> GhwSignalId {
+        self.min
+    }
+    pub fn max(&self) -> GhwSignalId {
+        self.max
+    }
 }
 
 /// Specifies the signal type info that is needed in order to read it.
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[repr(u8)]
+#[derive(Debug, PartialEq, Copy, Clone, TryFromPrimitive)]
 pub enum SignalType {
     /// Nine value signal encoded as a single byte.
     NineState,
-    /// A single bit in a 9 value bit vector. bit N / M bits.
-    NineStateBit(u32, u32),
+    /// A single bit in a 9 value bit vector.
+    NineStateVec,
     /// Two value signal encoded as a single byte.
     TwoState,
     /// A single bit in a 2 value bit vector. bit N / M bits.
-    TwoStateBit(u32, u32),
+    TwoStateVec,
     /// Binary signal encoded as a single byte with N valid bits.
-    U8(u32),
+    U8,
     /// Binary signal encoded as a variable number of bytes with N valid bits.
-    #[allow(dead_code)]
-    Leb128Signed(u32),
+    Leb128Signed,
     /// F64 (real)
-    #[allow(dead_code)]
     F64,
 }
 
