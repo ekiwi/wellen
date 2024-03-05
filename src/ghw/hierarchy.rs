@@ -916,21 +916,20 @@ struct GhwSignals {
 /// Used to define aliased signals in the `wellen` wavemem.
 #[derive(Debug, Clone, Copy)]
 struct AliasInfo {
-    max: u32,
-    min: u32,
+    msb: u32,
+    lsb: u32,
+    signal_ref: SignalRef,
+    next: Option<NonZeroU32>,
 }
 
 impl GhwSignals {
     fn new(max_signal_id: u32) -> Self {
         let signals = vec![None; max_signal_id as usize];
-        let signal_ref_count = 0;
-        let vectors = vec![];
-        let aliases = vec![];
         Self {
             signals,
-            signal_ref_count,
-            vectors,
-            aliases,
+            signal_ref_count: 0,
+            vectors: vec![],
+            aliases: vec![],
         }
     }
 
@@ -964,6 +963,47 @@ impl GhwSignals {
         id
     }
 
+    fn find_or_add_alias(&mut self, vec_id: GhwVecId, msb: u32, lsb: u32) -> SignalRef {
+        // first we try to see if we can find an existing alias
+        if let Some(mut alias_id) = self.vectors[vec_id.index()].alias() {
+            loop {
+                let alias = self.aliases[alias_id.get() as usize - 1].clone();
+                if alias.msb == msb && alias.lsb == lsb {
+                    return alias.signal_ref;
+                }
+                match alias.next {
+                    Some(next) => alias_id = next,
+                    None => {
+                        // create new entry
+                        let signal_ref = self.new_signal_ref();
+                        let new_alias_id = self.aliases.len() + 1;
+                        self.aliases.push(AliasInfo {
+                            msb,
+                            lsb,
+                            signal_ref,
+                            next: None,
+                        });
+                        self.aliases[alias_id.get() as usize - 1].next =
+                            Some(NonZeroU32::new(new_alias_id as u32).unwrap());
+                        return signal_ref;
+                    }
+                }
+            }
+        } else {
+            // create entry
+            let signal_ref = self.new_signal_ref();
+            let alias_id = self.aliases.len() + 1;
+            self.aliases.push(AliasInfo {
+                msb,
+                lsb,
+                signal_ref,
+                next: None,
+            });
+            self.vectors[vec_id.index()].set_alias(NonZeroU32::new(alias_id as u32).unwrap());
+            signal_ref
+        }
+    }
+
     fn register_bit_vec(
         &mut self,
         min_id: GhwSignalId,
@@ -974,16 +1014,18 @@ impl GhwSignals {
         debug_assert!(max >= min);
 
         // check to see if there is already a vector that this signal aliases with
-        let maybe_vector = self.find_vec(min, max).map(|i| &self.vectors[i.index()]);
-        if let Some(vector) = maybe_vector {
+        let maybe_vector_id = self.find_vec(min, max);
+        if let Some(vector_id) = maybe_vector_id {
+            let vector = &self.vectors[vector_id.index()];
             let (prev_min, prev_max) = (vector.min().index(), vector.max().index());
             if max == prev_max && min == prev_min {
-                // perfect alias
-                // just return the signal ref
+                // perfect alias -> just return the signal ref
                 self.signals[min].unwrap().signal_ref()
-            } else if prev_min as usize <= min && prev_max as usize >= max {
-                todo!("sub signal alias!")
-            } else if prev_min as usize >= min && prev_max as usize <= max {
+            } else if prev_min <= min && prev_max >= max {
+                // this means that a larger vector already exists and our signal is a slice of this vector
+                let (msb, lsb) = (max - prev_min, min - prev_min);
+                self.find_or_add_alias(vector_id, msb as u32, lsb as u32)
+            } else if prev_min >= min && prev_max <= max {
                 todo!("super signal alias!")
             } else {
                 todo!("overlapped aliased vectors")

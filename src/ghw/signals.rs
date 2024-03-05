@@ -133,7 +133,7 @@ fn read_cycle_signals(
 /// This dispatches any remaining vector changes.
 fn finish_time_step(vecs: &mut VecBuffer, enc: &mut Encoder) {
     vecs.process_changed_signals(|signal_ref, data, states| {
-        todo!("finish timestep with vec_id!");
+        todo!("finish timestep with vec_id! {signal_ref:?}");
         // enc.raw_value_change(signal_ref, data, states);
     })
 }

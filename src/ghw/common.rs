@@ -292,6 +292,8 @@ pub struct GhwVecInfo {
     max: GhwSignalId,
     min: GhwSignalId,
     two_state: bool,
+    /// pointer to an alias list
+    alias: Option<NonZeroU32>,
 }
 
 impl GhwVecInfo {
@@ -300,6 +302,7 @@ impl GhwVecInfo {
             min,
             max,
             two_state,
+            alias: None,
         }
     }
     pub fn bits(&self) -> u32 {
@@ -313,6 +316,13 @@ impl GhwVecInfo {
     }
     pub fn max(&self) -> GhwSignalId {
         self.max
+    }
+    pub fn alias(&self) -> Option<NonZeroU32> {
+        self.alias
+    }
+
+    pub fn set_alias(&mut self, alias: NonZeroU32) {
+        self.alias = Some(alias);
     }
 }
 
@@ -409,3 +419,17 @@ pub const STD_LOGIC_LUT: [u8; 9] = [5, 2, 0, 1, 3, 6, 7, 4, 8];
 
 /// The order in which the two values appear in the BIT enum.
 pub const VHDL_BIT_VALUES: [u8; 2] = [b'0', b'1'];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sizes() {
+        // We store 8-bytes per GHW signal to have the SignalRef mapping, type and vector info available.
+        // This is in comparison to ghwdump which stores at least two 8-bit pointers per signal.
+        assert_eq!(std::mem::size_of::<GhwSignalInfo>(), 8);
+
+        assert_eq!(std::mem::size_of::<GhwVecInfo>(), 16);
+    }
+}

@@ -696,14 +696,16 @@ impl SignalEncoder {
         match self.tpe {
             SignalType::BitVector(len, _) => {
                 let bits = len.get();
-                debug_assert_eq!(
-                    value.len(),
-                    (bits as usize).div_ceil(states.bits_in_a_byte())
-                );
                 if bits == 1 {
+                    debug_assert_eq!(value.len(), 1);
                     let write_value = ((time_idx_delta as u64) << 4) + value[0] as u64;
                     leb128::write::unsigned(&mut self.data, write_value).unwrap();
                 } else {
+                    // sometimes we might include some leading zeros that are not necessary
+                    let required_bytes = (bits as usize).div_ceil(states.bits_in_a_byte());
+                    debug_assert!(value.len() >= required_bytes);
+                    let value = &value[(value.len() - required_bytes)..];
+
                     // we automatically compress the signal to its minimum states encoding
                     let min_states = check_min_state(value, states);
                     // write time and meta data
