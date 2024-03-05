@@ -4,7 +4,7 @@
 
 use crate::ghw::common::*;
 use crate::wavemem::{Encoder, States};
-use crate::Hierarchy;
+use crate::{Hierarchy, SignalRef};
 use std::io::BufRead;
 
 /// Reads the GHW signal values. `input` should be advanced until right after the end of hierarchy
@@ -133,8 +133,7 @@ fn read_cycle_signals(
 /// This dispatches any remaining vector changes.
 fn finish_time_step(vecs: &mut VecBuffer, enc: &mut Encoder) {
     vecs.process_changed_signals(|signal_ref, data, states| {
-        todo!("finish timestep with vec_id! {signal_ref:?}");
-        // enc.raw_value_change(signal_ref, data, states);
+        enc.raw_value_change(signal_ref, data, states);
     })
 }
 
@@ -224,6 +223,7 @@ struct VecBufferInfo {
     bit_change_start: u32,
     bits: u32,
     states: States,
+    signal_ref: SignalRef,
 }
 
 impl VecBufferInfo {
@@ -259,6 +259,7 @@ impl VecBuffer {
                 bit_change_start: bit_change_start as u32,
                 bits,
                 states,
+                signal_ref: vector.signal_ref(),
             });
             data_start += (bits as usize).div_ceil(states.bits_in_a_byte());
             bit_change_start += (bits as usize).div_ceil(8);
@@ -278,13 +279,14 @@ impl VecBuffer {
         }
     }
 
-    fn process_changed_signals(&mut self, mut callback: impl FnMut(GhwVecId, &[u8], States)) {
+    fn process_changed_signals(&mut self, mut callback: impl FnMut(SignalRef, &[u8], States)) {
         let change_list = std::mem::take(&mut self.change_list);
         for vec_id in change_list.into_iter() {
             if self.has_signal_changed(vec_id) {
                 let states = self.info[vec_id.index()].states;
+                let signal_ref = self.info[vec_id.index()].signal_ref;
                 let data = self.get_full_value_and_clear_changes(vec_id);
-                (callback)(vec_id, data, states);
+                (callback)(signal_ref, data, states);
             }
         }
     }

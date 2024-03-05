@@ -292,16 +292,18 @@ pub struct GhwVecInfo {
     max: GhwSignalId,
     min: GhwSignalId,
     two_state: bool,
+    signal_ref: SignalRef,
     /// pointer to an alias list
     alias: Option<NonZeroU32>,
 }
 
 impl GhwVecInfo {
-    pub fn new(min: GhwSignalId, max: GhwSignalId, two_state: bool) -> Self {
+    pub fn new(min: GhwSignalId, max: GhwSignalId, two_state: bool, signal_ref: SignalRef) -> Self {
         Self {
             min,
             max,
             two_state,
+            signal_ref,
             alias: None,
         }
     }
@@ -316,6 +318,9 @@ impl GhwVecInfo {
     }
     pub fn max(&self) -> GhwSignalId {
         self.max
+    }
+    pub fn signal_ref(&self) -> SignalRef {
+        self.signal_ref
     }
     pub fn alias(&self) -> Option<NonZeroU32> {
         self.alias

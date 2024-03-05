@@ -1052,14 +1052,14 @@ impl GhwSignals {
 
                 // create a new vec entry
                 let vec_id = self.vectors.len();
+                let id = self.new_signal_ref();
                 self.vectors
-                    .push(GhwVecInfo::new(min_id, max_id, is_binary));
+                    .push(GhwVecInfo::new(min_id, max_id, is_binary, id));
                 let tpe = if is_binary {
                     SignalType::TwoStateVec
                 } else {
                     SignalType::NineStateVec
                 };
-                let id = self.new_signal_ref();
 
                 // update all bits
                 for ii in min..=max {
