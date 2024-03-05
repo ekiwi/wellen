@@ -10,13 +10,14 @@ use std::io::BufRead;
 /// Reads the GHW signal values. `input` should be advanced until right after the end of hierarchy
 pub(crate) fn read_signals(
     header: &HeaderData,
-    info: &GhwDecodeInfo,
+    decode_info: GhwDecodeInfo,
     hierarchy: &Hierarchy,
     input: &mut impl BufRead,
 ) -> Result<Box<crate::wavemem::Reader>> {
+    let (info, vectors) = decode_info;
     // TODO: multi-threading
     let mut encoder = Encoder::new(hierarchy);
-    let mut vecs = VecBuffer::from_vec_info(info.vectors());
+    let mut vecs = VecBuffer::from_vec_info(vectors);
 
     // loop over signal sections
     loop {
@@ -26,9 +27,9 @@ pub(crate) fn read_signals(
         // read_sm_hdr
         match &mark {
             GHW_SNAPSHOT_SECTION => {
-                read_snapshot_section(header, info, &mut vecs, &mut encoder, input)?
+                read_snapshot_section(header, &info, &mut vecs, &mut encoder, input)?
             }
-            GHW_CYCLE_SECTION => read_cycle_section(header, info, &mut vecs, &mut encoder, input)?,
+            GHW_CYCLE_SECTION => read_cycle_section(header, &info, &mut vecs, &mut encoder, input)?,
             GHW_DIRECTORY_SECTION => {
                 // skip the directory by reading it
                 let _ = read_directory(header, input)?;
@@ -49,7 +50,7 @@ pub(crate) fn read_signals(
 
 fn read_snapshot_section(
     header: &HeaderData,
-    info: &GhwDecodeInfo,
+    info: &GhwSignals,
     vecs: &mut VecBuffer,
     enc: &mut Encoder,
     input: &mut impl BufRead,
@@ -74,7 +75,7 @@ fn read_snapshot_section(
 
 fn read_cycle_section(
     header: &HeaderData,
-    info: &GhwDecodeInfo,
+    info: &GhwSignals,
     vecs: &mut VecBuffer,
     enc: &mut Encoder,
     input: &mut impl BufRead,
@@ -106,7 +107,7 @@ fn read_cycle_section(
 }
 
 fn read_cycle_signals(
-    info: &GhwDecodeInfo,
+    info: &GhwSignals,
     vecs: &mut VecBuffer,
     enc: &mut Encoder,
     input: &mut impl BufRead,
@@ -138,7 +139,7 @@ fn finish_time_step(vecs: &mut VecBuffer, enc: &mut Encoder) {
 }
 
 fn read_signal_value(
-    info: &GhwDecodeInfo,
+    info: &GhwSignals,
     signal_id: GhwSignalId,
     vecs: &mut VecBuffer,
     enc: &mut Encoder,
@@ -167,18 +168,16 @@ fn read_signal_value(
             };
 
             let vec_id = signal_info.vec_id().unwrap();
-            let vec_info = &info.vectors()[vec_id.index()];
-            let bit = (signal_id.index() - vec_info.min().index()) as u32;
 
             // check to see if we already had a change to this same bit in the current time step
-            if vecs.is_second_change(vec_id, bit, value) {
+            if vecs.is_second_change(vec_id, signal_id, value) {
                 // immediately dispatch the change to properly reflect the delta cycle
                 let data = vecs.get_full_value_and_clear_changes(vec_id);
                 enc.raw_value_change(signal_ref, data, states);
             }
 
             // update value
-            vecs.update_value(vec_id, bit, value);
+            vecs.update_value(vec_id, signal_id, value);
 
             // check to see if we need to report a change
             if vecs.full_signal_has_changed(vec_id) {
@@ -224,6 +223,7 @@ struct VecBufferInfo {
     bits: u32,
     states: States,
     signal_ref: SignalRef,
+    min_index: u32,
 }
 
 impl VecBufferInfo {
@@ -242,28 +242,33 @@ impl VecBufferInfo {
 }
 
 impl VecBuffer {
-    fn from_vec_info(vectors: &[GhwVecInfo]) -> Self {
-        let mut info = Vec::with_capacity(vectors.len());
+    fn from_vec_info(vectors: Vec<GhwVecInfo>) -> Self {
         let mut data_start = 0;
         let mut bit_change_start = 0;
 
-        for vector in vectors.iter() {
-            let bits = vector.bits();
-            let states = if vector.is_two_state() {
-                States::Two
-            } else {
-                States::Nine
-            };
-            info.push(VecBufferInfo {
-                data_start: data_start as u32,
-                bit_change_start: bit_change_start as u32,
-                bits,
-                states,
-                signal_ref: vector.signal_ref(),
-            });
-            data_start += (bits as usize).div_ceil(states.bits_in_a_byte());
-            bit_change_start += (bits as usize).div_ceil(8);
-        }
+        let mut info = vectors
+            .into_iter()
+            .map(|vector| {
+                let bits = vector.bits();
+                let states = if vector.is_two_state() {
+                    States::Two
+                } else {
+                    States::Nine
+                };
+                let info = VecBufferInfo {
+                    data_start: data_start as u32,
+                    bit_change_start: bit_change_start as u32,
+                    bits,
+                    states,
+                    signal_ref: vector.signal_ref(),
+                    min_index: vector.min().index() as u32,
+                };
+                data_start += (bits as usize).div_ceil(states.bits_in_a_byte());
+                bit_change_start += (bits as usize).div_ceil(8);
+                info
+            })
+            .collect::<Vec<_>>();
+        info.shrink_to_fit();
 
         let data = vec![0; data_start];
         let bit_change = vec![0; bit_change_start];
@@ -292,14 +297,16 @@ impl VecBuffer {
     }
 
     #[inline]
-    fn is_second_change(&self, vector_id: GhwVecId, bit: u32, value: u8) -> bool {
+    fn is_second_change(&self, vector_id: GhwVecId, signal_id: GhwSignalId, value: u8) -> bool {
         let info = &self.info[vector_id.index()];
+        let bit = signal_id.index() as u32 - info.min_index;
         self.has_bit_changed(info, bit) && self.get_value(info, bit) != value
     }
 
     #[inline]
-    fn update_value(&mut self, vector_id: GhwVecId, bit: u32, value: u8) {
+    fn update_value(&mut self, vector_id: GhwVecId, signal_id: GhwSignalId, value: u8) {
         let info = &self.info[vector_id.index()];
+        let bit = signal_id.index() as u32 - info.min_index;
         let is_a_real_change = self.get_value(info, bit) != value;
         if is_a_real_change {
             Self::mark_bit_changed(&mut self.bit_change, info, bit);

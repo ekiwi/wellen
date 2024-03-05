@@ -944,7 +944,30 @@ fn check_min_state(value: &[u8], states: States) -> States {
     States::from_value(union)
 }
 
+/// picks a specialized compress implementation
 fn compress(value: &[u8], in_states: States, out_states: States, bits: usize, out: &mut Vec<u8>) {
+    match (in_states, out_states) {
+        (States::Nine, States::Two) => {
+            compress_template(value, States::Nine, States::Two, bits, out)
+        }
+        (States::Four, States::Two) => {
+            compress_template(value, States::Four, States::Two, bits, out)
+        }
+        (States::Nine, States::Four) => {
+            compress_template(value, States::Nine, States::Four, bits, out)
+        }
+        _ => unreachable!("Cannot compress {in_states:?} => {out_states:?}"),
+    }
+}
+
+#[inline]
+fn compress_template(
+    value: &[u8],
+    in_states: States,
+    out_states: States,
+    bits: usize,
+    out: &mut Vec<u8>,
+) {
     debug_assert!(in_states.bits_in_a_byte() < out_states.bits_in_a_byte());
     let mut working_byte = 0u8;
     for bit in (0..bits).rev() {

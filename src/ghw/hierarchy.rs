@@ -116,7 +116,7 @@ pub(crate) fn read_hierarchy(
 ) -> Result<(GhwDecodeInfo, Hierarchy)> {
     let mut tables = GhwTables::default();
     let mut strings = Vec::new();
-    let mut decode = GhwDecodeInfo::default();
+    let mut decode: Option<GhwDecodeInfo> = None;
     let mut hb = HierarchyBuilder::new(FileFormat::Ghw);
 
     // GHW seems to always uses fs
@@ -182,12 +182,12 @@ pub(crate) fn read_hierarchy(
             GHW_HIERARCHY_SECTION => {
                 let dec = read_hierarchy_section(header, &mut tables, input, &mut hb)?;
                 debug_assert!(
-                    decode.is_empty(),
+                    decode.is_none(),
                     "unexpected second hierarchy section:\n{:?}\n{:?}",
                     decode,
                     dec
                 );
-                decode = dec;
+                decode = Some(dec);
             }
             GHW_END_OF_HEADER_SECTION => {
                 break; // done
@@ -200,7 +200,7 @@ pub(crate) fn read_hierarchy(
         }
     }
     let hierarchy = hb.finish();
-    Ok((decode, hierarchy))
+    Ok((decode.unwrap(), hierarchy))
 }
 
 /// adds all enums to the hierarchy and
@@ -716,12 +716,12 @@ fn read_hierarchy_section(
     // declared signals, may be composite
     let expected_num_declared_vars = header.read_u32(&mut &hdr[8..12])?;
     let max_signal_id = header.read_u32(&mut &hdr[12..16])?;
-    println!("Max signal id: {max_signal_id}");
-    println!("expected_num_declared_vars {expected_num_declared_vars}");
+    // println!("Max signal id: {max_signal_id}");
+    // println!("expected_num_declared_vars {expected_num_declared_vars}");
 
     let mut num_declared_vars = 0;
     let mut index_string_cache = IndexCache::new();
-    let mut signal_info = GhwSignals::new(max_signal_id);
+    let mut signal_info = GhwSignalTracker::new(max_signal_id);
 
     loop {
         let kind = GhwHierarchyKind::try_from_primitive(read_u8(input)?)?;
@@ -771,10 +771,10 @@ fn read_hierarchy_section(
         }
     }
 
-    println!("Wellen Signal Refs: {}", signal_info.signal_ref_count);
+    // println!("Wellen Signal Refs: {}", signal_info.signal_ref_count);
     let decode_info = signal_info.into_decode_info();
-    println!("GHW Signals: {}", decode_info.signal_len());
-    println!("Vectors: {}", decode_info.vectors().len());
+    // println!("GHW Signals: {}", decode_info.0.signal_len());
+    // println!("Vectors: {}", decode_info.1.len());
 
     Ok(decode_info)
 }
@@ -865,7 +865,7 @@ fn read_hierarchy_var(
     tables: &mut GhwTables,
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
-    signals: &mut GhwSignals,
+    signals: &mut GhwSignalTracker,
     index_string_cache: &mut IndexCache,
     h: &mut HierarchyBuilder,
 ) -> Result<()> {
@@ -906,7 +906,7 @@ fn get_index_string(
 /// information that is needed in order to map the bit-wise signal encoding
 /// in a GHW to the bit-vector signal encoding used in our `wellen` wavemem.
 #[derive(Debug)]
-struct GhwSignals {
+struct GhwSignalTracker {
     signals: Vec<Option<GhwSignalInfo>>,
     signal_ref_count: usize,
     vectors: Vec<GhwVecInfo>,
@@ -922,7 +922,7 @@ struct AliasInfo {
     next: Option<NonZeroU32>,
 }
 
-impl GhwSignals {
+impl GhwSignalTracker {
     fn new(max_signal_id: u32) -> Self {
         let signals = vec![None; max_signal_id as usize];
         Self {
@@ -936,7 +936,7 @@ impl GhwSignals {
     fn into_decode_info(self) -> GhwDecodeInfo {
         let mut signals: Vec<_> = self.signals.into_iter().flatten().collect();
         signals.shrink_to_fit();
-        GhwDecodeInfo::new(signals, self.vectors)
+        (GhwSignals::new(signals), self.vectors)
     }
 
     fn max_signal_id(&self) -> usize {
@@ -1096,7 +1096,7 @@ fn add_var(
     tables: &GhwTables,
     input: &mut impl BufRead,
     kind: GhwHierarchyKind,
-    signals: &mut GhwSignals,
+    signals: &mut GhwSignalTracker,
     index_string_cache: &mut IndexCache,
     h: &mut HierarchyBuilder,
     name: HierarchyStringId,

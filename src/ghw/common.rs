@@ -233,27 +233,21 @@ impl GhwSignalInfo {
     }
 }
 
+pub type GhwDecodeInfo = (GhwSignals, Vec<GhwVecInfo>);
+
 /// Contains information needed in order to decode value changes.
 #[derive(Debug, Default)]
-pub struct GhwDecodeInfo {
+pub struct GhwSignals {
     /// Type and signal reference info. Indexed by `GhwSignalId`
     signals: Vec<GhwSignalInfo>,
-    /// Vector info. Indexed by `GhwVecId`.
-    vectors: Vec<GhwVecInfo>,
 }
 
-impl GhwDecodeInfo {
-    pub fn new(signals: Vec<GhwSignalInfo>, vectors: Vec<GhwVecInfo>) -> Self {
-        Self { signals, vectors }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.signals.is_empty()
+impl GhwSignals {
+    pub fn new(signals: Vec<GhwSignalInfo>) -> Self {
+        Self { signals }
     }
     pub fn get_info(&self, signal_id: GhwSignalId) -> &GhwSignalInfo {
         &self.signals[signal_id.index()]
-    }
-    pub fn vectors(&self) -> &[GhwVecInfo] {
-        &self.vectors
     }
     pub fn signal_len(&self) -> usize {
         self.signals.len()
@@ -435,6 +429,6 @@ mod tests {
         // This is in comparison to ghwdump which stores at least two 8-bit pointers per signal.
         assert_eq!(std::mem::size_of::<GhwSignalInfo>(), 8);
 
-        assert_eq!(std::mem::size_of::<GhwVecInfo>(), 16);
+        assert_eq!(std::mem::size_of::<GhwVecInfo>(), 20);
     }
 }

@@ -14,6 +14,11 @@ use wellen::*;
 struct Args {
     #[arg(value_name = "FSTFILE", index = 1)]
     filename: String,
+    #[arg(
+        long,
+        help = "only parse the file, but do not actually load the signals"
+    )]
+    skip_load: bool,
 }
 
 fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
@@ -79,6 +84,10 @@ fn main() {
         ByteSize::b(wave.hierarchy().size_in_memory() as u64)
     );
     print_size_of_full_vs_reduced_names(wave.hierarchy());
+
+    if args.skip_load {
+        return;
+    }
 
     // load every signal individually
     let mut signal_load_times = Vec::new();

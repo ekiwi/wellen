@@ -38,6 +38,6 @@ fn read_internal(input: &mut (impl BufRead + Seek)) -> std::result::Result<Wavef
     // TODO: use actual section positions
 
     let (decode_info, hierarchy) = hierarchy::read_hierarchy(&header, input)?;
-    let wave_mem = signals::read_signals(&header, &decode_info, &hierarchy, input)?;
+    let wave_mem = signals::read_signals(&header, decode_info, &hierarchy, input)?;
     Ok(Waveform::new(hierarchy, wave_mem))
 }
