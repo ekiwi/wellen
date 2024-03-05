@@ -877,7 +877,8 @@ impl HierarchyBuilder {
 
     /// adds a variable or scope to the hierarchy tree
     fn add_to_hierarchy_tree(&mut self, node_id: HierarchyItemId) -> Option<ScopeRef> {
-        let entry = find_parent_scope(&mut self.scope_stack);
+        let entry_pos = find_parent_scope(&self.scope_stack);
+        let entry = &mut self.scope_stack[entry_pos];
         let parent = entry.scope_id;
         let fake_top_scope_parent = parent == usize::MAX;
         match entry.last_child {
@@ -909,6 +910,49 @@ impl HierarchyBuilder {
         }
     }
 
+    /// Checks to see if a scope of the same name already exists.
+    fn find_duplicate_scope(&self, name_id: HierarchyStringId) -> Option<ScopeRef> {
+        let name = self.get_str(name_id);
+        let parent = &self.scope_stack[find_parent_scope(&self.scope_stack)];
+        if parent.scope_id == usize::MAX {
+            None // no parent
+        } else {
+            let parent_scope = &self.scopes[parent.scope_id];
+            let mut maybe_child = parent_scope.child;
+            while let Some(child) = maybe_child {
+                if let HierarchyItemId::Scope(other) = child {
+                    let scope = &self.scopes[other.index()];
+                    let other_name = self.get_str(scope.name);
+                    if other_name == name {
+                        // duplicate found!
+                        return Some(other);
+                    }
+                }
+                maybe_child = self.get_next(child);
+            }
+            // no duplicate found
+            None
+        }
+    }
+
+    fn get_next(&self, item: HierarchyItemId) -> Option<HierarchyItemId> {
+        match item {
+            HierarchyItemId::Scope(scope_ref) => self.scopes[scope_ref.index()].next,
+            HierarchyItemId::Var(var_ref) => self.vars[var_ref.index()].next,
+        }
+    }
+
+    fn find_last_child(&self, scope: ScopeRef) -> Option<HierarchyItemId> {
+        if let Some(mut child) = self.scopes[scope.index()].child {
+            while let Some(next) = self.get_next(child) {
+                child = next;
+            }
+            Some(child)
+        } else {
+            None
+        }
+    }
+
     pub fn add_scope(
         &mut self,
         name: HierarchyStringId,
@@ -918,51 +962,62 @@ impl HierarchyBuilder {
         instance_source: Option<SourceLocId>,
         flatten: bool,
     ) {
-        if flatten {
+        // check to see if there is a scope of the same name already
+        // if so we just activate that scope instead of adding a new one
+        if let Some(duplicate) = self.find_duplicate_scope(name) {
+            let last_child = self.find_last_child(duplicate);
             self.scope_stack.push(ScopeStackEntry {
-                scope_id: usize::MAX,
-                last_child: None,
-                flattened: true,
-            });
-        } else {
-            let node_id = self.scopes.len();
-            let wrapped_id = HierarchyItemId::Scope(ScopeRef::from_index(node_id).unwrap());
-            if self.first_item.is_none() {
-                self.first_item = Some(wrapped_id);
-            }
-            let parent = self.add_to_hierarchy_tree(wrapped_id);
-
-            // new active scope
-            self.scope_stack.push(ScopeStackEntry {
-                scope_id: node_id,
-                last_child: None,
+                scope_id: duplicate.index(),
+                last_child,
                 flattened: false,
-            });
-
-            // empty component name is treated the same as none
-            let component = match component {
-                None => None,
-                Some(name) => {
-                    if name == EMPTY_STRING {
-                        None
-                    } else {
-                        Some(name)
-                    }
+            })
+        } else {
+            if flatten {
+                self.scope_stack.push(ScopeStackEntry {
+                    scope_id: usize::MAX,
+                    last_child: None,
+                    flattened: true,
+                });
+            } else {
+                let node_id = self.scopes.len();
+                let wrapped_id = HierarchyItemId::Scope(ScopeRef::from_index(node_id).unwrap());
+                if self.first_item.is_none() {
+                    self.first_item = Some(wrapped_id);
                 }
-            };
+                let parent = self.add_to_hierarchy_tree(wrapped_id);
 
-            // now we can build the node data structure and store it
-            let node = Scope {
-                parent,
-                child: None,
-                next: None,
-                name,
-                component,
-                tpe,
-                declaration_source,
-                instance_source,
-            };
-            self.scopes.push(node);
+                // new active scope
+                self.scope_stack.push(ScopeStackEntry {
+                    scope_id: node_id,
+                    last_child: None,
+                    flattened: false,
+                });
+
+                // empty component name is treated the same as none
+                let component = match component {
+                    None => None,
+                    Some(name) => {
+                        if name == EMPTY_STRING {
+                            None
+                        } else {
+                            Some(name)
+                        }
+                    }
+                };
+
+                // now we can build the node data structure and store it
+                let node = Scope {
+                    parent,
+                    child: None,
+                    next: None,
+                    name,
+                    component,
+                    tpe,
+                    declaration_source,
+                    instance_source,
+                };
+                self.scopes.push(node);
+            }
         }
     }
 
@@ -1054,13 +1109,13 @@ impl HierarchyBuilder {
 }
 
 /// finds the first not flattened parent scope
-fn find_parent_scope(scope_stack: &mut Vec<ScopeStackEntry>) -> &mut ScopeStackEntry {
+fn find_parent_scope(scope_stack: &[ScopeStackEntry]) -> usize {
     let mut index = scope_stack.len() - 1;
     loop {
         if scope_stack[index].flattened {
             index -= 1;
         } else {
-            return &mut scope_stack[index];
+            return index;
         }
     }
 }

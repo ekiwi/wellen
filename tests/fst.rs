@@ -138,3 +138,40 @@ fn test_var_directions() {
         }
     }
 }
+
+// See: https://gitlab.com/surfer-project/surfer/-/issues/201
+// This file contains two separate declarations of the `top` scope which need to be merged
+// automatically by `wellen`.
+#[test]
+fn test_scope_merging() {
+    let waves = fst::read("inputs/verilator/surfer_issue_201.fst").unwrap();
+    let h = waves.hierarchy();
+    assert_eq!(h.scopes().count(), 1);
+    assert_eq!(h.vars().count(), 0);
+    let toplevel = h.first_scope().unwrap();
+    assert_eq!(toplevel.name(h), "TOP");
+    let top_scopes: Vec<_> = toplevel.scopes(h).map(|i| h.get(i).name(h)).collect();
+    assert_eq!(top_scopes, ["top", "svfloat::ffunc"]);
+    let top_vars: Vec<_> = toplevel.vars(h).map(|i| h.get(i).name(h)).collect();
+    assert_eq!(top_vars, ["clk"]);
+
+    let top_top = h.get(toplevel.scopes(h).next().unwrap());
+    assert_eq!(top_top.full_name(h), "TOP.top");
+    let top_top_scopes: Vec<_> = top_top.scopes(h).map(|i| h.get(i).name(h)).collect();
+    assert_eq!(top_top_scopes, ["vga_gen", "pix_port", "vga_port"]);
+
+    let vga_gen = h.get(top_top.scopes(h).next().unwrap());
+    assert_eq!(vga_gen.full_name(h), "TOP.top.vga_gen");
+    let vga_gen_scopes: Vec<_> = vga_gen.scopes(h).map(|i| h.get(i).name(h)).collect();
+    assert_eq!(
+        vga_gen_scopes,
+        [
+            "pix_fsm_x",
+            "pix_fsm_y",
+            "sync_fsm_x",
+            "sync_fsm_y",
+            "pix",
+            "vga"
+        ]
+    )
+}
