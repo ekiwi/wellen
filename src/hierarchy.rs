@@ -5,6 +5,7 @@
 // Space efficient format for a wavedump hierarchy.
 
 use crate::FileFormat;
+use std::collections::HashMap;
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -226,7 +227,7 @@ impl VarIndex {
 }
 
 /// Signal identifier in the waveform (VCD, FST, etc.) file.
-#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct SignalRef(NonZeroU32);
 
 impl SignalRef {
@@ -272,6 +273,16 @@ pub struct Var {
     vhdl_type_name: Option<HierarchyStringId>,
     parent: Option<ScopeRef>,
     next: Option<HierarchyItemId>,
+}
+
+/// Represents a slice of another signal identified by its `SignalRef`.
+/// This is helpful for formats like GHW where some signals are directly defined as
+/// slices of other signals and thus we only save the data of the larger signal.
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct SignalSlice {
+    pub(crate) msb: u32,
+    pub(crate) lsb: u32,
+    pub(crate) sliced_signal: SignalRef,
 }
 
 const SCOPE_SEPARATOR: char = '.';
@@ -587,6 +598,7 @@ pub struct Hierarchy {
     enums: Vec<EnumType>,
     signal_idx_to_var: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
+    slices: HashMap<SignalRef, SignalSlice>,
 }
 
 struct HierarchyMetaData {
@@ -724,6 +736,10 @@ impl Hierarchy {
         let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
         Some(self.get(var_id).signal_tpe)
     }
+
+    pub(crate) fn get_slice_info(&self, signal_idx: SignalRef) -> Option<SignalSlice> {
+        self.slices.get(&signal_idx).copied()
+    }
 }
 
 // private implementation
@@ -789,6 +805,7 @@ pub struct HierarchyBuilder {
     enums: Vec<EnumType>,
     handle_to_node: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
+    slices: HashMap<SignalRef, SignalSlice>,
 }
 
 const EMPTY_STRING: HierarchyStringId = HierarchyStringId(unsafe { NonZeroU32::new_unchecked(1) });
@@ -811,6 +828,7 @@ impl HierarchyBuilder {
             enums: Vec::default(),
             handle_to_node: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
+            slices: HashMap::default(),
         }
     }
 }
@@ -823,6 +841,7 @@ impl HierarchyBuilder {
         self.source_locs.shrink_to_fit();
         self.enums.shrink_to_fit();
         self.handle_to_node.shrink_to_fit();
+        self.slices.shrink_to_fit();
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
@@ -832,6 +851,7 @@ impl HierarchyBuilder {
             enums: self.enums,
             signal_idx_to_var: self.handle_to_node,
             meta: self.meta,
+            slices: self.slices,
         }
     }
 
@@ -1105,6 +1125,25 @@ impl HierarchyBuilder {
 
     pub fn add_comment(&mut self, comment: String) {
         self.meta.comments.push(comment);
+    }
+
+    pub(crate) fn add_slice(
+        &mut self,
+        signal_ref: SignalRef,
+        msb: u32,
+        lsb: u32,
+        sliced_signal: SignalRef,
+    ) {
+        debug_assert!(msb >= lsb);
+        debug_assert!(!self.slices.contains_key(&signal_ref));
+        self.slices.insert(
+            signal_ref,
+            SignalSlice {
+                msb,
+                lsb,
+                sliced_signal,
+            },
+        );
     }
 }
 

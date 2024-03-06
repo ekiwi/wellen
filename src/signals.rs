@@ -27,13 +27,13 @@ impl<'a> Display for SignalValue<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
             SignalValue::Binary(data, bits) => {
-                write!(f, "{}", n_state_to_bit_string(States::Two, data, *bits))
+                write!(f, "{}", two_state_to_bit_string(data, *bits))
             }
             SignalValue::FourValue(data, bits) => {
-                write!(f, "{}", n_state_to_bit_string(States::Four, data, *bits))
+                write!(f, "{}", four_state_to_bit_string(data, *bits))
             }
             SignalValue::NineValue(data, bits) => {
-                write!(f, "{}", n_state_to_bit_string(States::Nine, data, *bits))
+                write!(f, "{}", nine_state_to_bit_string(data, *bits))
             }
             SignalValue::String(value) => write!(f, "{}", value),
             SignalValue::Real(value) => write!(f, "{}", value),
@@ -44,15 +44,9 @@ impl<'a> Display for SignalValue<'a> {
 impl<'a> SignalValue<'a> {
     pub fn to_bit_string(&self) -> Option<String> {
         match &self {
-            SignalValue::Binary(data, bits) => {
-                Some(n_state_to_bit_string(States::Two, data, *bits))
-            }
-            SignalValue::FourValue(data, bits) => {
-                Some(n_state_to_bit_string(States::Four, data, *bits))
-            }
-            SignalValue::NineValue(data, bits) => {
-                Some(n_state_to_bit_string(States::Nine, data, *bits))
-            }
+            SignalValue::Binary(data, bits) => Some(two_state_to_bit_string(data, *bits)),
+            SignalValue::FourValue(data, bits) => Some(four_state_to_bit_string(data, *bits)),
+            SignalValue::NineValue(data, bits) => Some(nine_state_to_bit_string(data, *bits)),
             other => panic!("Cannot convert {other:?} to bit string"),
         }
     }
@@ -61,6 +55,18 @@ impl<'a> SignalValue<'a> {
 const TWO_STATE_LOOKUP: [char; 2] = ['0', '1'];
 const FOUR_STATE_LOOKUP: [char; 4] = ['0', '1', 'x', 'z'];
 const NINE_STATE_LOOKUP: [char; 9] = ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-'];
+
+fn two_state_to_bit_string(data: &[u8], bits: u32) -> String {
+    n_state_to_bit_string(States::Two, data, bits)
+}
+
+fn four_state_to_bit_string(data: &[u8], bits: u32) -> String {
+    n_state_to_bit_string(States::Four, data, bits)
+}
+
+fn nine_state_to_bit_string(data: &[u8], bits: u32) -> String {
+    n_state_to_bit_string(States::Nine, data, bits)
+}
 
 #[inline]
 fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
@@ -213,6 +219,13 @@ impl Signal {
     }
 }
 
+impl Signal {
+    // /// Transforms a signal into a derived version.
+    // pub(crate) fn transform(&self, transform: ) -> Self {
+    //
+    // }
+}
+
 /// Provides file format independent access to a waveform file.
 pub struct Waveform {
     hierarchy: Hierarchy,
@@ -249,15 +262,34 @@ impl Waveform {
     }
 
     fn load_signals_internal(&mut self, ids: &[SignalRef], multi_threaded: bool) {
-        let ids_with_len = ids
+        // sort and dedup ids
+        let mut ids = Vec::from_iter(ids.iter().cloned());
+        ids.sort();
+        ids.dedup();
+
+        // replace any aliases by their source signal
+        let mut is_alias = vec![false; ids.len()];
+        for (ii, id) in ids.iter_mut().enumerate() {
+            if let Some(slice) = self.hierarchy.get_slice_info(*id) {
+                *id = slice.sliced_signal;
+                is_alias[ii] = true;
+            }
+        }
+
+        // collect meta data
+        let types: Vec<_> = ids
             .iter()
-            .map(|i| (*i, self.hierarchy.get_signal_tpe(*i).unwrap()))
-            .collect::<Vec<_>>();
-        let signals = self.source.load_signals(&ids_with_len, multi_threaded);
+            .map(|i| self.hierarchy.get_signal_tpe(*i).unwrap())
+            .collect();
+        let signals = self.source.load_signals(&ids, &types, multi_threaded);
         // the signal source must always return the correct number of signals!
         assert_eq!(signals.len(), ids.len());
-        for (id, signal) in ids.iter().zip(signals.into_iter()) {
-            self.signals.insert(*id, signal);
+        for ((id, is_alias), signal) in ids.iter().zip(is_alias.iter()).zip(signals.into_iter()) {
+            if *is_alias {
+                todo!("deal with loading alias!")
+            } else {
+                self.signals.insert(*id, signal);
+            }
         }
     }
 
@@ -441,7 +473,8 @@ pub(crate) trait SignalSource {
     /// Many implementations take advantage of loading multiple signals at a time.
     fn load_signals(
         &mut self,
-        ids: &[(SignalRef, SignalType)],
+        ids: &[SignalRef],
+        types: &[SignalType],
         multi_threaded: bool,
     ) -> Vec<Signal>;
     /// Returns the global time table which stores the time at each value change.

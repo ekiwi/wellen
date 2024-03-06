@@ -772,7 +772,10 @@ fn read_hierarchy_section(
     }
 
     // println!("Wellen Signal Refs: {}", signal_info.signal_ref_count);
-    let decode_info = signal_info.into_decode_info();
+    let (decode_info, aliases) = signal_info.into_decode_info();
+    for alias in aliases.into_iter() {
+        h.add_slice(alias.signal_ref, alias.msb, alias.lsb, alias.sliced_signal);
+    }
     // println!("GHW Signals: {}", decode_info.0.signal_len());
     // println!("Vectors: {}", decode_info.1.len());
 
@@ -919,6 +922,7 @@ struct AliasInfo {
     msb: u32,
     lsb: u32,
     signal_ref: SignalRef,
+    sliced_signal: SignalRef,
     next: Option<NonZeroU32>,
 }
 
@@ -933,10 +937,10 @@ impl GhwSignalTracker {
         }
     }
 
-    fn into_decode_info(self) -> GhwDecodeInfo {
+    fn into_decode_info(self) -> (GhwDecodeInfo, Vec<AliasInfo>) {
         let mut signals: Vec<_> = self.signals.into_iter().flatten().collect();
         signals.shrink_to_fit();
-        (GhwSignals::new(signals), self.vectors)
+        ((GhwSignals::new(signals), self.vectors), self.aliases)
     }
 
     fn max_signal_id(&self) -> usize {
@@ -965,6 +969,7 @@ impl GhwSignalTracker {
 
     fn find_or_add_alias(&mut self, vec_id: GhwVecId, msb: u32, lsb: u32) -> SignalRef {
         // first we try to see if we can find an existing alias
+        let sliced_signal = self.vectors[vec_id.index()].signal_ref();
         if let Some(mut alias_id) = self.vectors[vec_id.index()].alias() {
             loop {
                 let alias = self.aliases[alias_id.get() as usize - 1].clone();
@@ -981,6 +986,7 @@ impl GhwSignalTracker {
                             msb,
                             lsb,
                             signal_ref,
+                            sliced_signal,
                             next: None,
                         });
                         self.aliases[alias_id.get() as usize - 1].next =
@@ -997,6 +1003,7 @@ impl GhwSignalTracker {
                 msb,
                 lsb,
                 signal_ref,
+                sliced_signal,
                 next: None,
             });
             self.vectors[vec_id.index()].set_alias(NonZeroU32::new(alias_id as u32).unwrap());

@@ -23,15 +23,18 @@ pub struct Reader {
 impl SignalSource for Reader {
     fn load_signals(
         &mut self,
-        ids: &[(SignalRef, SignalType)],
+        ids: &[SignalRef],
+        types: &[SignalType],
         multi_threaded: bool,
     ) -> Vec<Signal> {
         if multi_threaded {
             ids.par_iter()
+                .zip(types.par_iter())
                 .map(|(id, len)| self.load_signal(*id, *len))
                 .collect::<Vec<_>>()
         } else {
             ids.iter()
+                .zip(types.iter())
                 .map(|(id, len)| self.load_signal(*id, *len))
                 .collect::<Vec<_>>()
         }

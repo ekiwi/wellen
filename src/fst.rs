@@ -43,12 +43,14 @@ impl<R: BufRead + Seek> FstWaveDatabase<R> {
 impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
     fn load_signals(
         &mut self,
-        ids: &[(SignalRef, SignalType)],
+        ids: &[SignalRef],
+        types: &[SignalType],
         _multi_threaded: bool,
     ) -> Vec<Signal> {
         // create a FST filter
         let fst_ids = ids
             .iter()
+            .zip(types.iter())
             .map(|(ii, _)| FstSignalHandle::from_index(ii.index()))
             .collect::<Vec<_>>();
         let filter = FstFilter::filter_signals(fst_ids);
@@ -60,10 +62,12 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
         // store signals
         let mut signals = ids
             .iter()
+            .zip(types.iter())
             .map(|(id, tpe)| SignalWriter::new(*id, *tpe))
             .collect::<Vec<_>>();
         let idx_to_pos: HashMap<usize, usize> = HashMap::from_iter(
             ids.iter()
+                .zip(types.iter())
                 .map(|(r, _)| r.index())
                 .enumerate()
                 .map(|(pos, idx)| (idx, pos)),
