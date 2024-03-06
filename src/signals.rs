@@ -2,8 +2,10 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
+use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
-use crate::wavemem::States;
+use crate::vcd::usize_div_ceil;
+use crate::wavemem::{check_if_changed_and_truncate, States};
 use num_enum::TryFromPrimitive;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
@@ -48,6 +50,36 @@ impl<'a> SignalValue<'a> {
             SignalValue::FourValue(data, bits) => Some(four_state_to_bit_string(data, *bits)),
             SignalValue::NineValue(data, bits) => Some(nine_state_to_bit_string(data, *bits)),
             other => panic!("Cannot convert {other:?} to bit string"),
+        }
+    }
+
+    /// Returns the number of bits in the signal value. Returns None if the value is a real or string.
+    pub fn bits(&self) -> Option<u32> {
+        match self {
+            SignalValue::Binary(_, bits) => Some(*bits),
+            SignalValue::FourValue(_, bits) => Some(*bits),
+            SignalValue::NineValue(_, bits) => Some(*bits),
+            _ => None,
+        }
+    }
+
+    /// Returns the states per bit. Returns None if the value is a real or string.
+    pub(crate) fn states(&self) -> Option<States> {
+        match self {
+            SignalValue::Binary(_, _) => Some(States::Two),
+            SignalValue::FourValue(_, _) => Some(States::Four),
+            SignalValue::NineValue(_, _) => Some(States::Nine),
+            _ => None,
+        }
+    }
+
+    /// Returns a reference to the raw data. Returns None if the value is a real or string.
+    fn data(&self) -> Option<&[u8]> {
+        match self {
+            SignalValue::Binary(data, _) => Some(*data),
+            SignalValue::FourValue(data, _) => Some(*data),
+            SignalValue::NineValue(data, _) => Some(*data),
+            _ => None,
         }
     }
 }
@@ -217,13 +249,218 @@ impl Signal {
     pub fn time_indices(&self) -> &[TimeTableIdx] {
         &self.time_indices
     }
+
+    pub fn iter_changes(&self) -> SignalChangeIterator {
+        SignalChangeIterator::new(&self)
+    }
 }
 
-impl Signal {
-    // /// Transforms a signal into a derived version.
-    // pub(crate) fn transform(&self, transform: ) -> Self {
-    //
-    // }
+pub struct SignalChangeIterator<'a> {
+    signal: &'a Signal,
+    offset: usize,
+}
+
+impl<'a> SignalChangeIterator<'a> {
+    fn new(signal: &'a Signal) -> Self {
+        Self { signal, offset: 0 }
+    }
+}
+
+impl<'a> Iterator for SignalChangeIterator<'a> {
+    type Item = (TimeTableIdx, SignalValue<'a>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(time_idx) = self.signal.time_indices.get(self.offset) {
+            let data = self.signal.data.get_value_at(self.offset);
+            self.offset += 1;
+            Some((*time_idx, data))
+        } else {
+            None
+        }
+    }
+}
+
+pub(crate) struct BitVectorBuilder {
+    max_states: States,
+    bits: u32,
+    len: usize,
+    has_meta: bool,
+    bytes_per_entry: usize,
+    data: Vec<u8>,
+    time_indices: Vec<TimeTableIdx>,
+}
+
+impl BitVectorBuilder {
+    fn new(max_states: States, bits: u32) -> Self {
+        assert!(bits > 0);
+        let (len, has_meta) = get_len_and_meta(max_states, bits);
+        let bytes_per_entry = get_bytes_per_entry(len, has_meta);
+        let data = vec![];
+        let time_indices = vec![];
+        Self {
+            max_states,
+            bits,
+            len,
+            has_meta,
+            bytes_per_entry,
+            data,
+            time_indices,
+        }
+    }
+
+    fn add_change(&mut self, time_idx: TimeTableIdx, value: SignalValue) {
+        debug_assert_eq!(value.bits().unwrap(), self.bits);
+        let local_encoding = value.states().unwrap();
+        debug_assert!(local_encoding.bits() >= self.max_states.bits());
+        if self.bits == 1 {
+            let value = value.data().unwrap()[0] & 0xf;
+            let meta_data = (local_encoding as u8) << 6;
+            self.data.push(value | meta_data);
+        } else {
+            let num_bytes = usize_div_ceil(self.bits as usize, local_encoding.bits_in_a_byte());
+            let data = value.data().unwrap();
+            assert_eq!(data.len(), num_bytes);
+            let (local_len, local_has_meta) = get_len_and_meta(local_encoding, self.bits);
+
+            // append data
+            let meta_data = (local_encoding as u8) << 6;
+            if local_len == self.len && local_has_meta == self.has_meta {
+                // same meta-data location and length as the maximum
+                if self.has_meta {
+                    self.data.push(meta_data);
+                    self.data.extend_from_slice(data);
+                } else {
+                    self.data.push(meta_data | data[0]);
+                    self.data.extend_from_slice(&data[1..]);
+                }
+            } else {
+                // smaller encoding than the maximum
+                self.data.push(meta_data);
+                if self.has_meta {
+                    push_zeros(&mut self.data, self.len - local_len);
+                } else {
+                    push_zeros(&mut self.data, self.len - local_len - 1);
+                }
+                self.data.extend_from_slice(data);
+            }
+        }
+        // see if there actually was a change and revert if there was not
+        if check_if_changed_and_truncate(self.bytes_per_entry, &mut self.data) {
+            self.time_indices.push(time_idx);
+        }
+    }
+
+    fn finish(self, id: SignalRef) -> Signal {
+        debug_assert_eq!(
+            self.data.len(),
+            self.time_indices.len() * self.bytes_per_entry
+        );
+        let encoding = SignalEncoding::BitVector {
+            max_states: self.max_states,
+            bits: self.bits,
+            meta_byte: self.has_meta,
+        };
+        Signal::new_fixed_len(
+            id,
+            self.time_indices,
+            encoding,
+            self.bytes_per_entry as u32,
+            self.data,
+        )
+    }
+}
+
+pub(crate) fn slice_signal(id: SignalRef, signal: &Signal, msb: u32, lsb: u32) -> Signal {
+    debug_assert!(msb >= lsb);
+    if let SignalChangeData::FixedLength {
+        encoding: SignalEncoding::BitVector { max_states, .. },
+        ..
+    } = &signal.data
+    {
+        slice_bit_vector(id, signal, msb, lsb, *max_states)
+    } else {
+        panic!("Cannot slice signal with data: {:?}", signal.data);
+    }
+}
+
+fn slice_bit_vector(
+    id: SignalRef,
+    signal: &Signal,
+    msb: u32,
+    lsb: u32,
+    max_states: States,
+) -> Signal {
+    debug_assert!(msb >= lsb);
+    let result_bits = msb - lsb + 1;
+    let mut builder = BitVectorBuilder::new(max_states, result_bits);
+    let mut buf = Vec::with_capacity(result_bits.div_ceil(2) as usize);
+    for (time_idx, value) in signal.iter_changes() {
+        let out_value = match value {
+            SignalValue::Binary(data, in_bits) => {
+                slice_n_states(
+                    States::Two,
+                    data,
+                    &mut buf,
+                    msb as usize,
+                    lsb as usize,
+                    in_bits as usize,
+                );
+                SignalValue::Binary(&buf, result_bits)
+            }
+            SignalValue::FourValue(data, in_bits) => {
+                slice_n_states(
+                    States::Four,
+                    data,
+                    &mut buf,
+                    msb as usize,
+                    lsb as usize,
+                    in_bits as usize,
+                );
+                SignalValue::FourValue(&buf, result_bits)
+            }
+            SignalValue::NineValue(data, in_bits) => {
+                slice_n_states(
+                    States::Nine,
+                    data,
+                    &mut buf,
+                    msb as usize,
+                    lsb as usize,
+                    in_bits as usize,
+                );
+                SignalValue::NineValue(&buf, result_bits)
+            }
+            _ => unreachable!("expected a bit vector"),
+        };
+        builder.add_change(time_idx, out_value);
+        buf.clear();
+    }
+    builder.finish(id)
+}
+
+#[inline]
+fn slice_n_states(
+    states: States,
+    data: &[u8],
+    out: &mut Vec<u8>,
+    msb: usize,
+    lsb: usize,
+    in_bits: usize,
+) {
+    let out_bits = msb - lsb + 1;
+    debug_assert!(in_bits > out_bits);
+    let mut working_byte = 0u8;
+    for (out_bit, in_bit) in (lsb..(msb + 1)).enumerate().rev() {
+        let rev_in_bit = in_bits - in_bit - 1;
+        let in_byte = data[rev_in_bit / states.bits_in_a_byte()];
+        let in_value =
+            (in_byte >> ((in_bit % states.bits_in_a_byte()) * states.bits())) & states.mask();
+
+        working_byte = (working_byte << states.bits()) + in_value;
+        if out_bit % states.bits_in_a_byte() == 0 {
+            out.push(working_byte);
+            working_byte = 0;
+        }
+    }
 }
 
 /// Provides file format independent access to a waveform file.
@@ -237,7 +474,7 @@ pub struct Waveform {
 }
 
 impl Debug for Waveform {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Waveform(...)")
     }
 }
@@ -268,6 +505,7 @@ impl Waveform {
         ids.dedup();
 
         // replace any aliases by their source signal
+        let orig_ids = ids.clone();
         let mut is_alias = vec![false; ids.len()];
         for (ii, id) in ids.iter_mut().enumerate() {
             if let Some(slice) = self.hierarchy.get_slice_info(*id) {
@@ -284,9 +522,15 @@ impl Waveform {
         let signals = self.source.load_signals(&ids, &types, multi_threaded);
         // the signal source must always return the correct number of signals!
         assert_eq!(signals.len(), ids.len());
-        for ((id, is_alias), signal) in ids.iter().zip(is_alias.iter()).zip(signals.into_iter()) {
+        for ((id, is_alias), signal) in orig_ids
+            .iter()
+            .zip(is_alias.iter())
+            .zip(signals.into_iter())
+        {
             if *is_alias {
-                todo!("deal with loading alias!")
+                let slice = self.hierarchy.get_slice_info(*id).unwrap();
+                let sliced = slice_signal(*id, &signal, slice.msb, slice.lsb);
+                self.signals.insert(*id, sliced);
             } else {
                 self.signals.insert(*id, signal);
             }
@@ -441,6 +685,9 @@ impl SignalChangeData {
                             States::Four | States::Nine => {
                                 // otherwise the actual number of states is encoded in the meta data
                                 let meta_value = (raw_data[0] >> 6) & 0x3;
+                                if States::try_from_primitive(meta_value).is_err() {
+                                    println!("ERROR: offset={offset}, encoding={encoding:?}, width={width}, raw_data[0]={}", raw_data[0]);
+                                }
                                 let states = States::try_from_primitive(meta_value).unwrap();
                                 let num_out_bytes =
                                     (*bits as usize).div_ceil(states.bits_in_a_byte());
@@ -560,5 +807,13 @@ mod tests {
             .unwrap();
         let expected = "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100010000001110110011";
         assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn test_slice_signal() {
+        let mut out = vec![];
+        slice_n_states(States::Two, &[0b001001], &mut out, 3, 3, 7);
+        assert_eq!(out[0], 1);
+        out.clear();
     }
 }
