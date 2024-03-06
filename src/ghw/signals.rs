@@ -439,11 +439,11 @@ fn set_value(bits: u32, states: States, data: &mut [u8], bit: u32, value: u8) {
 #[inline]
 fn get_data_index(bits: u32, bit: u32, states: States) -> (usize, usize) {
     debug_assert!(bit < bits);
-    let bytes = bits.div_ceil(states.bits_in_a_byte() as u32);
-    let mirrored = (bytes * states.bits_in_a_byte() as u32) - 1 - bit;
-    let index = mirrored as usize / states.bits_in_a_byte();
-    let shift = (bit as usize % states.bits_in_a_byte()) * states.bits();
-    (index, shift)
+    let bits_in_a_byte = states.bits_in_a_byte() as u32;
+    let bytes = bits.div_ceil(bits_in_a_byte);
+    let index = bytes - 1 - (bit / bits_in_a_byte);
+    let shift = (bit % bits_in_a_byte) * states.bits() as u32;
+    (index as usize, shift as usize)
 }
 
 #[cfg(test)]
