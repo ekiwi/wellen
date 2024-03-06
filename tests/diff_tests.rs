@@ -20,6 +20,10 @@ fn run_load_test(vcd_filename: &str, fst_filename: &str) {
     run_diff_test_internal(vcd_filename, Some(fst_filename), true);
 }
 
+fn run_load_test_vcd(vcd_filename: &str) {
+    run_diff_test_internal(vcd_filename, None, true);
+}
+
 fn run_diff_test_internal(
     vcd_filename: &str,
     fst_filename: Option<&str>,
@@ -494,6 +498,14 @@ fn diff_ncsim_ffdiv_32bit_tb() {
         "inputs/ncsim/ffdiv_32bit_tb.vcd",
         "inputs/ncsim/ffdiv_32bit_tb.vcd.fst",
     );
+}
+
+/// Apparently pymtl3 emits bit-vectors differently than every other simulator we support/
+/// This was pointed out in: https://gitlab.com/surfer-project/surfer/-/issues/202
+/// We can only run a load test since the VCD library we use for diff testing also rejects this encoding.
+#[test]
+fn diff_pymtl3_cgra() {
+    run_load_test_vcd("inputs/pymtl3/CGRA.vcd")
 }
 
 #[test]

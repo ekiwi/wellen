@@ -769,6 +769,15 @@ impl SignalEncoder {
                     b'b' | b'B' => &value[1..],
                     _ => value,
                 };
+                // special detection for pymtl3 which adds an extra `0b` for all bit vectors
+                let value_bits: &[u8] = if value_bits.len() <= 2 {
+                    value_bits
+                } else {
+                    match &value_bits[0..2] {
+                        b"0b" => &value_bits[2..],
+                        _ => &value_bits,
+                    }
+                };
                 if len.get() == 1 {
                     let states =
                         try_write_1_bit_9_state(time_idx_delta, value_bits[0], &mut self.data)
