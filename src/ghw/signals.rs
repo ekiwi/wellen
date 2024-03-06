@@ -223,7 +223,7 @@ struct VecBufferInfo {
     bits: u32,
     states: States,
     signal_ref: SignalRef,
-    min_index: u32,
+    max_index: u32,
 }
 
 impl VecBufferInfo {
@@ -261,7 +261,7 @@ impl VecBuffer {
                     bits,
                     states,
                     signal_ref: vector.signal_ref(),
-                    min_index: vector.min().index() as u32,
+                    max_index: vector.max().index() as u32,
                 };
                 data_start += (bits as usize).div_ceil(states.bits_in_a_byte());
                 bit_change_start += (bits as usize).div_ceil(8);
@@ -299,14 +299,14 @@ impl VecBuffer {
     #[inline]
     fn is_second_change(&self, vector_id: GhwVecId, signal_id: GhwSignalId, value: u8) -> bool {
         let info = &self.info[vector_id.index()];
-        let bit = signal_id.index() as u32 - info.min_index;
+        let bit = info.max_index - signal_id.index() as u32;
         self.has_bit_changed(info, bit) && self.get_value(info, bit) != value
     }
 
     #[inline]
     fn update_value(&mut self, vector_id: GhwVecId, signal_id: GhwSignalId, value: u8) {
         let info = &self.info[vector_id.index()];
-        let bit = signal_id.index() as u32 - info.min_index;
+        let bit = info.max_index - signal_id.index() as u32;
         let is_a_real_change = self.get_value(info, bit) != value;
         if is_a_real_change {
             Self::mark_bit_changed(&mut self.bit_change, info, bit);
@@ -395,30 +395,76 @@ impl VecBuffer {
         self.change_list.push(vec_id);
     }
 
-    #[inline]
     fn get_value(&self, info: &VecBufferInfo, bit: u32) -> u8 {
         debug_assert!(bit < info.bits);
         let data = &self.data[info.data_range()];
-        let (index, shift) = Self::get_data_index(info.bits, bit, info.states);
-        let byte = data[index];
-        (byte >> shift) & info.states.mask()
+        // specialize depending on states
+        match info.states {
+            States::Two => get_value(info.bits, States::Two, data, bit),
+            States::Four => get_value(info.bits, States::Four, data, bit),
+            States::Nine => get_value(info.bits, States::Nine, data, bit),
+        }
     }
 
     #[inline]
     fn set_value(data: &mut [u8], info: &VecBufferInfo, bit: u32, value: u8) {
         debug_assert!(value <= 0xf);
-        let (index, shift) = Self::get_data_index(info.bits, bit, info.states);
-        let data = &mut data[info.data_range()][index..(index + 1)];
-        let old_data = data[0] & !(info.states.mask() << shift);
-        data[0] = old_data | (value << shift);
+        let data = &mut data[info.data_range()];
+        // specialize depending on states
+        match info.states {
+            States::Two => set_value(info.bits, States::Two, data, bit, value),
+            States::Four => set_value(info.bits, States::Four, data, bit, value),
+            States::Nine => set_value(info.bits, States::Nine, data, bit, value),
+        }
     }
+}
 
-    #[inline]
-    fn get_data_index(bits: u32, bit: u32, states: States) -> (usize, usize) {
-        debug_assert!(bit < bits);
-        let mirrored = bits - 1 - bit;
-        let index = bit as usize / states.bits_in_a_byte();
-        let shift = (mirrored as usize % states.bits_in_a_byte()) * states.bits();
-        (index, shift)
+#[inline]
+fn get_value(bits: u32, states: States, data: &[u8], bit: u32) -> u8 {
+    debug_assert!(bit < bits);
+    let (index, shift) = get_data_index(bits, bit, states);
+    let byte = data[index];
+    (byte >> shift) & states.mask()
+}
+
+#[inline]
+fn set_value(bits: u32, states: States, data: &mut [u8], bit: u32, value: u8) {
+    debug_assert!(value <= 0xf);
+    let (index, shift) = get_data_index(bits, bit, states);
+    let data = &mut data[index..(index + 1)];
+    let old_data = data[0] & !(states.mask() << shift);
+    data[0] = old_data | (value << shift);
+}
+
+#[inline]
+fn get_data_index(bits: u32, bit: u32, states: States) -> (usize, usize) {
+    debug_assert!(bit < bits);
+    let bytes = bits.div_ceil(states.bits_in_a_byte() as u32);
+    let mirrored = (bytes * states.bits_in_a_byte() as u32) - 1 - bit;
+    let index = mirrored as usize / states.bits_in_a_byte();
+    let shift = (bit as usize % states.bits_in_a_byte()) * states.bits();
+    (index, shift)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_data_index() {
+        // big endian and right aligned
+        assert_eq!(get_data_index(4, 0, States::Nine), (1, 0));
+        assert_eq!(get_data_index(4, 1, States::Nine), (1, 4));
+        assert_eq!(get_data_index(4, 2, States::Nine), (0, 0));
+        assert_eq!(get_data_index(4, 3, States::Nine), (0, 4));
+
+        assert_eq!(get_data_index(3, 0, States::Nine), (1, 0));
+        assert_eq!(get_data_index(3, 1, States::Nine), (1, 4));
+        assert_eq!(get_data_index(3, 2, States::Nine), (0, 0));
+
+        assert_eq!(get_data_index(4, 0, States::Two), (0, 0));
+        assert_eq!(get_data_index(4, 1, States::Two), (0, 1));
+        assert_eq!(get_data_index(4, 2, States::Two), (0, 2));
+        assert_eq!(get_data_index(4, 3, States::Two), (0, 3));
     }
 }

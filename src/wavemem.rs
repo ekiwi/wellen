@@ -301,6 +301,9 @@ fn load_fixed_len_signal(
                         out.push(meta_data);
                         out.append(&mut buf);
                     } else {
+                        if meta_data > 0 {
+                            debug_assert_eq!(buf[0] & 0x3f, buf[0], "unexpected data in upper 2-bits of buf[0]={:x} {_signal_id:?} {len} {signal_states:?}", buf[0]);
+                        }
                         out.push(meta_data | buf[0]);
                         out.extend_from_slice(&buf[1..]);
                     }
@@ -701,6 +704,7 @@ impl SignalEncoder {
                 let bits = len.get();
                 if bits == 1 {
                     debug_assert_eq!(value.len(), 1);
+                    debug_assert!(value[0] <= 0xf);
                     let write_value = ((time_idx_delta as u64) << 4) + value[0] as u64;
                     leb128::write::unsigned(&mut self.data, write_value).unwrap();
                 } else {
@@ -714,11 +718,28 @@ impl SignalEncoder {
                     // write time and meta data
                     let time_and_meta = (time_idx_delta as u64) << 2 | (min_states as u64);
                     leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
+                    let data_start_index = self.data.len();
                     if min_states == states {
                         // raw data
                         self.data.extend_from_slice(value);
                     } else {
                         compress(value, states, min_states, bits as usize, &mut self.data);
+                    }
+
+                    // make sure the leading bits are 0
+                    if cfg!(debug_assertions) {
+                        let first_byte = self.data[data_start_index];
+                        let bits_in_first_byte = (bits * min_states.bits() as u32) % 8;
+                        let first_byte_mask = if bits_in_first_byte > 0 {
+                            (1u8 << bits_in_first_byte) - 1
+                        } else {
+                            0xff
+                        };
+                        debug_assert_eq!(
+                            first_byte & first_byte_mask,
+                            first_byte,
+                            "{first_byte:x} & {first_byte_mask:x} {bits} {min_states:?}\n{value:?}"
+                        );
                     }
                 }
             }
