@@ -307,14 +307,11 @@ impl VecBuffer {
     fn update_value(&mut self, vector_id: GhwVecId, signal_id: GhwSignalId, value: u8) {
         let info = &self.info[vector_id.index()];
         let bit = info.max_index - signal_id.index() as u32;
-        let is_a_real_change = self.get_value(info, bit) != value;
-        if is_a_real_change {
-            Self::mark_bit_changed(&mut self.bit_change, info, bit);
-            Self::set_value(&mut self.data, info, bit, value);
-            // add signal to change list if it has not already been added
-            if !self.has_signal_changed(vector_id) {
-                self.mark_signal_changed(vector_id);
-            }
+        Self::mark_bit_changed(&mut self.bit_change, info, bit);
+        Self::set_value(&mut self.data, info, bit, value);
+        // add signal to change list if it has not already been added
+        if !self.has_signal_changed(vector_id) {
+            self.mark_signal_changed(vector_id);
         }
     }
 
