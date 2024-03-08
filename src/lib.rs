@@ -47,7 +47,7 @@ pub use hierarchy::{
     GetItem, Hierarchy, HierarchyItem, Scope, ScopeRef, ScopeType, SignalRef, Timescale,
     TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
 };
-pub use signals::{Real, SignalValue, Time, TimeTableIdx, Waveform};
+pub use signals::{Real, Signal, SignalValue, Time, TimeTableIdx, Waveform};
 use thiserror::Error;
 
 #[cfg(feature = "benchmark")]
