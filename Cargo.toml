@@ -9,6 +9,7 @@ edition = "2021"
 authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]
 description = "Fast VCD and FST library for waveform viewers written in Rust."
 homepage = "https://github.com/ekiwi/wellen"
+repository = "https://github.com/ekiwi/wellen"
 license = "BSD-3-Clause"
 include = ["Cargo.toml", "LICENSE", "src/", "benches/"]
 keywords = ["vcd", "fst", "waveform", "wavedump"]
