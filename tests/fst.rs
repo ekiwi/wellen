@@ -5,11 +5,12 @@
 // test fst specific meta data
 
 use std::collections::HashSet;
+use wellen::simple::*;
 use wellen::*;
 
 fn load_gtkwave_des() -> (Waveform, ScopeRef) {
     let filename = "inputs/gtkwave-analyzer/des.fst";
-    let waves = fst::read(filename).expect("failed to parse");
+    let waves = read(filename).expect("failed to parse");
     let h = waves.hierarchy();
     let top = h.first_scope().unwrap();
     assert_eq!("top", top.name(h));
@@ -85,7 +86,7 @@ fn test_component_names() {
 
 fn load_verilator_many_sv_datatypes() -> (Waveform, ScopeRef) {
     let filename = "inputs/verilator/many_sv_datatypes.fst";
-    let waves = fst::read(filename).expect("failed to parse");
+    let waves = read(filename).expect("failed to parse");
     let h = waves.hierarchy();
     let top = h.first_scope().unwrap();
     assert_eq!("TOP", top.name(h));
@@ -144,7 +145,7 @@ fn test_var_directions() {
 // automatically by `wellen`.
 #[test]
 fn test_scope_merging() {
-    let waves = fst::read("inputs/verilator/surfer_issue_201.fst").unwrap();
+    let waves = read("inputs/verilator/surfer_issue_201.fst").unwrap();
     let h = waves.hierarchy();
     assert_eq!(h.scopes().count(), 1);
     assert_eq!(h.vars().count(), 0);

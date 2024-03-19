@@ -6,6 +6,7 @@ mod fst;
 mod ghw;
 mod hierarchy;
 mod signals;
+pub mod simple;
 mod vcd;
 pub mod viewers;
 mod wavemem;
@@ -36,7 +37,7 @@ impl Default for LoadOptions {
 
 pub type TimeTable = Vec<Time>;
 
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum WellenError {
     #[error("failed to load {0:?}:\n{1}")]
     FailedToLoad(FileFormat, String),
@@ -46,12 +47,13 @@ pub enum WellenError {
     Io(#[from] std::io::Error),
 }
 
+pub type Result<T> = std::result::Result<T, WellenError>;
+
 pub use hierarchy::{
     GetItem, Hierarchy, HierarchyItem, Scope, ScopeRef, ScopeType, SignalRef, Timescale,
     TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
 };
-pub use signals::{Real, Signal, SignalValue, Time, TimeTableIdx};
-use thiserror::Error;
+pub use signals::{Real, Signal, SignalSource, SignalValue, Time, TimeTableIdx};
 
 #[cfg(feature = "benchmark")]
 pub use wavemem::check_states_pub;

@@ -4,12 +4,13 @@
 //
 // test VHDL specific features
 
+use wellen::simple::*;
 use wellen::*;
 
 #[test]
 fn test_vhdl_ghdl_fst() {
     let filename = "inputs/ghdl/oscar/ghdl.fst";
-    let waves = fst::read(filename).expect("failed to parse");
+    let waves = read(filename).expect("failed to parse");
     let h = waves.hierarchy();
     let ee = h.get(h.vars().next().unwrap());
     assert_eq!("ee", ee.name(h));
@@ -56,13 +57,13 @@ fn test_vhdl_3(waves: Waveform) {
 #[test]
 fn test_vhdl_3_fst() {
     let filename = "inputs/ghdl/oscar/vhdl3.fst";
-    let waves = fst::read(filename).expect("failed to parse");
+    let waves = read(filename).expect("failed to parse");
     test_vhdl_3(waves);
 }
 
 #[test]
 fn test_vhdl_3_vcd() {
     let filename = "inputs/ghdl/oscar/vhdl3.vcd";
-    let waves = vcd::read(filename).expect("failed to parse");
+    let waves = read(filename).expect("failed to parse");
     test_vhdl_3(waves);
 }

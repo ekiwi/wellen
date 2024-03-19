@@ -4,8 +4,7 @@
 //
 // Interface for waveform viewers
 
-use super::{FileFormat, Hierarchy, LoadOptions, TimeTable, WellenError};
-use crate::signals::SignalSource;
+use crate::{FileFormat, Hierarchy, LoadOptions, Result, SignalSource, TimeTable, WellenError};
 use std::io::{BufRead, Seek};
 
 impl From<crate::ghw::GhwParseError> for WellenError {
@@ -25,8 +24,6 @@ impl From<fst_native::ReaderError> for WellenError {
         WellenError::FailedToLoad(FileFormat::Fst, value.to_string())
     }
 }
-
-pub type Result<T> = std::result::Result<T, WellenError>;
 
 pub struct HeaderResult {
     pub hierarchy: Hierarchy,
@@ -145,7 +142,7 @@ pub fn read_body(body: ReadBodyContinuation, hierarchy: &Hierarchy) -> Result<Bo
 }
 
 /// Tries to guess the format of the file.
-fn open_and_detect_file_format(filename: &str) -> FileFormat {
+pub fn open_and_detect_file_format(filename: &str) -> FileFormat {
     let input_file = std::fs::File::open(filename).expect("failed to open input file!");
     let mut reader = std::io::BufReader::new(input_file);
     detect_file_format(&mut reader)

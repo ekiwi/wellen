@@ -4,31 +4,32 @@
 //
 // test fst specific meta data
 
+use wellen::simple::*;
 use wellen::*;
 
 #[test]
 fn test_tb_recv_ghw() {
     let filename = "inputs/ghdl/tb_recv.ghw";
-    let _waves = ghw::read(filename).expect("failed to parse");
+    let _waves = read(filename).expect("failed to parse");
 }
 
 #[test]
 fn test_oscar_test_ghw() {
     let filename = "inputs/ghdl/oscar/test.ghw";
-    let _waves = ghw::read(filename).expect("failed to parse");
+    let _waves = read(filename).expect("failed to parse");
 }
 
 #[test]
 fn test_oscar_test2_ghw() {
     let filename = "inputs/ghdl/oscar/test2.ghw";
-    let _waves = ghw::read(filename).expect("failed to parse");
+    let _waves = read(filename).expect("failed to parse");
 }
 
 /// we are trying to match the encoding that FST uses
 #[test]
 fn test_ghw_enum_encoding() {
     let filename = "inputs/ghdl/oscar/test2.ghw";
-    let mut waves = ghw::read(filename).expect("failed to parse");
+    let mut waves = read(filename).expect("failed to parse");
     let h = waves.hierarchy();
     let top = h.scopes().find(|s| h.get(*s).name(h) == "test2").unwrap();
     let bbb = h
@@ -75,5 +76,5 @@ fn test_ghw_enum_encoding() {
 #[ignore] // neither ghwdump nor gtkwave seem to be able to open this file
 fn test_ghdl_issue_538_ghw() {
     let filename = "inputs/ghdl/ghdl_issue_538.ghw";
-    let _waves = ghw::read(filename).expect("failed to parse");
+    let _waves = read(filename).expect("failed to parse");
 }

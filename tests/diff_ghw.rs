@@ -4,12 +4,13 @@
 //
 // here we are comparing fst and ghw files, both loaded with wellen
 
+use wellen::simple::*;
 use wellen::*;
 
 fn run_diff_test(ghw_filename: &str, fst_filename: &str) {
-    let mut ghw_wave = ghw::read(ghw_filename).expect("failed to load GHW file!");
+    let mut ghw_wave = read(ghw_filename).expect("failed to load GHW file!");
     assert_eq!(ghw_wave.hierarchy().file_format(), FileFormat::Ghw);
-    let mut fst_wave = fst::read(fst_filename).expect("failed to load FST file!");
+    let mut fst_wave = read(fst_filename).expect("failed to load FST file!");
     assert_eq!(fst_wave.hierarchy().file_format(), FileFormat::Fst);
 
     let time_factor = diff_hierarchy(ghw_wave.hierarchy(), fst_wave.hierarchy());

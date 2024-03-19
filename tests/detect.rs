@@ -2,9 +2,8 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use wellen::{detect_file_format, FileFormat};
+use wellen::FileFormat;
 
 fn find_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -26,10 +25,7 @@ fn test_detect_file_format() {
     let files = find_files(Path::new("inputs/"));
     assert!(files.len() > 10);
     for filename in files {
-        let f = std::fs::File::open(filename.clone())
-            .unwrap_or_else(|_| panic!("Failed to open {:?}", filename));
-        let mut reader = BufReader::new(f);
-        let format = detect_file_format(&mut reader);
+        let format = wellen::viewers::open_and_detect_file_format(filename.to_str().unwrap());
         let filename_str = filename.to_str().unwrap();
         match format {
             FileFormat::Vcd => {

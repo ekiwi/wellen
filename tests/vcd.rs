@@ -2,12 +2,13 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
+use wellen::simple::*;
 use wellen::*;
 
 #[test]
 fn test_vcd_not_starting_at_zero() {
     let filename = "inputs/gameroy/trace_prefix.vcd";
-    let mut waves = vcd::read(filename).expect("failed to parse");
+    let mut waves = read(filename).expect("failed to parse");
 
     let (pc, sp) = {
         let h = waves.hierarchy();
@@ -44,7 +45,7 @@ fn test_vcd_not_starting_at_zero() {
 #[test]
 fn test_vcd_with_fake_changes() {
     let filename = "inputs/surfer/issue_145.vcd";
-    let waves = vcd::read(filename).expect("failed to parse");
+    let waves = read(filename).expect("failed to parse");
     check_no_fake_changes(waves);
 }
 
@@ -52,7 +53,7 @@ fn test_vcd_with_fake_changes() {
 #[test]
 fn test_fst_created_from_vcd_with_fake_changes() {
     let filename = "inputs/surfer/issue_145.vcd.fst";
-    let waves = fst::read(filename).expect("failed to parse");
+    let waves = read(filename).expect("failed to parse");
     check_no_fake_changes(waves);
 }
 
@@ -83,6 +84,6 @@ fn check_no_fake_changes(mut waves: Waveform) {
 #[test]
 fn test_vcd_with_decreasing_time() {
     let filename = "inputs/wellen/issue_5.vcd";
-    let waves = vcd::read(filename).expect("failed to parse");
+    let waves = read(filename).expect("failed to parse");
     assert_eq!(waves.time_table(), [4, 5]);
 }

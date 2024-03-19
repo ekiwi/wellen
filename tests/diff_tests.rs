@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
+use wellen::simple::*;
 use wellen::*;
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
@@ -30,21 +31,20 @@ fn run_diff_test_internal(
     skip_content_comparison: bool,
 ) {
     {
-        let single_thread = wellen::vcd::LoadOptions {
+        let single_thread = LoadOptions {
             multi_thread: false,
             ..Default::default()
         };
-        let wave = wellen::vcd::read_with_options(vcd_filename, single_thread)
+        let wave = read_with_options(vcd_filename, &single_thread)
             .expect("Failed to load VCD with a single thread");
         diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
     {
-        let wave =
-            wellen::vcd::read(vcd_filename).expect("Failed to load VCD with multiple threads");
+        let wave = read(vcd_filename).expect("Failed to load VCD with multiple threads");
         diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
     if let Some(fst_filename) = fst_filename {
-        let wave = wellen::fst::read(fst_filename).expect("Failed to load FST");
+        let wave = read(fst_filename).expect("Failed to load FST");
         diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
 }
