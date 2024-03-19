@@ -2,7 +2,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use crate::{FileFormat, SignalRef, WellenError};
+use crate::SignalRef;
 use num_enum::TryFromPrimitive;
 use std::io::BufRead;
 use std::num::NonZeroU32;
@@ -41,12 +41,6 @@ pub(crate) enum GhwParseError {
     ParseInt(#[from] std::num::ParseIntError),
     #[error("[ghw] I/O operation failed")]
     Io(#[from] std::io::Error),
-}
-
-impl From<GhwParseError> for WellenError {
-    fn from(value: GhwParseError) -> Self {
-        WellenError::FailedToLoad(FileFormat::Ghw, value.to_string())
-    }
 }
 
 pub const GHW_STRING_SECTION: &[u8; 4] = b"STR\x00";

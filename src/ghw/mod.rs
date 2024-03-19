@@ -6,7 +6,10 @@ mod common;
 mod hierarchy;
 mod signals;
 
-use crate::{Waveform, WellenError};
+pub(crate) use crate::ghw::common::GhwParseError;
+use crate::ghw::common::{GhwDecodeInfo, HeaderData};
+use crate::signals::SignalSource;
+use crate::{Hierarchy, LoadOptions, TimeTable};
 use std::io::{BufRead, Seek, SeekFrom};
 
 /// Checks header to see if we are dealing with a GHW file.
@@ -17,18 +20,67 @@ pub(crate) fn is_ghw(input: &mut (impl BufRead + Seek)) -> bool {
     is_ghw
 }
 
-pub fn read(filename: &str) -> Result<Waveform, WellenError> {
+pub(crate) type Result<T> = std::result::Result<T, GhwParseError>;
+
+pub(crate) fn read_header(
+    filename: &str,
+    options: &LoadOptions,
+) -> Result<(Hierarchy, ReadBodyContinuation)> {
     let f = std::fs::File::open(filename)?;
     let mut input = std::io::BufReader::new(f);
-    read_internal(&mut input)
+    let (hierarchy, header, decode_info) = read_header_internal(&mut input, options)?;
+    let cont = ReadBodyContinuation {
+        header,
+        decode_info,
+        input: Input::File(input),
+    };
+    Ok((hierarchy, cont))
 }
 
-pub fn read_from_bytes(bytes: Vec<u8>) -> Result<Waveform, WellenError> {
+pub(crate) fn read_header_from_bytes(
+    bytes: Vec<u8>,
+    options: &LoadOptions,
+) -> Result<(Hierarchy, ReadBodyContinuation)> {
     let mut input = std::io::Cursor::new(bytes);
-    read_internal(&mut input)
+    let (hierarchy, header, decode_info) = read_header_internal(&mut input, options)?;
+    let cont = ReadBodyContinuation {
+        header,
+        decode_info,
+        input: Input::Bytes(input),
+    };
+    Ok((hierarchy, cont))
 }
 
-fn read_internal(input: &mut (impl BufRead + Seek)) -> std::result::Result<Waveform, WellenError> {
+pub(crate) fn read_body(
+    data: ReadBodyContinuation,
+    hierarchy: &Hierarchy,
+) -> Result<(SignalSource, TimeTable)> {
+    let (source, time_table) = match data.input {
+        Input::Bytes(mut input) => {
+            signals::read_signals(&data.header, data.decode_info, hierarchy, &mut input)?
+        }
+        Input::File(mut input) => {
+            signals::read_signals(&data.header, data.decode_info, hierarchy, &mut input)?
+        }
+    };
+    Ok((source, time_table))
+}
+
+pub(crate) struct ReadBodyContinuation {
+    header: HeaderData,
+    decode_info: GhwDecodeInfo,
+    input: Input,
+}
+
+enum Input {
+    Bytes(std::io::Cursor<Vec<u8>>),
+    File(std::io::BufReader<std::fs::File>),
+}
+
+fn read_header_internal(
+    input: &mut (impl BufRead + Seek),
+    _options: &LoadOptions,
+) -> Result<(Hierarchy, HeaderData, GhwDecodeInfo)> {
     let header = hierarchy::read_ghw_header(input)?;
     let header_len = input.stream_position()?;
 
@@ -38,6 +90,5 @@ fn read_internal(input: &mut (impl BufRead + Seek)) -> std::result::Result<Wavef
     // TODO: use actual section positions
 
     let (decode_info, hierarchy) = hierarchy::read_hierarchy(&header, input)?;
-    let wave_mem = signals::read_signals(&header, decode_info, &hierarchy, input)?;
-    Ok(Waveform::new(hierarchy, wave_mem))
+    Ok((hierarchy, header, decode_info))
 }

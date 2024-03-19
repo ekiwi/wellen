@@ -6,8 +6,11 @@
 
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
-use crate::signals::{Real, Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
+use crate::signals::{
+    Real, Signal, SignalEncoding, SignalSource, SignalSourceImplementation, Time, TimeTableIdx,
+};
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
+use crate::TimeTable;
 use bytesize::ByteSize;
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
@@ -20,7 +23,7 @@ pub struct Reader {
     blocks: Vec<Block>,
 }
 
-impl SignalSource for Reader {
+impl SignalSourceImplementation for Reader {
     fn load_signals(
         &mut self,
         ids: &[SignalRef],
@@ -38,20 +41,6 @@ impl SignalSource for Reader {
                 .map(|(id, len)| self.load_signal(*id, *len))
                 .collect::<Vec<_>>()
         }
-    }
-
-    fn get_time_table(&self) -> Vec<Time> {
-        // create a combined time table from all blocks
-        let len = self
-            .blocks
-            .iter()
-            .map(|b| b.time_table.len())
-            .sum::<usize>();
-        let mut table = Vec::with_capacity(len);
-        for block in self.blocks.iter() {
-            table.extend_from_slice(&block.time_table);
-        }
-        table
     }
 
     fn print_statistics(&self) {
@@ -534,13 +523,25 @@ impl Encoder {
         }
     }
 
-    pub fn finish(mut self) -> Reader {
+    pub fn finish(mut self) -> (SignalSource, TimeTable) {
         // ensure that we have no open blocks
         self.finish_block();
         // create a new reader with the blocks that we have
-        Reader {
+        let reader = Reader {
             blocks: self.blocks,
+        };
+        let time_table = Self::combine_time_tables(&reader.blocks);
+        (SignalSource::new(Box::new(reader)), time_table)
+    }
+
+    fn combine_time_tables(blocks: &[Block]) -> TimeTable {
+        // create a combined time table from all blocks
+        let len = blocks.iter().map(|b| b.time_table.len()).sum::<usize>();
+        let mut table = Vec::with_capacity(len);
+        for block in blocks.iter() {
+            table.extend_from_slice(&block.time_table);
         }
+        table
     }
 
     // appends the contents of the other encoder to this one

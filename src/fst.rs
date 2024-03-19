@@ -3,44 +3,82 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::hierarchy::*;
-use crate::signals::{Signal, SignalEncoding, SignalSource, Time, TimeTableIdx};
+use crate::signals::{
+    Signal, SignalEncoding, SignalSource, SignalSourceImplementation, TimeTableIdx,
+};
 use crate::vcd::{extract_index_from_name, parse_index};
 use crate::wavemem::{check_if_changed_and_truncate, check_states, write_n_state, States};
-use crate::{FileFormat, Waveform, WellenError};
+use crate::{FileFormat, LoadOptions, TimeTable, WellenError};
 use fst_native::*;
 use std::collections::HashMap;
 use std::io::{BufRead, Seek};
 
 pub type Result<T> = std::result::Result<T, WellenError>;
 
-pub fn read(filename: &str) -> Result<Waveform> {
-    let input = std::fs::File::open(filename).expect("failed to open input file!");
-    let mut reader = FstReader::open_and_read_time_table(std::io::BufReader::new(input)).unwrap();
-    let hierarchy = read_hierarchy(&mut reader);
-    let db = Box::new(FstWaveDatabase::new(reader));
-    Ok(Waveform::new(hierarchy, db))
+pub(crate) fn read_header(
+    filename: &str,
+    _options: &LoadOptions,
+) -> Result<(Hierarchy, ReadBodyContinuation)> {
+    let input = std::fs::File::open(filename)?;
+    let mut reader = FstReader::open_and_read_time_table(std::io::BufReader::new(input))?;
+    let hierarchy = read_hierarchy(&mut reader)?;
+    let cont = ReadBodyContinuation {
+        reader: Reader::File(reader),
+    };
+    Ok((hierarchy, cont))
 }
 
-pub fn read_from_bytes(bytes: Vec<u8>) -> Result<Waveform> {
-    let mut reader = FstReader::open_and_read_time_table(std::io::Cursor::new(bytes)).unwrap();
-    let hierarchy = read_hierarchy(&mut reader);
-    let db = Box::new(FstWaveDatabase::new(reader));
-    Ok(Waveform::new(hierarchy, db))
+pub(crate) fn read_header_from_bytes(
+    bytes: Vec<u8>,
+    _options: &LoadOptions,
+) -> Result<(Hierarchy, ReadBodyContinuation)> {
+    let mut reader = FstReader::open_and_read_time_table(std::io::Cursor::new(bytes))?;
+    let hierarchy = read_hierarchy(&mut reader)?;
+    let cont = ReadBodyContinuation {
+        reader: Reader::Bytes(reader),
+    };
+    Ok((hierarchy, cont))
+}
+
+pub(crate) fn read_body(data: ReadBodyContinuation) -> Result<(SignalSource, TimeTable)> {
+    match data.reader {
+        Reader::File(reader) => {
+            let time_table = reader.get_time_table().unwrap().to_vec();
+            Ok((
+                SignalSource::new(Box::new(FstWaveDatabase::new(reader))),
+                time_table,
+            ))
+        }
+        Reader::Bytes(reader) => {
+            let time_table = reader.get_time_table().unwrap().to_vec();
+            Ok((
+                SignalSource::new(Box::new(FstWaveDatabase::new(reader))),
+                time_table,
+            ))
+        }
+    }
+}
+
+pub(crate) struct ReadBodyContinuation {
+    reader: Reader,
+}
+
+enum Reader {
+    File(FstReader<std::io::BufReader<std::fs::File>>),
+    Bytes(FstReader<std::io::Cursor<Vec<u8>>>),
 }
 
 struct FstWaveDatabase<R: BufRead + Seek> {
     reader: FstReader<R>,
-    time_table: Vec<u64>,
 }
 
 impl<R: BufRead + Seek> FstWaveDatabase<R> {
     fn new(reader: FstReader<R>) -> Self {
-        let time_table = reader.get_time_table().unwrap().to_vec();
-        FstWaveDatabase { reader, time_table }
+        FstWaveDatabase { reader }
     }
 }
 
-impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
+impl<R: BufRead + Seek> SignalSourceImplementation for FstWaveDatabase<R> {
     fn load_signals(
         &mut self,
         ids: &[SignalRef],
@@ -56,7 +94,8 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
         let filter = FstFilter::filter_signals(fst_ids);
 
         // lookup data structure for time table indices
-        let mut time_table = self.time_table.iter().enumerate();
+        let tt = self.reader.get_time_table().unwrap().to_vec();
+        let mut time_table = tt.iter().enumerate();
         let mut index_and_time = time_table.next().unwrap();
 
         // store signals
@@ -86,11 +125,6 @@ impl<R: BufRead + Seek> SignalSource for FstWaveDatabase<R> {
         self.reader.read_signals(&filter, foo).unwrap();
         signals.into_iter().map(|w| w.finish()).collect()
     }
-
-    fn get_time_table(&self) -> Vec<Time> {
-        self.time_table.clone()
-    }
-
     fn print_statistics(&self) {
         println!("FST backend currently has not statistics to print.");
     }
@@ -536,7 +570,7 @@ pub(crate) fn parse_scope_attributes(
     Ok((declaration_source, instance_source))
 }
 
-fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
+fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierarchy> {
     let mut h = HierarchyBuilder::new(FileFormat::Fst);
     // load meta-data
     let fst_header = reader.get_header();
@@ -639,6 +673,6 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Hierarchy {
             FstHierarchyEntry::AttributeEnd => todo!("{entry:?}"),
         };
     };
-    reader.read_hierarchy(cb).unwrap();
-    h.finish()
+    reader.read_hierarchy(cb)?;
+    Ok(h.finish())
 }

@@ -3,8 +3,9 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::ghw::common::*;
+use crate::signals::SignalSource;
 use crate::wavemem::{Encoder, States};
-use crate::{Hierarchy, SignalRef};
+use crate::{Hierarchy, SignalRef, TimeTable};
 use std::io::BufRead;
 
 /// Reads the GHW signal values. `input` should be advanced until right after the end of hierarchy
@@ -13,7 +14,7 @@ pub(crate) fn read_signals(
     decode_info: GhwDecodeInfo,
     hierarchy: &Hierarchy,
     input: &mut impl BufRead,
-) -> Result<Box<crate::wavemem::Reader>> {
+) -> Result<(SignalSource, TimeTable)> {
     let (info, vectors) = decode_info;
     // TODO: multi-threading
     let mut encoder = Encoder::new(hierarchy);
@@ -45,7 +46,7 @@ pub(crate) fn read_signals(
             }
         }
     }
-    Ok(Box::new(encoder.finish()))
+    Ok(encoder.finish())
 }
 
 fn read_snapshot_section(

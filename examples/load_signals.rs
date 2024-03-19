@@ -58,32 +58,41 @@ fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
     )
 }
 
-const VCD_OPTS: vcd::LoadOptions = vcd::LoadOptions {
+const LOAD_OPTS: LoadOptions = LoadOptions {
     multi_thread: true,
     remove_scopes_with_empty_name: false,
 };
 
 fn main() {
     let args = Args::parse();
-    let ext = args.filename.split('.').last().unwrap();
-    let start = std::time::Instant::now();
-    let mut wave = match ext {
-        "fst" => wellen::fst::read(&args.filename).expect("Failed to load FST."),
-        "vcd" => {
-            wellen::vcd::read_with_options(&args.filename, VCD_OPTS).expect("Failed to load VCD.")
-        }
-        "ghw" => wellen::ghw::read(&args.filename).expect("Failed to load GHW."),
-        other => panic!("Unsupported file extension: {other}"),
-    };
-    let load_duration = start.elapsed();
-    println!("It took {:?} to load {}", load_duration, args.filename);
-    wave.print_backend_statistics();
+
+    // load header
+    let header_start = std::time::Instant::now();
+    let header = viewers::read_header(&args.filename, &LOAD_OPTS).expect("Failed to load file!");
+    let header_load_duration = header_start.elapsed();
+    println!(
+        "It took {:?} to load the header of {}",
+        header_load_duration, args.filename
+    );
+
+    // load body
+    let hierarchy = header.hierarchy;
+    let body_start = std::time::Instant::now();
+    let body = viewers::read_body(header.body, &hierarchy).expect("Failed to load body!");
+    let body_load_duration = body_start.elapsed();
+    println!(
+        "It took {:?} to load the body of {}",
+        body_load_duration, args.filename
+    );
+    let mut wave_source = body.source;
+
+    wave_source.print_statistics();
 
     println!(
         "The hierarchy takes up at least {} of memory.",
-        ByteSize::b(wave.hierarchy().size_in_memory() as u64)
+        ByteSize::b(hierarchy.size_in_memory() as u64)
     );
-    print_size_of_full_vs_reduced_names(wave.hierarchy());
+    print_size_of_full_vs_reduced_names(&hierarchy);
 
     if args.skip_load {
         return;
@@ -93,13 +102,16 @@ fn main() {
     let mut signal_load_times = Vec::new();
     let mut signal_sizes = Vec::new();
     let signal_load_start = std::time::Instant::now();
-    for var in wave.hierarchy().get_unique_signals_vars().iter().flatten() {
-        let _signal_name: String = var.full_name(wave.hierarchy());
+    for var in hierarchy.get_unique_signals_vars().iter().flatten() {
+        let _signal_name: String = var.full_name(&hierarchy);
         let ids = [var.signal_ref(); 1];
         let start = std::time::Instant::now();
-        wave.load_signals(&ids);
+        let loaded = wave_source.load_signals(&ids, &hierarchy, LOAD_OPTS.multi_thread);
         let load_time = start.elapsed();
-        let bytes_in_mem = wave.get_signal(var.signal_ref()).unwrap().size_in_memory();
+        assert_eq!(loaded.len(), ids.len());
+        let (loaded_id, loaded_signal) = loaded.into_iter().next().unwrap();
+        assert_eq!(loaded_id, ids[0]);
+        let bytes_in_mem = loaded_signal.size_in_memory();
         signal_load_times.push(load_time);
         signal_sizes.push(bytes_in_mem);
     }

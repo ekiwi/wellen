@@ -2,52 +2,55 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-mod detect;
-pub mod fst;
-pub mod ghw;
+mod fst;
+mod ghw;
 mod hierarchy;
 mod signals;
-pub mod vcd;
+mod vcd;
+pub mod viewers;
 mod wavemem;
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum FileFormat {
+    Vcd,
+    Fst,
+    Ghw,
+    Unknown,
+}
+#[derive(Debug, Copy, Clone)]
+pub struct LoadOptions {
+    /// Indicates that the loader should use multiple threads if possible.
+    pub multi_thread: bool,
+    /// Indicates that scopes with empty names should not be part of the hierarchy.
+    pub remove_scopes_with_empty_name: bool,
+}
+
+impl Default for LoadOptions {
+    fn default() -> Self {
+        Self {
+            multi_thread: true,
+            remove_scopes_with_empty_name: false,
+        }
+    }
+}
+
+pub type TimeTable = Vec<Time>;
 
 #[derive(Debug, Error)]
 pub enum WellenError {
-    #[error("[vcd] failed to parse length: `{0}` for variable `{1}`")]
-    VcdVarLengthParsing(String, String),
-    #[error("[vcd] expected command to start with `$`, not `{0}`")]
-    VcdStartChar(String),
-    #[error("[vcd] unexpected number of tokens for command {0}: {1}")]
-    VcdUnexpectedNumberOfTokens(String, String),
-    #[error("[vcd] encountered a attribute with an unsupported type: {0}")]
-    VcdUnsupportedAttributeType(String),
-    #[error("[vcd] failed to parse VHDL var type from attribute.")]
-    VcdFailedToParseVhdlVarType(
-        #[from] num_enum::TryFromPrimitiveError<fst_native::FstVhdlVarType>,
-    ),
-    #[error("[vcd] failed to parse VHDL data type from attribute.")]
-    VcdFailedToParseVhdlDataType(
-        #[from] num_enum::TryFromPrimitiveError<fst_native::FstVhdlDataType>,
-    ),
-    #[error("[vcd] unknown var type: {0}")]
-    VcdUnknownVarType(String),
-    #[error("[vcd] unknown scope type: {0}")]
-    VcdUnknownScopeType(String),
-    #[error("failed to decode string")]
-    Utf8(#[from] std::str::Utf8Error),
-    #[error("failed to parse an integer")]
-    ParseInt(#[from] std::num::ParseIntError),
-    #[error("I/O operation failed")]
-    Io(#[from] std::io::Error),
     #[error("failed to load {0:?}:\n{1}")]
     FailedToLoad(FileFormat, String),
+    #[error("unknown file format, only GHW, FST and VCD are supported")]
+    UnknownFileFormat,
+    #[error("io error")]
+    Io(#[from] std::io::Error),
 }
 
-pub use detect::{detect_file_format, open_and_detect_file_format, FileFormat};
 pub use hierarchy::{
     GetItem, Hierarchy, HierarchyItem, Scope, ScopeRef, ScopeType, SignalRef, Timescale,
     TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
 };
-pub use signals::{Real, Signal, SignalValue, Time, TimeTableIdx, Waveform};
+pub use signals::{Real, Signal, SignalValue, Time, TimeTableIdx};
 use thiserror::Error;
 
 #[cfg(feature = "benchmark")]

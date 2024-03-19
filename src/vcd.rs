@@ -4,7 +4,8 @@
 
 use crate::fst::{parse_scope_attributes, parse_var_attributes, Attribute};
 use crate::hierarchy::*;
-use crate::{FileFormat, Waveform, WellenError};
+use crate::signals::SignalSource;
+use crate::{FileFormat, LoadOptions, TimeTable};
 use fst_native::{FstVhdlDataType, FstVhdlVarType};
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
@@ -12,47 +13,101 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
 
-#[derive(Debug, Copy, Clone)]
-pub struct LoadOptions {
-    /// Indicates that VCD should be parsed using multiple threads.
-    pub multi_thread: bool,
-    /// Indicates that scopes with empty names should not be part of the hierarchy.
-    pub remove_scopes_with_empty_name: bool,
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum VcdParseError {
+    #[error("[vcd] failed to parse length: `{0}` for variable `{1}`")]
+    VcdVarLengthParsing(String, String),
+    #[error("[vcd] expected command to start with `$`, not `{0}`")]
+    VcdStartChar(String),
+    #[error("[vcd] unexpected number of tokens for command {0}: {1}")]
+    VcdUnexpectedNumberOfTokens(String, String),
+    #[error("[vcd] encountered a attribute with an unsupported type: {0}")]
+    VcdUnsupportedAttributeType(String),
+    #[error("[vcd] failed to parse VHDL var type from attribute.")]
+    VcdFailedToParseVhdlVarType(
+        #[from] num_enum::TryFromPrimitiveError<fst_native::FstVhdlVarType>,
+    ),
+    #[error("[vcd] failed to parse VHDL data type from attribute.")]
+    VcdFailedToParseVhdlDataType(
+        #[from] num_enum::TryFromPrimitiveError<fst_native::FstVhdlDataType>,
+    ),
+    #[error("[vcd] unknown var type: {0}")]
+    VcdUnknownVarType(String),
+    #[error("[vcd] unknown scope type: {0}")]
+    VcdUnknownScopeType(String),
+    #[error("failed to decode string")]
+    Utf8(#[from] std::str::Utf8Error),
+    #[error("failed to parse an integer")]
+    ParseInt(#[from] std::num::ParseIntError),
+    #[error("I/O operation failed")]
+    Io(#[from] std::io::Error),
 }
 
-impl Default for LoadOptions {
-    fn default() -> Self {
-        Self {
-            multi_thread: true,
-            remove_scopes_with_empty_name: false,
-        }
-    }
-}
+pub(crate) type Result<T> = std::result::Result<T, VcdParseError>;
 
-pub type Result<T> = std::result::Result<T, WellenError>;
-
-pub fn read(filename: &str) -> Result<Waveform> {
-    read_with_options(filename, LoadOptions::default())
-}
-pub fn read_from_bytes(bytes: &[u8]) -> Result<Waveform> {
-    read_from_bytes_with_options(bytes, LoadOptions::default())
-}
-
-pub fn read_with_options(filename: &str, options: LoadOptions) -> Result<Waveform> {
-    // load file into memory (lazily)
-    let input_file = std::fs::File::open(filename).expect("failed to open input file!");
-    let mmap = unsafe { memmap2::Mmap::map(&input_file).expect("failed to memory map file") };
+pub(crate) fn read_header(
+    filename: &str,
+    options: &LoadOptions,
+) -> Result<(Hierarchy, ReadBodyContinuation)> {
+    let input_file = std::fs::File::open(filename)?;
+    let mmap = unsafe { memmap2::Mmap::map(&input_file)? };
     let (header_len, hierarchy, lookup) =
         read_hierarchy(&mut std::io::Cursor::new(&mmap[..]), &options)?;
-    let wave_mem = read_values(&mmap[header_len..], &options, &hierarchy, &lookup)?;
-    Ok(Waveform::new(hierarchy, wave_mem))
+    let cont = ReadBodyContinuation {
+        multi_thread: options.multi_thread,
+        header_len,
+        lookup,
+        input: Input::File(mmap),
+    };
+    Ok((hierarchy, cont))
 }
 
-pub fn read_from_bytes_with_options(bytes: &[u8], options: LoadOptions) -> Result<Waveform> {
+pub(crate) fn read_header_from_bytes(
+    bytes: Vec<u8>,
+    options: &LoadOptions,
+) -> Result<(Hierarchy, ReadBodyContinuation)> {
     let (header_len, hierarchy, lookup) =
         read_hierarchy(&mut std::io::Cursor::new(&bytes), &options)?;
-    let wave_mem = read_values(&bytes[header_len..], &options, &hierarchy, &lookup)?;
-    Ok(Waveform::new(hierarchy, wave_mem))
+    let cont = ReadBodyContinuation {
+        multi_thread: options.multi_thread,
+        header_len,
+        lookup,
+        input: Input::Bytes(bytes),
+    };
+    Ok((hierarchy, cont))
+}
+
+pub(crate) struct ReadBodyContinuation {
+    multi_thread: bool,
+    header_len: usize,
+    lookup: IdLookup,
+    input: Input,
+}
+
+enum Input {
+    Bytes(Vec<u8>),
+    File(memmap2::Mmap),
+}
+
+pub(crate) fn read_body(
+    data: ReadBodyContinuation,
+    hierarchy: &Hierarchy,
+) -> Result<(SignalSource, TimeTable)> {
+    let (source, time_table) = match data.input {
+        Input::Bytes(mmap) => read_values(
+            &mmap[data.header_len..],
+            data.multi_thread,
+            hierarchy,
+            &data.lookup,
+        )?,
+        Input::File(bytes) => read_values(
+            &bytes[data.header_len..],
+            data.multi_thread,
+            hierarchy,
+            &data.lookup,
+        )?,
+    };
+    Ok((source, time_table))
 }
 
 const FST_SUP_VAR_DATA_TYPE_BITS: u32 = 10;
@@ -107,7 +162,7 @@ fn parse_attribute(
                 is_instance,
             )))
         }
-        _ => Err(WellenError::VcdUnsupportedAttributeType(
+        _ => Err(VcdParseError::VcdUnsupportedAttributeType(
             iter_bytes_to_list_str(tokens.iter()),
         )),
     }
@@ -200,7 +255,7 @@ fn read_hierarchy(
             let length = match u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10) {
                 Ok(len) => len,
                 Err(_) => {
-                    return Err(WellenError::VcdVarLengthParsing(
+                    return Err(VcdParseError::VcdVarLengthParsing(
                         String::from_utf8_lossy(size).to_string(),
                         String::from_utf8_lossy(name).to_string(),
                     ));
@@ -252,7 +307,7 @@ fn read_hierarchy(
         }
     };
 
-    read_header(input, foo).unwrap();
+    read_vcd_header(input, foo).unwrap();
     let end = input.stream_position().unwrap();
     let hierarchy = h.finish();
     let lookup = if use_id_map { Some(id_map) } else { None };
@@ -337,7 +392,7 @@ fn convert_scope_tpe(tpe: &[u8]) -> Result<ScopeType> {
         b"vhdl_if_generate" => Ok(ScopeType::VhdlIfGenerate),
         b"vhdl_generate" => Ok(ScopeType::VhdlGenerate),
         b"vhdl_package" => Ok(ScopeType::VhdlPackage),
-        _ => Err(WellenError::VcdUnknownScopeType(
+        _ => Err(VcdParseError::VcdUnknownScopeType(
             String::from_utf8_lossy(tpe).to_string(),
         )),
     }
@@ -375,7 +430,7 @@ fn convert_var_tpe(tpe: &[u8]) -> Result<VarType> {
         b"byte" => Ok(VarType::Byte),
         b"enum" => Ok(VarType::Enum),
         b"shortread" => Ok(VarType::ShortReal),
-        _ => Err(WellenError::VcdUnknownVarType(
+        _ => Err(VcdParseError::VcdUnknownVarType(
             String::from_utf8_lossy(tpe).to_string(),
         )),
     }
@@ -409,12 +464,14 @@ fn id_to_int(id: &[u8]) -> Option<u64> {
 }
 
 #[inline]
-fn unexpected_n_tokens(cmd: &str, tokens: &[&[u8]]) -> WellenError {
-    WellenError::VcdUnexpectedNumberOfTokens(cmd.to_string(), iter_bytes_to_list_str(tokens.iter()))
+fn unexpected_n_tokens(cmd: &str, tokens: &[&[u8]]) -> VcdParseError {
+    VcdParseError::VcdUnexpectedNumberOfTokens(
+        cmd.to_string(),
+        iter_bytes_to_list_str(tokens.iter()),
+    )
 }
 
-/// very hacky read header implementation, will fail on a lot of valid headers
-fn read_header(
+fn read_vcd_header(
     input: &mut impl BufRead,
     mut callback: impl FnMut(HeaderCmd) -> Result<()>,
 ) -> Result<()> {
@@ -455,7 +512,7 @@ fn read_header(
                     }
                     2 => (tokens[0], tokens[1]),
                     _ => {
-                        return Err(WellenError::VcdUnexpectedNumberOfTokens(
+                        return Err(VcdParseError::VcdUnexpectedNumberOfTokens(
                             "timescale".to_string(),
                             iter_bytes_to_list_str(tokens.iter()),
                         ))
@@ -470,7 +527,7 @@ fn read_header(
             VcdCmd::Attribute => {
                 let tokens = find_tokens(body);
                 if tokens.len() < 3 {
-                    return Err(WellenError::VcdUnexpectedNumberOfTokens(
+                    return Err(VcdParseError::VcdUnexpectedNumberOfTokens(
                         "attribute".to_string(),
                         iter_bytes_to_list_str(tokens.iter()),
                     ));
@@ -478,7 +535,7 @@ fn read_header(
                 match tokens[0] {
                     b"misc" => HeaderCmd::MiscAttribute(tokens),
                     _ => {
-                        return Err(WellenError::VcdUnsupportedAttributeType(
+                        return Err(VcdParseError::VcdUnsupportedAttributeType(
                             iter_bytes_to_list_str(tokens.iter()),
                         ))
                     }
@@ -594,7 +651,7 @@ fn read_command<'a>(input: &mut impl BufRead, buf: &'a mut Vec<u8>) -> Result<(V
     let start_char = skip_whitespace(input)?;
 
     if start_char != b'$' {
-        return Err(WellenError::VcdStartChar(
+        return Err(VcdParseError::VcdStartChar(
             String::from_utf8_lossy(&[start_char]).to_string(),
         ));
     }
@@ -743,11 +800,11 @@ fn determine_thread_chunks(body_len: usize) -> Vec<(usize, usize)> {
 /// Reads the body of a VCD with multiple threads
 fn read_values(
     input: &[u8],
-    options: &LoadOptions,
+    multi_thread: bool,
     hierarchy: &Hierarchy,
     lookup: &IdLookup,
-) -> Result<Box<crate::wavemem::Reader>> {
-    if options.multi_thread {
+) -> Result<(SignalSource, TimeTable)> {
+    if multi_thread {
         let chunks = determine_thread_chunks(input.len());
         let encoders: Vec<crate::wavemem::Encoder> = chunks
             .par_iter()
@@ -778,11 +835,11 @@ fn read_values(
         for other in encoder_iter {
             encoder.append(other);
         }
-        Ok(Box::new(encoder.finish()))
+        Ok(encoder.finish())
     } else {
         let encoder =
             read_single_stream_of_values(input, input.len() - 1, true, true, hierarchy, lookup);
-        Ok(Box::new(encoder.finish()))
+        Ok(encoder.finish())
     }
 }
 

@@ -3,11 +3,11 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
-use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
+use crate::hierarchy::{SignalRef, SignalType};
 use crate::vcd::usize_div_ceil;
 use crate::wavemem::{check_if_changed_and_truncate, States};
+use crate::Hierarchy;
 use num_enum::TryFromPrimitive;
-use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroU32;
 
@@ -463,103 +463,6 @@ fn slice_n_states(
     }
 }
 
-/// Provides file format independent access to a waveform file.
-pub struct Waveform {
-    hierarchy: Hierarchy,
-    source: Box<dyn SignalSource + Send + Sync>,
-    time_table: Vec<Time>,
-    /// Signals are stored in a HashMap since we expect only a small subset of signals to be
-    /// loaded at a time.
-    signals: HashMap<SignalRef, Signal>,
-}
-
-impl Debug for Waveform {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Waveform(...)")
-    }
-}
-
-impl Waveform {
-    pub(crate) fn new(hierarchy: Hierarchy, source: Box<dyn SignalSource + Send + Sync>) -> Self {
-        let time_table = source.get_time_table();
-        Waveform {
-            hierarchy,
-            source,
-            time_table,
-            signals: HashMap::new(),
-        }
-    }
-
-    pub fn hierarchy(&self) -> &Hierarchy {
-        &self.hierarchy
-    }
-
-    pub fn time_table(&self) -> &[Time] {
-        &self.time_table
-    }
-
-    fn load_signals_internal(&mut self, ids: &[SignalRef], multi_threaded: bool) {
-        // sort and dedup ids
-        let mut ids = Vec::from_iter(ids.iter().cloned());
-        ids.sort();
-        ids.dedup();
-
-        // replace any aliases by their source signal
-        let orig_ids = ids.clone();
-        let mut is_alias = vec![false; ids.len()];
-        for (ii, id) in ids.iter_mut().enumerate() {
-            if let Some(slice) = self.hierarchy.get_slice_info(*id) {
-                *id = slice.sliced_signal;
-                is_alias[ii] = true;
-            }
-        }
-
-        // collect meta data
-        let types: Vec<_> = ids
-            .iter()
-            .map(|i| self.hierarchy.get_signal_tpe(*i).unwrap())
-            .collect();
-        let signals = self.source.load_signals(&ids, &types, multi_threaded);
-        // the signal source must always return the correct number of signals!
-        assert_eq!(signals.len(), ids.len());
-        for ((id, is_alias), signal) in orig_ids
-            .iter()
-            .zip(is_alias.iter())
-            .zip(signals.into_iter())
-        {
-            if *is_alias {
-                let slice = self.hierarchy.get_slice_info(*id).unwrap();
-                let sliced = slice_signal(*id, &signal, slice.msb, slice.lsb);
-                self.signals.insert(*id, sliced);
-            } else {
-                self.signals.insert(*id, signal);
-            }
-        }
-    }
-
-    pub fn load_signals(&mut self, ids: &[SignalRef]) {
-        self.load_signals_internal(ids, false)
-    }
-
-    pub fn load_signals_multi_threaded(&mut self, ids: &[SignalRef]) {
-        self.load_signals_internal(ids, true)
-    }
-
-    pub fn unload_signals(&mut self, ids: &[SignalRef]) {
-        for id in ids.iter() {
-            self.signals.remove(id);
-        }
-    }
-
-    pub fn get_signal(&self, id: SignalRef) -> Option<&Signal> {
-        self.signals.get(&id)
-    }
-
-    pub fn print_backend_statistics(&self) {
-        self.source.print_statistics();
-    }
-}
-
 /// Finds the index that is the same or less than the needle and returns the position of it.
 /// Note that `indices` needs to sorted from smallest to largest.
 /// Essentially implements a binary search!
@@ -715,7 +618,7 @@ impl SignalChangeData {
     }
 }
 
-pub(crate) trait SignalSource {
+pub(crate) trait SignalSourceImplementation {
     /// Loads new signals.
     /// Many implementations take advantage of loading multiple signals at a time.
     fn load_signals(
@@ -724,10 +627,71 @@ pub(crate) trait SignalSource {
         types: &[SignalType],
         multi_threaded: bool,
     ) -> Vec<Signal>;
-    /// Returns the global time table which stores the time at each value change.
-    fn get_time_table(&self) -> Vec<Time>;
     /// Print memory size / speed statistics.
     fn print_statistics(&self);
+}
+
+pub struct SignalSource {
+    inner: Box<dyn SignalSourceImplementation + Send + Sync>,
+}
+
+impl SignalSource {
+    pub(crate) fn new(inner: Box<dyn SignalSourceImplementation + Send + Sync>) -> Self {
+        Self { inner }
+    }
+
+    /// Loads new signals.
+    /// Many implementations take advantage of loading multiple signals at a time.
+    pub fn load_signals(
+        &mut self,
+        ids: &[SignalRef],
+        hierarchy: &Hierarchy,
+        multi_threaded: bool,
+    ) -> Vec<(SignalRef, Signal)> {
+        // sort and dedup ids
+        let mut ids = Vec::from_iter(ids.iter().cloned());
+        ids.sort();
+        ids.dedup();
+
+        // replace any aliases by their source signal
+        let orig_ids = ids.clone();
+        let mut is_alias = vec![false; ids.len()];
+        for (ii, id) in ids.iter_mut().enumerate() {
+            if let Some(slice) = hierarchy.get_slice_info(*id) {
+                *id = slice.sliced_signal;
+                is_alias[ii] = true;
+            }
+        }
+
+        // collect meta data
+        let types: Vec<_> = ids
+            .iter()
+            .map(|i| hierarchy.get_signal_tpe(*i).unwrap())
+            .collect();
+        let signals = self.inner.load_signals(&ids, &types, multi_threaded);
+        // the signal source must always return the correct number of signals!
+        assert_eq!(signals.len(), ids.len());
+        let mut out = Vec::with_capacity(orig_ids.len());
+        for ((id, is_alias), signal) in orig_ids
+            .iter()
+            .zip(is_alias.iter())
+            .zip(signals.into_iter())
+        {
+            if *is_alias {
+                let slice = hierarchy.get_slice_info(*id).unwrap();
+                let sliced = slice_signal(*id, &signal, slice.msb, slice.lsb);
+                out.push((*id, sliced));
+            } else {
+                out.push((*id, signal));
+            }
+        }
+        out
+    }
+
+    /// Print memory size / speed statistics.
+    pub fn print_statistics(&self) {
+        self.inner.print_statistics();
+    }
 }
 
 #[cfg(test)]
