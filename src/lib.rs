@@ -10,6 +10,7 @@ pub mod simple;
 mod vcd;
 pub mod viewers;
 mod wavemem;
+mod serialize;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum FileFormat {
