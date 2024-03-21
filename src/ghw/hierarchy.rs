@@ -72,8 +72,6 @@ pub(crate) fn read_ghw_header(input: &mut impl BufRead) -> Result<HeaderData> {
     Ok(data)
 }
 
-const GHW_TAILER_LEN: usize = 12;
-
 /// The last 8 bytes of a finished, uncompressed file indicate where to find the directory which
 /// contains the offset of all sections.
 pub(crate) fn try_read_directory(

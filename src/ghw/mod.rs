@@ -9,8 +9,10 @@ mod signals;
 pub(crate) use crate::ghw::common::GhwParseError;
 use crate::ghw::common::{GhwDecodeInfo, HeaderData};
 use crate::signals::SignalSource;
+use crate::viewers::ProgressCount;
 use crate::{Hierarchy, LoadOptions, TimeTable};
 use std::io::{BufRead, Seek, SeekFrom};
+use std::sync::atomic::Ordering;
 
 /// Checks header to see if we are dealing with a GHW file.
 pub(crate) fn is_ghw(input: &mut (impl BufRead + Seek)) -> bool {
@@ -25,43 +27,52 @@ pub(crate) type Result<T> = std::result::Result<T, GhwParseError>;
 pub(crate) fn read_header(
     filename: &str,
     options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation)> {
+) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
     let f = std::fs::File::open(filename)?;
     let mut input = std::io::BufReader::new(f);
-    let (hierarchy, header, decode_info) = read_header_internal(&mut input, options)?;
+    let (hierarchy, header, decode_info, body_len) = read_header_internal(&mut input, options)?;
     let cont = ReadBodyContinuation {
         header,
         decode_info,
         input: Input::File(input),
     };
-    Ok((hierarchy, cont))
+    Ok((hierarchy, cont, body_len))
 }
 
 pub(crate) fn read_header_from_bytes(
     bytes: Vec<u8>,
     options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation)> {
+) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
     let mut input = std::io::Cursor::new(bytes);
-    let (hierarchy, header, decode_info) = read_header_internal(&mut input, options)?;
+    let (hierarchy, header, decode_info, body_len) = read_header_internal(&mut input, options)?;
     let cont = ReadBodyContinuation {
         header,
         decode_info,
         input: Input::Bytes(input),
     };
-    Ok((hierarchy, cont))
+    Ok((hierarchy, cont, body_len))
 }
 
 pub(crate) fn read_body(
     data: ReadBodyContinuation,
     hierarchy: &Hierarchy,
+    progress: Option<ProgressCount>,
 ) -> Result<(SignalSource, TimeTable)> {
     let (source, time_table) = match data.input {
-        Input::Bytes(mut input) => {
-            signals::read_signals(&data.header, data.decode_info, hierarchy, &mut input)?
-        }
-        Input::File(mut input) => {
-            signals::read_signals(&data.header, data.decode_info, hierarchy, &mut input)?
-        }
+        Input::Bytes(mut input) => match progress {
+            Some(p) => {
+                let mut wrapped = ProgressTracker::new(input, p);
+                signals::read_signals(&data.header, data.decode_info, hierarchy, &mut wrapped)?
+            }
+            None => signals::read_signals(&data.header, data.decode_info, hierarchy, &mut input)?,
+        },
+        Input::File(mut input) => match progress {
+            Some(p) => {
+                let mut wrapped = ProgressTracker::new(input, p);
+                signals::read_signals(&data.header, data.decode_info, hierarchy, &mut wrapped)?
+            }
+            None => signals::read_signals(&data.header, data.decode_info, hierarchy, &mut input)?,
+        },
     };
     Ok((source, time_table))
 }
@@ -80,7 +91,7 @@ enum Input {
 fn read_header_internal(
     input: &mut (impl BufRead + Seek),
     _options: &LoadOptions,
-) -> Result<(Hierarchy, HeaderData, GhwDecodeInfo)> {
+) -> Result<(Hierarchy, HeaderData, GhwDecodeInfo, u64)> {
     let header = hierarchy::read_ghw_header(input)?;
     let header_len = input.stream_position()?;
 
@@ -90,5 +101,46 @@ fn read_header_internal(
     // TODO: use actual section positions
 
     let (decode_info, hierarchy) = hierarchy::read_hierarchy(&header, input)?;
-    Ok((hierarchy, header, decode_info))
+
+    // determine body length
+    let body_start = input.stream_position()?;
+    input.seek(SeekFrom::End(0))?;
+    let file_size = input.stream_position()?;
+    input.seek(SeekFrom::Start(body_start))?;
+    let body_len = file_size - body_start;
+
+    Ok((hierarchy, header, decode_info, body_len))
+}
+
+struct ProgressTracker<T: BufRead> {
+    inner: T,
+    progress: ProgressCount,
+}
+
+impl<T: BufRead> ProgressTracker<T> {
+    fn new(inner: T, progress: ProgressCount) -> Self {
+        Self { inner, progress }
+    }
+}
+
+impl<T: BufRead> std::io::Read for ProgressTracker<T> {
+    #[inline]
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let len = self.inner.read(buf)?;
+        self.progress.fetch_add(len as u64, Ordering::SeqCst);
+        Ok(len)
+    }
+}
+
+impl<T: BufRead> BufRead for ProgressTracker<T> {
+    #[inline]
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        self.inner.fill_buf()
+    }
+
+    #[inline]
+    fn consume(&mut self, amt: usize) {
+        self.inner.consume(amt);
+        self.progress.fetch_add(amt as u64, Ordering::SeqCst);
+    }
 }

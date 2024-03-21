@@ -5,6 +5,7 @@
 use crate::fst::{parse_scope_attributes, parse_var_attributes, Attribute};
 use crate::hierarchy::*;
 use crate::signals::SignalSource;
+use crate::viewers::ProgressCount;
 use crate::{FileFormat, LoadOptions, TimeTable};
 use fst_native::{FstVhdlDataType, FstVhdlVarType};
 use num_enum::TryFromPrimitive;
@@ -12,6 +13,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
+use std::sync::atomic::Ordering;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum VcdParseError {
@@ -48,33 +50,35 @@ pub(crate) type Result<T> = std::result::Result<T, VcdParseError>;
 pub(crate) fn read_header(
     filename: &str,
     options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation)> {
+) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
     let input_file = std::fs::File::open(filename)?;
     let mmap = unsafe { memmap2::Mmap::map(&input_file)? };
     let (header_len, hierarchy, lookup) =
         read_hierarchy(&mut std::io::Cursor::new(&mmap[..]), &options)?;
+    let body_len = (mmap.len() - header_len) as u64;
     let cont = ReadBodyContinuation {
         multi_thread: options.multi_thread,
         header_len,
         lookup,
         input: Input::File(mmap),
     };
-    Ok((hierarchy, cont))
+    Ok((hierarchy, cont, body_len))
 }
 
 pub(crate) fn read_header_from_bytes(
     bytes: Vec<u8>,
     options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation)> {
+) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
     let (header_len, hierarchy, lookup) =
         read_hierarchy(&mut std::io::Cursor::new(&bytes), &options)?;
+    let body_len = (bytes.len() - header_len) as u64;
     let cont = ReadBodyContinuation {
         multi_thread: options.multi_thread,
         header_len,
         lookup,
         input: Input::Bytes(bytes),
     };
-    Ok((hierarchy, cont))
+    Ok((hierarchy, cont, body_len))
 }
 
 pub(crate) struct ReadBodyContinuation {
@@ -92,6 +96,7 @@ enum Input {
 pub(crate) fn read_body(
     data: ReadBodyContinuation,
     hierarchy: &Hierarchy,
+    progress: Option<ProgressCount>,
 ) -> Result<(SignalSource, TimeTable)> {
     let (source, time_table) = match data.input {
         Input::Bytes(mmap) => read_values(
@@ -99,12 +104,14 @@ pub(crate) fn read_body(
             data.multi_thread,
             hierarchy,
             &data.lookup,
+            progress,
         )?,
         Input::File(bytes) => read_values(
             &bytes[data.header_len..],
             data.multi_thread,
             hierarchy,
             &data.lookup,
+            progress,
         )?,
     };
     Ok((source, time_table))
@@ -803,6 +810,7 @@ fn read_values(
     multi_thread: bool,
     hierarchy: &Hierarchy,
     lookup: &IdLookup,
+    progress: Option<ProgressCount>,
 ) -> Result<(SignalSource, TimeTable)> {
     if multi_thread {
         let chunks = determine_thread_chunks(input.len());
@@ -825,6 +833,7 @@ fn read_values(
                     starts_on_new_line,
                     hierarchy,
                     lookup,
+                    progress.clone(),
                 )
             })
             .collect();
@@ -837,8 +846,15 @@ fn read_values(
         }
         Ok(encoder.finish())
     } else {
-        let encoder =
-            read_single_stream_of_values(input, input.len() - 1, true, true, hierarchy, lookup);
+        let encoder = read_single_stream_of_values(
+            input,
+            input.len() - 1,
+            true,
+            true,
+            hierarchy,
+            lookup,
+            progress,
+        );
         Ok(encoder.finish())
     }
 }
@@ -850,6 +866,7 @@ fn read_single_stream_of_values<'a>(
     starts_on_new_line: bool,
     hierarchy: &Hierarchy,
     lookup: &IdLookup,
+    progress: Option<ProgressCount>,
 ) -> crate::wavemem::Encoder {
     let mut encoder = crate::wavemem::Encoder::new(hierarchy);
 
@@ -859,13 +876,29 @@ fn read_single_stream_of_values<'a>(
         advance_to_first_newline(input)
     };
     let mut reader = BodyReader::new(input2);
-    // We only start recording once we have encountered out first time step
+    // We only start recording once we have encountered our first time step
     let mut found_first_time_step = false;
+
+    // progress tracking
+    let mut last_reported_pos = 0;
+    let report_increments = std::cmp::max(input2.len() as u64 / 1000, 512);
+
     loop {
         if let Some((pos, cmd)) = reader.next() {
             if (pos + offset) > stop_pos {
                 if let BodyCmd::Time(_to) = cmd {
+                    if let Some(p) = progress.as_ref() {
+                        let increment = (pos - last_reported_pos) as u64;
+                        p.fetch_add(increment, Ordering::SeqCst);
+                    }
                     break; // stop before the next time value when we go beyond the stop position
+                }
+            }
+            if let Some(p) = progress.as_ref() {
+                let increment = (pos - last_reported_pos) as u64;
+                if increment >= report_increments {
+                    last_reported_pos = pos;
+                    p.fetch_add(increment, Ordering::SeqCst);
                 }
             }
             match cmd {
@@ -892,6 +925,10 @@ fn read_single_stream_of_values<'a>(
                 }
             };
         } else {
+            if let Some(p) = progress.as_ref() {
+                let increment = (reader.pos - last_reported_pos) as u64;
+                p.fetch_add(increment, Ordering::SeqCst);
+            }
             break; // done, no more values to read
         }
     }

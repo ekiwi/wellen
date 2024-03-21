@@ -19,7 +19,7 @@ pub fn read(filename: &str) -> Result<Waveform> {
 /// Read a waveform file. Reads in header and body at once.
 pub fn read_with_options(filename: &str, options: &LoadOptions) -> Result<Waveform> {
     let header = viewers::read_header(&filename, &options)?;
-    let body = viewers::read_body(header.body, &header.hierarchy)?;
+    let body = viewers::read_body(header.body, &header.hierarchy, None)?;
     Ok(Waveform::new(
         header.hierarchy,
         body.source,

@@ -31,6 +31,7 @@ itertools = "0.12.1"
 vcd = "0.7.0"
 clap = { version = "4.4.6", features = ["derive"] }
 criterion = "0.5"
+indicatif = "0.17.8"
 
 [profile.release]
 debug = true

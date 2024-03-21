@@ -4,6 +4,10 @@
 
 use bytesize::ByteSize;
 use clap::Parser;
+use indicatif::ProgressStyle;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::thread;
 use wellen::*;
 
 #[derive(Parser, Debug)]
@@ -75,15 +79,62 @@ fn main() {
         header_load_duration, args.filename
     );
 
+    // create body progress indicator
+    let body_len = header.body_len;
+    let (body_progress, progress) = if body_len == 0 {
+        (None, None)
+    } else {
+        let p = Arc::new(AtomicU64::new(0));
+        let p_out = p.clone();
+        let done = Arc::new(AtomicBool::new(false));
+        let done_out = done.clone();
+        let ten_millis = std::time::Duration::from_millis(10);
+        let t = thread::spawn(move || {
+            let bar = indicatif::ProgressBar::new(body_len);
+            bar.set_style(
+                ProgressStyle::with_template(
+                    "[{elapsed_precise}] {bar:40.cyan/blue} {decimal_bytes} ({percent_precise}%)",
+                )
+                .unwrap(),
+            );
+            loop {
+                // always update
+                let new_value = p.load(Ordering::SeqCst);
+                bar.set_position(new_value);
+                thread::sleep(ten_millis);
+                // see if we are done
+                let now_done = done.load(Ordering::SeqCst);
+                if now_done {
+                    if bar.position() != body_len {
+                        println!(
+                            "WARN: Final progress value was: {}, expected {}",
+                            bar.position(),
+                            body_len
+                        );
+                    }
+                    bar.finish_and_clear();
+                    break;
+                }
+            }
+        });
+
+        (Some(p_out), Some((done_out, t)))
+    };
+
     // load body
     let hierarchy = header.hierarchy;
     let body_start = std::time::Instant::now();
-    let body = viewers::read_body(header.body, &hierarchy).expect("Failed to load body!");
+    let body =
+        viewers::read_body(header.body, &hierarchy, body_progress).expect("Failed to load body!");
     let body_load_duration = body_start.elapsed();
     println!(
         "It took {:?} to load the body of {}",
         body_load_duration, args.filename
     );
+    if let Some((done, t)) = progress {
+        done.store(true, Ordering::SeqCst);
+        t.join().unwrap();
+    }
     let mut wave_source = body.source;
 
     wave_source.print_statistics();

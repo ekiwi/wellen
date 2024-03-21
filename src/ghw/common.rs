@@ -56,6 +56,8 @@ pub const GHW_CYCLE_SECTION: &[u8; 4] = b"CYC\x00";
 pub const GHW_END_SNAPSHOT_SECTION: &[u8; 4] = b"ESN\x00";
 pub const GHW_END_CYCLE_SECTION: &[u8; 4] = b"ECY\x00";
 
+pub const GHW_TAILER_LEN: usize = 12;
+
 pub(crate) type Result<T> = std::result::Result<T, GhwParseError>;
 
 pub fn read_directory(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<SectionPos>> {
@@ -81,9 +83,9 @@ pub fn read_directory(header: &HeaderData, input: &mut impl BufRead) -> Result<V
 #[derive(Debug)]
 pub struct SectionPos {
     #[allow(dead_code)]
-    id: [u8; 4],
+    pub(crate) id: [u8; 4],
     #[allow(dead_code)]
-    pos: u32,
+    pub(crate) pos: u32,
 }
 
 pub(crate) fn check_header_zeros(section: &'static str, header: &[u8]) -> Result<()> {

@@ -37,6 +37,10 @@ pub(crate) fn read_signals(
             }
             GHW_TAILER_SECTION => {
                 // the "tailer" means that we are done reading the file
+                // we still read the tailer in order to make sure our progress indicator ends at
+                // 100%
+                let mut tailer_body = [0u8; GHW_TAILER_LEN - GHW_TAILER_SECTION.len()];
+                input.read_exact(&mut tailer_body)?;
                 break;
             }
             other => {
