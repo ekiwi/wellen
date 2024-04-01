@@ -54,6 +54,23 @@ jobs:
       - name: load_signals
         run: cargo run --release --example load_signals -- inputs/xilinx_isim/test1.vcd
 
+  serialization:
+    name: Test Serialization Feature ("serde1")
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+          - beta
+          - nightly
+
+    steps:
+      - name: Update Rust to ${{ matrix.toolchain }}
+        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --verbose --features serde1
+
   benchmarks:
     name: Benchmarks
     runs-on: ubuntu-latest

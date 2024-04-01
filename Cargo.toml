@@ -25,6 +25,7 @@ rayon = "1.8.0"
 smallvec = "1.11.1"
 num_enum = "0.7.1"
 thiserror = "1.0.56"
+serde = { version = "1.0.197", features = ["derive"], optional = true }
 
 [dev-dependencies]
 itertools = "0.12.1"
@@ -43,3 +44,4 @@ harness = false
 [features]
 # makes internal functions public for benchmarking
 benchmark = []
+serde1 = ["dep:serde"]

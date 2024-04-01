@@ -140,6 +140,7 @@ fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
 
 /// Specifies the encoding of a signal.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) enum SignalEncoding {
     /// Bitvector of length N (u32) with 2, 4 or 9 states.
     /// If `meta_byte` is `true`, each sequence of data bytes is preceded by a meta-byte indicating whether the states
@@ -153,6 +154,7 @@ pub(crate) enum SignalEncoding {
     Real,
 }
 
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Signal {
     #[allow(unused)]
     idx: SignalRef,
@@ -534,6 +536,7 @@ pub struct DataOffset {
     pub next_index: Option<NonZeroTimeTableIdx>,
 }
 
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 enum SignalChangeData {
     FixedLength {
         encoding: SignalEncoding,

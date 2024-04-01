@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Timescale {
     pub factor: u32,
     pub unit: TimescaleUnit,
@@ -21,6 +22,7 @@ impl Timescale {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub enum TimescaleUnit {
     FemtoSeconds,
     PicoSeconds,
@@ -48,6 +50,7 @@ impl TimescaleUnit {
 /// Uniquely identifies a variable in the hierarchy.
 /// Replaces the old `SignalRef`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct VarRef(NonZeroU32);
 
 impl VarRef {
@@ -74,6 +77,7 @@ impl Default for VarRef {
 /// Uniquely identifies a scope in the hierarchy.
 /// Replaces the old `ModuleRef`.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScopeRef(NonZeroU16);
 
 impl ScopeRef {
@@ -98,6 +102,7 @@ impl Default for ScopeRef {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct HierarchyStringId(NonZeroU32);
 
 impl HierarchyStringId {
@@ -114,6 +119,7 @@ impl HierarchyStringId {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub enum ScopeType {
     // VCD Scope Types
     Module,
@@ -145,6 +151,7 @@ pub enum ScopeType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub enum VarType {
     // VCD
     Event,
@@ -189,6 +196,7 @@ pub enum VarType {
 /// Signal directions of a variable. Currently these have the exact same meaning as in the FST format.
 /// For VCD inputs, all variables will be marked as `VarDirection::Unknown` since no direction information is included.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub enum VarDirection {
     Unknown,
     Implicit,
@@ -206,6 +214,7 @@ impl VarDirection {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct VarIndex(NonZeroU64);
 
 impl VarIndex {
@@ -228,6 +237,7 @@ impl VarIndex {
 
 /// Signal identifier in the waveform (VCD, FST, etc.) file.
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct SignalRef(NonZeroU32);
 
 impl SignalRef {
@@ -246,6 +256,7 @@ impl SignalRef {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub enum SignalType {
     String,
     Real,
@@ -263,6 +274,7 @@ impl SignalType {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Var {
     name: HierarchyStringId,
     var_tpe: VarType,
@@ -277,8 +289,9 @@ pub struct Var {
 
 /// Represents a slice of another signal identified by its `SignalRef`.
 /// This is helpful for formats like GHW where some signals are directly defined as
-/// slices of other signals and thus we only save the data of the larger signal.
+/// slices of other signals, and thus we only save the data of the larger signal.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct SignalSlice {
     pub(crate) msb: u32,
     pub(crate) lsb: u32,
@@ -362,6 +375,7 @@ impl Var {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 enum HierarchyItemId {
     Scope(ScopeRef),
     Var(VarRef),
@@ -374,6 +388,7 @@ pub enum HierarchyItem<'a> {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Scope {
     name: HierarchyStringId,
     /// Some wave formats supply the name of the component, e.g., of the module that was instantiated.
@@ -545,6 +560,7 @@ impl<'a> Iterator for HierarchyScopeRefIterator<'a> {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct SourceLocId(NonZeroU16);
 
 impl SourceLocId {
@@ -561,6 +577,7 @@ impl SourceLocId {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 struct SourceLoc {
     path: HierarchyStringId,
     line: u64,
@@ -568,6 +585,7 @@ struct SourceLoc {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct EnumTypeId(NonZeroU16);
 
 impl EnumTypeId {
@@ -584,11 +602,13 @@ impl EnumTypeId {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 struct EnumType {
     name: HierarchyStringId,
     mapping: Vec<(HierarchyStringId, HierarchyStringId)>,
 }
 
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Hierarchy {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
@@ -601,6 +621,7 @@ pub struct Hierarchy {
     slices: HashMap<SignalRef, SignalSlice>,
 }
 
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 struct HierarchyMetaData {
     timescale: Option<Timescale>,
     date: String,

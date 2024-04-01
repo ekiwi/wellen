@@ -15,6 +15,7 @@ mod wavemem;
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub enum FileFormat {
     Vcd,
     Fst,
