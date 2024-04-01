@@ -11,6 +11,9 @@ mod vcd;
 pub mod viewers;
 mod wavemem;
 
+/// Cargo.toml version of this library.
+pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum FileFormat {
     Vcd,
