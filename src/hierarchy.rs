@@ -250,7 +250,7 @@ impl SignalRef {
     }
 
     #[inline]
-    pub(crate) fn index(&self) -> usize {
+    pub fn index(&self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
