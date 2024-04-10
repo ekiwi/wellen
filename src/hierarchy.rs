@@ -219,8 +219,7 @@ pub struct VarIndex(NonZeroU64);
 
 impl VarIndex {
     pub(crate) fn new(msb: i32, lsb: i32) -> Self {
-        assert!((lsb as u32) < u32::MAX);
-        let value = ((msb as u64) << 32) | (lsb as u64);
+        let value = ((msb as u64) << 32) | ((lsb as u64) & (u32::MAX as u64));
         Self(NonZeroU64::new(value + 1).unwrap())
     }
 
@@ -1227,5 +1226,14 @@ mod tests {
 
         // for comparison: one string is 24 bytes for the struct alone (ignoring heap allocation)
         assert_eq!(std::mem::size_of::<String>(), 24);
+    }
+
+    #[test]
+    fn test_var_index() {
+        let msb = 15;
+        let lsb = -1;
+        let index = VarIndex::new(msb, lsb);
+        assert_eq!(index.lsb(), lsb);
+        assert_eq!(index.msb(), msb);
     }
 }
