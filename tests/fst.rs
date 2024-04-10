@@ -176,3 +176,10 @@ fn test_scope_merging() {
         ]
     )
 }
+
+/// This file was provided by Augusto Fraga Giachero in the following issue:
+/// https://github.com/ekiwi/wellen/issues/9
+#[test]
+fn test_nvc_xwb_fofb_shaper_filt_tb() {
+    let _waves = read("inputs/nvc/xwb_fofb_shaper_filt_tb.fst").unwrap();
+}
