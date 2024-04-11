@@ -6,7 +6,7 @@ use crate::hierarchy::*;
 use crate::signals::{
     Signal, SignalEncoding, SignalSource, SignalSourceImplementation, TimeTableIdx,
 };
-use crate::vcd::{extract_index_from_name, parse_index};
+use crate::vcd::parse_name;
 use crate::wavemem::{check_if_changed_and_truncate, check_states, write_n_state, States};
 use crate::{FileFormat, LoadOptions, TimeTable, WellenError};
 use fst_native::*;
@@ -612,12 +612,8 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                 ..
             } => {
                 // the fst name often contains the variable name + the index
-                let (var_name, index) = if let Some((prefix, suffix)) = name.split_once(' ') {
-                    (prefix.to_string(), parse_index(suffix.as_bytes()))
-                } else {
-                    extract_index_from_name(name.as_bytes())
-                };
-
+                let (var_name, index, scopes) = parse_name(name.as_bytes()).unwrap();
+                debug_assert!(scopes.is_empty(), "TODO: deal with array indices!");
                 let (type_name, var_type, enum_type) =
                     parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name).unwrap();
                 let name_id = h.add_string(var_name);

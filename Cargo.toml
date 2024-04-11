@@ -4,7 +4,7 @@
 
 [package]
 name = "wellen"
-version = "0.9.3"
+version = "0.9.4"
 edition = "2021"
 authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]
 description = "Fast VCD and FST library for waveform viewers written in Rust."
