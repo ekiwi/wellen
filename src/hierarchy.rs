@@ -1061,6 +1061,15 @@ impl HierarchyBuilder {
         }
     }
 
+    /// Helper function for adding scopes that were generated from a nested array name in VCD or FST.
+    #[inline]
+    pub fn add_array_scopes(&mut self, names: Vec<String>) {
+        for name in names {
+            let name_id = self.add_string(name);
+            self.add_scope(name_id, None, ScopeType::VhdlArray, None, None, false);
+        }
+    }
+
     pub fn add_var(
         &mut self,
         name: HierarchyStringId,
@@ -1107,6 +1116,13 @@ impl HierarchyBuilder {
             vhdl_type_name,
         };
         self.vars.push(node);
+    }
+
+    #[inline]
+    pub fn pop_scopes(&mut self, num: usize) {
+        for _ in 0..num {
+            self.pop_scope();
+        }
     }
 
     pub fn pop_scope(&mut self) {

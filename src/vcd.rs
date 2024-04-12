@@ -251,11 +251,12 @@ fn read_hierarchy(
                 }
             };
             let (var_name, index, scopes) = parse_name(name)?;
-            debug_assert!(scopes.is_empty(), "TODO: deal with array indices!");
             let (type_name, var_type, enum_type) =
                 parse_var_attributes(&mut attributes, convert_var_tpe(tpe)?, &var_name)?;
             let name = h.add_string(var_name);
             let type_name = type_name.map(|s| h.add_string(s));
+            let num_scopes = scopes.len();
+            h.add_array_scopes(scopes);
             h.add_var(
                 name,
                 var_type,
@@ -266,6 +267,7 @@ fn read_hierarchy(
                 enum_type,
                 type_name,
             );
+            h.pop_scopes(num_scopes);
             var_count += 1;
             Ok(())
         }
@@ -363,14 +365,13 @@ pub(crate) fn parse_name(name: &[u8]) -> Result<(String, Option<VarIndex>, Vec<S
     if indices.is_empty() {
         Ok((name, index, indices))
     } else {
-        indices.reverse();
-        let final_name = indices.pop().unwrap();
         // if there are indices, the name actually becomes part of the scope
         let mut scopes = Vec::with_capacity(indices.len());
-        while let Some(index) = indices.pop() {
-            scopes.push(index);
-        }
         scopes.push(name);
+        while indices.len() > 1 {
+            scopes.push(indices.pop().unwrap());
+        }
+        let final_name = indices.pop().unwrap();
         Ok((final_name, index, scopes))
     }
 }
@@ -1324,12 +1325,12 @@ x%i"
         do_test_parse_name("test[0][0]", "[0]", Some((0, 0)), &["test"]);
         do_test_parse_name("test[0] [0]", "[0]", Some((0, 0)), &["test"]);
         do_test_parse_name("test [0] [0]", "[0]", Some((0, 0)), &["test"]);
-        do_test_parse_name("test[3][2][0]", "[2]", Some((0, 0)), &["[3]", "test"]);
+        do_test_parse_name("test[3][2][0]", "[2]", Some((0, 0)), &["test", "[3]"]);
         do_test_parse_name(
             "test[0][3][2][0]",
             "[2]",
             Some((0, 0)),
-            &["[3]", "[0]", "test"],
+            &["test", "[0]", "[3]"],
         );
     }
 }

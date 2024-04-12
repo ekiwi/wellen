@@ -613,11 +613,12 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
             } => {
                 // the fst name often contains the variable name + the index
                 let (var_name, index, scopes) = parse_name(name.as_bytes()).unwrap();
-                debug_assert!(scopes.is_empty(), "TODO: deal with array indices!");
                 let (type_name, var_type, enum_type) =
                     parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name).unwrap();
                 let name_id = h.add_string(var_name);
                 let type_name = type_name.map(|s| h.add_string(s));
+                let num_scopes = scopes.len();
+                h.add_array_scopes(scopes);
                 h.add_var(
                     name_id,
                     var_type,
@@ -628,6 +629,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                     enum_type,
                     type_name,
                 );
+                h.pop_scopes(num_scopes);
             }
             FstHierarchyEntry::PathName { id, name } => {
                 let string_ref = h.add_string(name);
@@ -666,7 +668,13 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
             } => {
                 attributes.push(Attribute::VhdlTypeInfo(type_name, var_type, data_type));
             }
-            FstHierarchyEntry::AttributeEnd => todo!("{entry:?}"),
+            FstHierarchyEntry::AttributeEnd => {
+                // ignore
+                // So far the only simulator we know that uses this attribute is
+                // `nvc` which calls `fstWriterSetAttrEnd` at the end of declaring an array.
+                // This does not provide us with any additional information though since we
+                // deduce array entries from the variable names.
+            }
         };
     };
     reader.read_hierarchy(cb)?;

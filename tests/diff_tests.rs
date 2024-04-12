@@ -500,6 +500,17 @@ fn diff_ncsim_ffdiv_32bit_tb() {
     );
 }
 
+/// This file was provided by Augusto Fraga Giachero in the following issue:
+/// https://github.com/ekiwi/wellen/issues/10
+#[test]
+fn diff_nvc_xwb_fofb_shaper_filt_tb_arrays() {
+    run_diff_test(
+        // generated with fst2vcd
+        "inputs/nvc/xwb_fofb_shaper_filt_tb_arrays.fst.vcd",
+        "inputs/nvc/xwb_fofb_shaper_filt_tb_arrays.fst",
+    );
+}
+
 /// Apparently pymtl3 emits bit-vectors differently than every other simulator we support/
 /// This was pointed out in: https://gitlab.com/surfer-project/surfer/-/issues/202
 /// We can only run a load test since the VCD library we use for diff testing also rejects this encoding.
