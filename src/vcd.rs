@@ -284,7 +284,7 @@ fn read_hierarchy(
             Ok(())
         }
         HeaderCmd::Timescale(factor, unit) => {
-            let factor_int = u32::from_str_radix(std::str::from_utf8(factor).unwrap(), 10).unwrap();
+            let factor_int = u32::from_str_radix(std::str::from_utf8(factor).unwrap(), 10)?;
             let value = Timescale::new(factor_int, convert_timescale_unit(unit));
             h.set_timescale(value);
             Ok(())
@@ -297,7 +297,7 @@ fn read_hierarchy(
         }
     };
 
-    read_vcd_header(input, foo).unwrap();
+    read_vcd_header(input, foo)?;
     let end = input.stream_position().unwrap();
     let hierarchy = h.finish();
     let lookup = if use_id_map { Some(id_map) } else { None };
