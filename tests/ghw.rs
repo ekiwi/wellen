@@ -78,3 +78,28 @@ fn test_ghdl_issue_538_ghw() {
     let filename = "inputs/ghdl/ghdl_issue_538.ghw";
     let _waves = read(filename).expect("failed to parse");
 }
+
+/// See: https://github.com/ekiwi/wellen/issues/12
+/// Data of a 3-bit signal was corrupted in the `compress` function.
+#[test]
+fn test_issue_12_regression() {
+    let mut wave = read("inputs/ghdl/wellen_issue_12.ghw").unwrap();
+
+    let var_id = wave
+        .hierarchy()
+        .lookup_var(&["test_rom_tb", "soc_inst", "core_inst"], &"state")
+        .unwrap();
+    let signal_ref = wave.hierarchy().get(var_id).signal_ref();
+    wave.load_signals(&[signal_ref]);
+
+    let signal = wave.get_signal(signal_ref).unwrap();
+    let mut values = vec![];
+    for (_, value) in signal.iter_changes() {
+        values.push(value.to_bit_string().unwrap());
+    }
+
+    assert_eq!(
+        values,
+        ["uuu", "111", "000", "001", "010", "111", "000", "001"]
+    );
+}
