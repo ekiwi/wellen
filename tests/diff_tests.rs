@@ -88,18 +88,20 @@ fn diff_hierarchy(
 
 fn diff_meta(ours: &Hierarchy, ref_header: &::vcd::Header) {
     match &ref_header.version {
-        None => match ours.file_format() {
-            FileFormat::Vcd => assert!(ours.version().is_empty(), "{}", ours.version()),
-            _ => {}
-        },
+        None => {
+            if ours.file_format() == FileFormat::Vcd {
+                assert!(ours.version().is_empty(), "{}", ours.version());
+            }
+        }
         Some(version) => assert_eq!(version, ours.version()),
     }
 
     match &ref_header.date {
-        None => match ours.file_format() {
-            FileFormat::Vcd => assert!(ours.date().is_empty(), "{}", ours.date()),
-            _ => {}
-        },
+        None => {
+            if ours.file_format() == FileFormat::Vcd {
+                assert!(ours.date().is_empty(), "{}", ours.date());
+            }
+        }
         Some(date) => assert_eq!(date, ours.date()),
     }
 

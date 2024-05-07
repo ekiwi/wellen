@@ -298,7 +298,7 @@ impl Var {
     }
 
     /// Full hierarchical name of the variable.
-    pub fn full_name<'a>(&self, hierarchy: &Hierarchy) -> String {
+    pub fn full_name(&self, hierarchy: &Hierarchy) -> String {
         match self.parent {
             None => self.name(hierarchy).to_string(),
             Some(parent) => {
@@ -403,7 +403,7 @@ impl Scope {
     }
 
     /// Full hierarchical name of the scope.
-    pub fn full_name<'a>(&self, hierarchy: &Hierarchy) -> String {
+    pub fn full_name(&self, hierarchy: &Hierarchy) -> String {
         let mut parents = Vec::new();
         let mut parent = self.parent;
         while let Some(id) = parent {
@@ -1050,6 +1050,7 @@ impl HierarchyBuilder {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_var(
         &mut self,
         name: HierarchyStringId,

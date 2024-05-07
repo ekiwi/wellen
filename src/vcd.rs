@@ -135,7 +135,7 @@ fn parse_attribute(
                 return Err(unexpected_n_tokens("attribute", &tokens));
             }
             let type_name = std::str::from_utf8(tokens[2])?.to_string();
-            let arg = u64::from_str_radix(std::str::from_utf8(tokens[3])?, 10)?;
+            let arg = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
             let var_type =
                 FstVhdlVarType::try_from_primitive((arg >> FST_SUP_VAR_DATA_TYPE_BITS) as u8)?;
             let data_type =
@@ -150,7 +150,7 @@ fn parse_attribute(
                 return Err(unexpected_n_tokens("attribute", &tokens));
             }
             let path = std::str::from_utf8(tokens[2])?.to_string();
-            let id = u64::from_str_radix(std::str::from_utf8(tokens[3])?, 10)?;
+            let id = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
             let string_ref = h.add_string(path);
             path_names.insert(id, string_ref);
             Ok(None)
@@ -162,8 +162,8 @@ fn parse_attribute(
                 //       instance of the normal source path
                 return Err(unexpected_n_tokens("attribute", &tokens));
             }
-            let path_id = u64::from_str_radix(std::str::from_utf8(tokens[2])?, 10)?;
-            let line = u64::from_str_radix(std::str::from_utf8(tokens[3])?, 10)?;
+            let path_id = std::str::from_utf8(tokens[2])?.parse::<u64>()?;
+            let line = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
             let is_instance = false;
             Ok(Some(Attribute::SourceLoc(
                 path_names[&path_id],
@@ -220,7 +220,7 @@ fn read_hierarchy(
         }
     };
 
-    let foo = |cmd: HeaderCmd| match cmd {
+    let callback = |cmd: HeaderCmd| match cmd {
         HeaderCmd::Scope(tpe, name) => {
             let flatten = options.remove_scopes_with_empty_name && name.is_empty();
             let (declaration_source, instance_source) =
@@ -241,7 +241,7 @@ fn read_hierarchy(
             Ok(())
         }
         HeaderCmd::Var(tpe, size, id, name) => {
-            let length = match u32::from_str_radix(std::str::from_utf8(size).unwrap(), 10) {
+            let length = match std::str::from_utf8(size).unwrap().parse::<u32>() {
                 Ok(len) => len,
                 Err(_) => {
                     return Err(VcdParseError::VcdVarLengthParsing(
@@ -284,7 +284,7 @@ fn read_hierarchy(
             Ok(())
         }
         HeaderCmd::Timescale(factor, unit) => {
-            let factor_int = u32::from_str_radix(std::str::from_utf8(factor).unwrap(), 10)?;
+            let factor_int = std::str::from_utf8(factor)?.parse::<u32>()?;
             let value = Timescale::new(factor_int, convert_timescale_unit(unit));
             h.set_timescale(value);
             Ok(())
@@ -297,7 +297,7 @@ fn read_hierarchy(
         }
     };
 
-    read_vcd_header(input, foo)?;
+    read_vcd_header(input, callback)?;
     let end = input.stream_position().unwrap();
     let hierarchy = h.finish();
     let lookup = if use_id_map { Some(id_map) } else { None };
@@ -396,16 +396,16 @@ fn parse_inner_index(index: &[u8]) -> Option<VarIndex> {
     match sep {
         None => {
             let inner_str = std::str::from_utf8(index).unwrap();
-            let bit = i32::from_str_radix(inner_str, 10).unwrap();
+            let bit = inner_str.parse::<i32>().unwrap();
             Some(VarIndex::new(bit, bit))
         }
         Some(pos) => {
             let msb_bytes = &index[0..pos];
             let msb_str = std::str::from_utf8(msb_bytes).unwrap();
-            let msb = i32::from_str_radix(msb_str, 10).unwrap();
+            let msb = msb_str.parse::<i32>().unwrap();
             let lsb_bytes = &index[(pos + 1)..index.len()];
             let lsb_str = std::str::from_utf8(lsb_bytes).unwrap();
-            let lsb = i32::from_str_radix(lsb_str, 10).unwrap();
+            let lsb = lsb_str.parse::<i32>().unwrap();
             Some(VarIndex::new(msb, lsb))
         }
     }
@@ -911,7 +911,7 @@ fn read_values(
     }
 }
 
-fn read_single_stream_of_values<'a>(
+fn read_single_stream_of_values(
     input: &[u8],
     stop_pos: usize,
     is_first: bool,
@@ -956,8 +956,7 @@ fn read_single_stream_of_values<'a>(
             match cmd {
                 BodyCmd::Time(value) => {
                     found_first_time_step = true;
-                    let int_value =
-                        u64::from_str_radix(std::str::from_utf8(value).unwrap(), 10).unwrap();
+                    let int_value = std::str::from_utf8(value).unwrap().parse::<u64>().unwrap();
                     encoder.time_change(int_value);
                 }
                 BodyCmd::Value(value, id) => {
@@ -991,11 +990,8 @@ fn read_single_stream_of_values<'a>(
 #[inline]
 fn advance_to_first_newline(input: &[u8]) -> (&[u8], usize) {
     for (pos, byte) in input.iter().enumerate() {
-        match *byte {
-            b'\n' => {
-                return (&input[pos..], pos);
-            }
-            _ => {}
+        if *byte == b'\n' {
+            return (&input[pos..], pos);
         }
     }
     (&[], 0) // no whitespaces found

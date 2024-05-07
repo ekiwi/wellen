@@ -2,7 +2,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use wellen::check_states_pub;
 
 fn criterion_benchmark(c: &mut Criterion) {

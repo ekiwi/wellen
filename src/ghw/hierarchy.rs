@@ -35,7 +35,7 @@ pub(crate) fn read_ghw_header(input: &mut impl BufRead) -> Result<HeaderData> {
     // check full header
     let mut magic_rest = [0u8; GHW_HEADER_START.len() - 2];
     input.read_exact(&mut magic_rest)?;
-    if &magic_rest != &GHW_HEADER_START[2..] {
+    if magic_rest != GHW_HEADER_START[2..] {
         return Err(GhwParseError::UnexpectedHeaderMagic(format!(
             "{}{}",
             String::from_utf8_lossy(&comp_header),
@@ -1097,6 +1097,7 @@ impl GhwSignalTracker {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn add_var(
     tables: &GhwTables,
     input: &mut impl BufRead,

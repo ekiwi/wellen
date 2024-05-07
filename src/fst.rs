@@ -111,7 +111,7 @@ impl<R: BufRead + Seek> SignalSourceImplementation for FstWaveDatabase<R> {
                 .enumerate()
                 .map(|(pos, idx)| (idx, pos)),
         );
-        let foo = |time: u64, handle: FstSignalHandle, value: FstSignalValue| {
+        let callback = |time: u64, handle: FstSignalHandle, value: FstSignalValue| {
             // determine time index
             while *(index_and_time.1) < time {
                 index_and_time = time_table.next().unwrap();
@@ -122,7 +122,7 @@ impl<R: BufRead + Seek> SignalSourceImplementation for FstWaveDatabase<R> {
             signals[signal_pos].add_change(time_idx, handle, value);
         };
 
-        self.reader.read_signals(&filter, foo).unwrap();
+        self.reader.read_signals(&filter, callback).unwrap();
         signals.into_iter().map(|w| w.finish()).collect()
     }
     fn print_statistics(&self) {
@@ -308,13 +308,13 @@ pub(crate) fn get_bytes_per_entry(len: usize, has_meta: bool) -> usize {
 
 const META_MASK: u8 = 3 << 6;
 
-fn expand_entries(from: States, to: States, old: &Vec<u8>, entries: usize, bits: u32) -> Vec<u8> {
+fn expand_entries(from: States, to: States, old: &[u8], entries: usize, bits: u32) -> Vec<u8> {
     let (from_len, from_meta) = get_len_and_meta(from, bits);
     let from_bytes_per_entry = get_bytes_per_entry(from_len, from_meta);
     let (to_len, to_meta) = get_len_and_meta(to, bits);
 
     if from_len == to_len && from_meta == to_meta {
-        return old.clone(); // no change necessary
+        return Vec::from(old); // no change necessary
     }
 
     let to_bytes_per_entry = get_bytes_per_entry(to_len, to_meta);

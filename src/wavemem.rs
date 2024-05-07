@@ -15,6 +15,7 @@ use bytesize::ByteSize;
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::io::Read;
 use std::num::NonZeroU32;
 
@@ -234,7 +235,7 @@ fn load_reals(
         let changed = if out.is_empty() {
             true
         } else {
-            &out[out.len() - 8..] != buf
+            out[out.len() - 8..] != buf
         };
         if changed {
             out.append(&mut buf);
@@ -326,7 +327,7 @@ pub(crate) fn check_if_changed_and_truncate(bytes_per_entry: usize, out: &mut Ve
     } else {
         let prev_start = out.len() - 2 * bytes_per_entry;
         let new_start = out.len() - bytes_per_entry;
-        &out[prev_start..new_start] != &out[new_start..]
+        out[prev_start..new_start] != out[new_start..]
     };
 
     if !changed {
@@ -465,15 +466,21 @@ impl Encoder {
     pub fn time_change(&mut self, time: u64) {
         // sanity check to make sure that time is increasing
         if let Some(prev_time) = self.time_table.last() {
-            if *prev_time == time {
-                return; // ignore calls to time_change that do not actually change anything
-            } else if *prev_time > time {
-                println!(
-                    "WARN: time decreased from {} to {}. Skipping!",
-                    *prev_time, time
-                );
-                self.skipping_time_step = true;
-                return;
+            match prev_time.cmp(&time) {
+                Ordering::Equal => {
+                    return; // ignore calls to time_change that do not actually change anything
+                }
+                Ordering::Greater => {
+                    println!(
+                        "WARN: time decreased from {} to {}. Skipping!",
+                        *prev_time, time
+                    );
+                    self.skipping_time_step = true;
+                    return;
+                }
+                Ordering::Less => {
+                    // this is the normal situation where we actually increment the time
+                }
             }
         }
         // if we run out of time indices => start a new block

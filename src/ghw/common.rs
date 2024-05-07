@@ -116,7 +116,7 @@ pub fn check_magic_end(
 ) -> Result<()> {
     let mut end_magic = [0u8; 4];
     input.read_exact(&mut end_magic)?;
-    if &end_magic == expected {
+    if end_magic == expected {
         Ok(())
     } else {
         Err(GhwParseError::UnexpectedSection(format!(

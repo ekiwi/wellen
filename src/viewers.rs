@@ -33,7 +33,6 @@ pub struct HeaderResult {
     pub body: ReadBodyContinuation,
 }
 
-///
 pub fn read_header(filename: &str, options: &LoadOptions) -> Result<HeaderResult> {
     let file_format = open_and_detect_file_format(filename);
     match file_format {
