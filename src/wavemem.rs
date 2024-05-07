@@ -1005,8 +1005,9 @@ fn compress_template(
 ) {
     debug_assert!(in_states.bits_in_a_byte() < out_states.bits_in_a_byte());
     let mut working_byte = 0u8;
+    let max_bits = value.len() * in_states.bits_in_a_byte();
     for bit in (0..bits).rev() {
-        let rev_bit = bits - bit - 1;
+        let rev_bit = max_bits - bit - 1;
         let in_byte = value[rev_bit / in_states.bits_in_a_byte()];
         let in_value =
             (in_byte >> ((bit % in_states.bits_in_a_byte()) * in_states.bits())) & in_states.mask();
@@ -1178,6 +1179,39 @@ mod tests {
             Some(expect) => {
                 assert_eq!(&out[out_starting_len..], expect);
             }
+        }
+    }
+
+    use proptest::prelude::*;
+
+    fn convert_to_bits(states: States, chars: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_n_state(states, chars.as_bytes(), &mut out, None);
+        out
+    }
+
+    fn do_test_compress(value: String, max_states: States) {
+        let min_states = check_states(value.as_bytes()).unwrap();
+        let bits = value.len();
+        // convert string to bit vector
+        let max_value = convert_to_bits(max_states, &value);
+        // compress
+        let mut out = Vec::new();
+        compress(&max_value, max_states, min_states, bits, &mut out);
+        // check
+        let direct_conversion = convert_to_bits(min_states, &value);
+        assert_eq!(direct_conversion, out, "{value} - write_n_states -> {max_value:?} - compress -> {out:?} != {direct_conversion:?}");
+    }
+
+    proptest! {
+        #[test]
+        fn compress_from_nine_state(value in "[01xz]{0,4}") {
+            do_test_compress(value, States::Nine);
+        }
+
+        #[test]
+        fn compress_from_four_state(value in "[01]{0,4}") {
+            do_test_compress(value, States::Four);
         }
     }
 }

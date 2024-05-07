@@ -362,8 +362,7 @@ impl VecBuffer {
         // note, we keep the signal on the change list
 
         // return reference to value
-        let data = &self.data[info.data_range()];
-        data
+        &self.data[info.data_range()]
     }
 
     #[inline]

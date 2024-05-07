@@ -1378,9 +1378,3 @@ impl FloatRange {
         self_range.start() >= other_range.start() && self_range.end() <= other_range.end()
     }
 }
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-struct GhwUnit {
-    name: StringId,
-    value: i64,
-}
