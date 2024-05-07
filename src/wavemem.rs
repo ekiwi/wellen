@@ -1207,12 +1207,12 @@ mod tests {
 
     proptest! {
         #[test]
-        fn compress_from_nine_state(value in "[01xz]{0,4}") {
+        fn compress_from_nine_state(value in "[01xz]{0,127}") {
             do_test_compress(value, States::Nine);
         }
 
         #[test]
-        fn compress_from_four_state(value in "[01]{0,4}") {
+        fn compress_from_four_state(value in "[01]{0,127}") {
             do_test_compress(value, States::Four);
         }
     }
