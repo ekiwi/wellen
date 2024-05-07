@@ -358,7 +358,7 @@ impl VecBuffer {
         // clear signal change
         let byte = vector_id.index() / 8;
         let bit = vector_id.index() % 8;
-        self.signal_change[byte] = self.signal_change[byte] & !(1u8 << bit);
+        self.signal_change[byte] &= !(1u8 << bit);
         // note, we keep the signal on the change list
 
         // return reference to value

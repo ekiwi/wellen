@@ -210,7 +210,7 @@ fn add_enums_to_wellen_hierarchy(
     let mut out = Vec::new();
     for tpe in tables.types.iter() {
         if let VhdlType::Enum(name, lits, enum_id) = tpe {
-            let bits = get_enum_bits(&lits) as u16;
+            let bits = get_enum_bits(lits) as u16;
             let literals: Vec<_> = lits
                 .iter()
                 .enumerate()
@@ -239,8 +239,8 @@ fn add_enums_to_wellen_hierarchy(
 
 fn get_enum_bits(literals: &[StringId]) -> u32 {
     let max_value = literals.len() as u64 - 1;
-    let bits = u64::BITS - max_value.leading_zeros();
-    bits
+
+    u64::BITS - max_value.leading_zeros()
 }
 
 fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<String>> {
@@ -260,7 +260,7 @@ fn read_string_section(header: &HeaderData, input: &mut impl BufRead) -> Result<
         let mut c;
         loop {
             c = read_u8(input)?;
-            if c <= 31 || (c >= 128 && c <= 159) {
+            if c <= 31 || (128..=159).contains(&c) {
                 break;
             } else {
                 buf.push(c);
@@ -506,7 +506,7 @@ impl VhdlType {
             (VhdlType::Array(base_name, element_tpe, maybe_base_range), Range::Int(int_range)) => {
                 if let Some(base_range) = maybe_base_range {
                     debug_assert!(
-                        int_range.is_subset_of(&base_range),
+                        int_range.is_subset_of(base_range),
                         "{int_range:?} {base_range:?}"
                     );
                 }
@@ -518,14 +518,14 @@ impl VhdlType {
             }
             (VhdlType::NineValueVec(base_name, base_range), Range::Int(int_range)) => {
                 debug_assert!(
-                    int_range.is_subset_of(&base_range),
+                    int_range.is_subset_of(base_range),
                     "{int_range:?} {base_range:?}"
                 );
                 VhdlType::NineValueVec(pick_best_name(name, *base_name), int_range)
             }
             (VhdlType::BitVec(base_name, base_range), Range::Int(int_range)) => {
                 debug_assert!(
-                    int_range.is_subset_of(&base_range),
+                    int_range.is_subset_of(base_range),
                     "{int_range:?} {base_range:?}"
                 );
                 VhdlType::BitVec(pick_best_name(name, *base_name), int_range)
@@ -970,7 +970,7 @@ impl GhwSignalTracker {
         let sliced_signal = self.vectors[vec_id.index()].signal_ref();
         if let Some(mut alias_id) = self.vectors[vec_id.index()].alias() {
             loop {
-                let alias = self.aliases[alias_id.get() as usize - 1].clone();
+                let alias = self.aliases[alias_id.get() as usize - 1];
                 if alias.msb == msb && alias.lsb == lsb {
                     return alias.signal_ref;
                 }
@@ -1113,7 +1113,7 @@ fn add_var(
         VhdlType::Enum(_, literals, enum_id) => {
             let enum_type = tables.enums[*enum_id as usize];
             let index = read_signal_id(input, signals.max_signal_id())?;
-            let bits = get_enum_bits(&literals);
+            let bits = get_enum_bits(literals);
             let signal_ref = signals.register_scalar(index, SignalType::U8);
             h.add_var(
                 name,
@@ -1184,7 +1184,7 @@ fn add_var(
             );
         }
         VhdlType::NineValueVec(_, range) | VhdlType::BitVec(_, range) => {
-            let num_bits = range.len().abs() as u32;
+            let num_bits = range.len().unsigned_abs() as u32;
             if num_bits == 0 {
                 // TODO: how should we correctly deal with an empty vector?
                 return Ok(());
@@ -1209,8 +1209,8 @@ fn add_var(
             }
 
             let is_binary = matches!(vhdl_tpe, VhdlType::BitVec(_, _));
-            let min = signal_ids.first().unwrap().clone();
-            let max = signal_ids.last().unwrap().clone();
+            let min = *signal_ids.first().unwrap();
+            let max = *signal_ids.last().unwrap();
             let signal_ref = signals.register_bit_vec(min, max, is_binary);
             let var_type = match h.get_str(tpe_name).to_ascii_lowercase().as_str() {
                 "std_ulogic_vector" => VarType::StdULogicVector,

@@ -303,8 +303,8 @@ fn diff_signals<R: BufRead>(
                         current_time.unwrap_or(0),
                         our_value_str
                     );
-                    let is_x_extended = suffix.chars().next().unwrap() == 'x';
-                    let is_z_extended = suffix.chars().next().unwrap() == 'z';
+                    let is_x_extended = suffix.starts_with('x');
+                    let is_z_extended = suffix.starts_with('z');
                     for c in our_value_str.chars().take(prefix_len) {
                         if is_x_extended {
                             assert_eq!(c, 'x');

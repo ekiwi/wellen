@@ -536,7 +536,7 @@ pub(crate) fn parse_var_attributes(
                 type_name = Some(name);
                 // For now we ignore the var type since GHDL seems to just always set it to Signal.
                 // Their code does not use any other var type.
-                deal_with_vhdl_var_type(vhdl_var_type, &var_name);
+                deal_with_vhdl_var_type(vhdl_var_type, var_name);
 
                 // We merge the info of the VCD var type and the vhdl data type
                 var_type = merge_vhdl_data_and_var_type(var_type, vhdl_data_type);

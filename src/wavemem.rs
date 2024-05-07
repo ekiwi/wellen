@@ -228,7 +228,7 @@ fn load_reals(
 
         // read 8 bytes of reald
         let mut buf = vec![0u8; 8];
-        data.read_exact(&mut buf.as_mut()).unwrap();
+        data.read_exact(buf.as_mut()).unwrap();
 
         // check to see if the value actually changed
         let changed = if out.is_empty() {
@@ -279,7 +279,7 @@ fn load_fixed_len_signal(
                     States::try_from_primitive((time_idx_delta_raw & 0x3) as u8).unwrap();
                 let num_bytes = usize_div_ceil(other_len as usize, local_encoding.bits_in_a_byte());
                 let mut buf = vec![0u8; num_bytes];
-                data.read_exact(&mut buf.as_mut()).unwrap();
+                data.read_exact(buf.as_mut()).unwrap();
                 let (local_len, local_has_meta) = get_len_and_meta(local_encoding, bits);
 
                 // append data
@@ -657,9 +657,8 @@ impl SignalEncodingMetaData {
             SignalCompression::Compressed(decompressed_len) => {
                 let decompressed_len_bits =
                     u32_div_ceil((*decompressed_len) as u32, SIGNAL_DECOMPRESSED_LEN_DIV);
-                let data =
-                    ((decompressed_len_bits as u64) << 3) | (1 << 2) | (self.max_states as u64);
-                data
+
+                ((decompressed_len_bits as u64) << 3) | (1 << 2) | (self.max_states as u64)
             }
             SignalCompression::Uncompressed => self.max_states as u64,
         }
@@ -776,7 +775,7 @@ impl SignalEncoder {
                 } else {
                     match &value_bits[0..2] {
                         b"0b" => &value_bits[2..],
-                        _ => &value_bits,
+                        _ => value_bits,
                     }
                 };
                 if len.get() == 1 {
@@ -860,7 +859,7 @@ impl SignalEncoder {
             return None;
         }
         // replace data, the actual meta data stays the same
-        let data = std::mem::replace(&mut self.data, Vec::new());
+        let data = std::mem::take(&mut self.data);
 
         // is there so little data that compression does not make sense?
         if data.len() < MIN_SIZE_TO_COMPRESS || SKIP_COMPRESSION {
@@ -907,16 +906,12 @@ fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
 #[repr(u8)]
 #[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub(crate) enum States {
+    #[default]
     Two = 0,
     Four = 1,
     Nine = 2,
-}
-
-impl Default for States {
-    fn default() -> Self {
-        States::Two
-    }
 }
 
 impl States {

@@ -56,7 +56,7 @@ pub(crate) fn read_header(
     let input_file = std::fs::File::open(filename)?;
     let mmap = unsafe { memmap2::Mmap::map(&input_file)? };
     let (header_len, hierarchy, lookup) =
-        read_hierarchy(&mut std::io::Cursor::new(&mmap[..]), &options)?;
+        read_hierarchy(&mut std::io::Cursor::new(&mmap[..]), options)?;
     let body_len = (mmap.len() - header_len) as u64;
     let cont = ReadBodyContinuation {
         multi_thread: options.multi_thread,
@@ -72,7 +72,7 @@ pub(crate) fn read_header_from_bytes(
     options: &LoadOptions,
 ) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
     let (header_len, hierarchy, lookup) =
-        read_hierarchy(&mut std::io::Cursor::new(&bytes), &options)?;
+        read_hierarchy(&mut std::io::Cursor::new(&bytes), options)?;
     let body_len = (bytes.len() - header_len) as u64;
     let cont = ReadBodyContinuation {
         multi_thread: options.multi_thread,
@@ -720,7 +720,7 @@ fn read_command<'a>(input: &mut impl BufRead, buf: &'a mut Vec<u8>) -> Result<(V
     read_token(input, buf)?;
 
     // check to see if this is a valid command
-    let cmd = VcdCmd::from_bytes_or_panic(&buf);
+    let cmd = VcdCmd::from_bytes_or_panic(buf);
     buf.clear();
 
     // read until we find the end token
@@ -1261,7 +1261,7 @@ x%i"
             "%i\" = x",
             "j2! = 0",
         ];
-        let res = read_body_to_vec(&mut input.as_bytes());
+        let res = read_body_to_vec(input.as_bytes());
         assert_eq!(res, expected);
     }
 

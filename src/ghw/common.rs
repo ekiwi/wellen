@@ -103,7 +103,7 @@ pub(crate) fn check_header_zeros(section: &'static str, header: &[u8]) -> Result
             section,
             format!(
                 "first four bytes should be zero and not {}",
-                String::from_utf8_lossy(&zeros)
+                String::from_utf8_lossy(zeros)
             ),
         ))
     }
@@ -224,8 +224,8 @@ impl GhwSignalInfo {
     pub fn tpe(&self) -> SignalType {
         let value = self.tpe_and_vec.get();
         let raw_tpe = (value & 0x7) as u8;
-        let tpe = SignalType::try_from_primitive(raw_tpe - 1).unwrap();
-        tpe
+
+        SignalType::try_from_primitive(raw_tpe - 1).unwrap()
     }
 }
 

@@ -253,7 +253,7 @@ impl Signal {
     }
 
     pub fn iter_changes(&self) -> SignalChangeIterator {
-        SignalChangeIterator::new(&self)
+        SignalChangeIterator::new(self)
     }
 }
 

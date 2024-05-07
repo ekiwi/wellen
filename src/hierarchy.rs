@@ -56,10 +56,7 @@ pub struct VarRef(NonZeroU32);
 impl VarRef {
     #[inline]
     fn from_index(index: usize) -> Option<Self> {
-        match NonZeroU32::new(index as u32 + 1) {
-            None => None,
-            Some(value) => Some(VarRef(value)),
-        }
+        NonZeroU32::new(index as u32 + 1).map(VarRef)
     }
 
     #[inline]
@@ -83,10 +80,7 @@ pub struct ScopeRef(NonZeroU16);
 impl ScopeRef {
     #[inline]
     fn from_index(index: usize) -> Option<Self> {
-        match NonZeroU16::new(index as u16 + 1) {
-            None => None,
-            Some(value) => Some(Self(value)),
-        }
+        NonZeroU16::new(index as u16 + 1).map(Self)
     }
 
     #[inline]
@@ -242,10 +236,7 @@ pub struct SignalRef(NonZeroU32);
 impl SignalRef {
     #[inline]
     pub fn from_index(index: usize) -> Option<Self> {
-        match NonZeroU32::new(index as u32 + 1) {
-            None => None,
-            Some(value) => Some(Self(value)),
-        }
+        NonZeroU32::new(index as u32 + 1).map(Self)
     }
 
     #[inline]
@@ -655,20 +646,20 @@ impl Hierarchy {
 
     /// Returns an iterator over all top-level scopes and variables.
     pub fn items(&self) -> HierarchyItemIterator {
-        HierarchyItemIterator::new(&self, self.first_item)
+        HierarchyItemIterator::new(self, self.first_item)
     }
 
     /// Returns an iterator over references to all top-level scopes.
     pub fn scopes(&self) -> HierarchyScopeRefIterator {
         HierarchyScopeRefIterator {
-            underlying: HierarchyItemIdIterator::new(&self, self.first_item),
+            underlying: HierarchyItemIdIterator::new(self, self.first_item),
         }
     }
 
     /// Returns an iterator over references to all top-level variables.
     pub fn vars(&self) -> HierarchyVarRefIterator {
         HierarchyVarRefIterator {
-            underlying: HierarchyItemIdIterator::new(&self, self.first_item),
+            underlying: HierarchyItemIdIterator::new(self, self.first_item),
         }
     }
 
@@ -720,12 +711,12 @@ impl Hierarchy {
 
     pub fn lookup_scope<N: AsRef<str>>(&self, names: &[N]) -> Option<ScopeRef> {
         let prefix = names.first()?.as_ref();
-        let mut scope = self.scopes().find(|s| self.get(*s).name(&self) == prefix)?;
+        let mut scope = self.scopes().find(|s| self.get(*s).name(self) == prefix)?;
         for name in names.iter().skip(1) {
             scope = self
                 .get(scope)
-                .scopes(&self)
-                .find(|s| self.get(*s).name(&self) == name.as_ref())?;
+                .scopes(self)
+                .find(|s| self.get(*s).name(self) == name.as_ref())?;
         }
         Some(scope)
     }
@@ -734,12 +725,12 @@ impl Hierarchy {
         match path {
             [] => self
                 .vars()
-                .find(|v| self.get(*v).name(&self) == name.as_ref()),
+                .find(|v| self.get(*v).name(self) == name.as_ref()),
             scopes => {
                 let scope = self.get(self.lookup_scope(scopes)?);
                 scope
-                    .vars(&self)
-                    .find(|v| self.get(*v).name(&self) == name.as_ref())
+                    .vars(self)
+                    .find(|v| self.get(*v).name(self) == name.as_ref())
             }
         }
     }
@@ -1011,53 +1002,42 @@ impl HierarchyBuilder {
                 last_child,
                 flattened: false,
             })
+        } else if flatten {
+            self.scope_stack.push(ScopeStackEntry {
+                scope_id: usize::MAX,
+                last_child: None,
+                flattened: true,
+            });
         } else {
-            if flatten {
-                self.scope_stack.push(ScopeStackEntry {
-                    scope_id: usize::MAX,
-                    last_child: None,
-                    flattened: true,
-                });
-            } else {
-                let node_id = self.scopes.len();
-                let wrapped_id = HierarchyItemId::Scope(ScopeRef::from_index(node_id).unwrap());
-                if self.first_item.is_none() {
-                    self.first_item = Some(wrapped_id);
-                }
-                let parent = self.add_to_hierarchy_tree(wrapped_id);
-
-                // new active scope
-                self.scope_stack.push(ScopeStackEntry {
-                    scope_id: node_id,
-                    last_child: None,
-                    flattened: false,
-                });
-
-                // empty component name is treated the same as none
-                let component = match component {
-                    None => None,
-                    Some(name) => {
-                        if name == EMPTY_STRING {
-                            None
-                        } else {
-                            Some(name)
-                        }
-                    }
-                };
-
-                // now we can build the node data structure and store it
-                let node = Scope {
-                    parent,
-                    child: None,
-                    next: None,
-                    name,
-                    component,
-                    tpe,
-                    declaration_source,
-                    instance_source,
-                };
-                self.scopes.push(node);
+            let node_id = self.scopes.len();
+            let wrapped_id = HierarchyItemId::Scope(ScopeRef::from_index(node_id).unwrap());
+            if self.first_item.is_none() {
+                self.first_item = Some(wrapped_id);
             }
+            let parent = self.add_to_hierarchy_tree(wrapped_id);
+
+            // new active scope
+            self.scope_stack.push(ScopeStackEntry {
+                scope_id: node_id,
+                last_child: None,
+                flattened: false,
+            });
+
+            // empty component name is treated the same as none
+            let component = component.filter(|&name| name != EMPTY_STRING);
+
+            // now we can build the node data structure and store it
+            let node = Scope {
+                parent,
+                child: None,
+                next: None,
+                name,
+                component,
+                tpe,
+                declaration_source,
+                instance_source,
+            };
+            self.scopes.push(node);
         }
     }
 
