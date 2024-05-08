@@ -6,6 +6,8 @@
 name = "wellen"
 version = "0.9.9"
 edition = "2021"
+# we require the `div_ceil` method on integers
+rust-version="1.73.0"
 authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]
 description = "Fast VCD and FST library for waveform viewers written in Rust."
 repository = "https://github.com/ekiwi/wellen"

@@ -35,6 +35,17 @@ jobs:
       - uses: actions/checkout@v3
       - uses: obi1kenobi/cargo-semver-checks-action@v2
 
+  msrv:
+    name: Check Minimum Rust Version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MSRV
+        run: cargo install cargo-msrv
+      - name: Check MSRV
+        run: cargo msrv verify
+
+
   examples:
     name: Try Examples
     runs-on: ubuntu-latest
