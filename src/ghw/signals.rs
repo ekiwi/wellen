@@ -9,7 +9,7 @@ use crate::{Hierarchy, SignalRef, TimeTable};
 use std::io::BufRead;
 
 /// Reads the GHW signal values. `input` should be advanced until right after the end of hierarchy
-pub(crate) fn read_signals(
+pub fn read_signals(
     header: &HeaderData,
     decode_info: GhwDecodeInfo,
     hierarchy: &Hierarchy,

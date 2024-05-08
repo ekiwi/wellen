@@ -6,7 +6,7 @@ mod common;
 mod hierarchy;
 mod signals;
 
-pub(crate) use crate::ghw::common::GhwParseError;
+pub use crate::ghw::common::GhwParseError;
 use crate::ghw::common::{GhwDecodeInfo, HeaderData};
 use crate::signals::SignalSource;
 use crate::viewers::ProgressCount;
@@ -15,16 +15,16 @@ use std::io::{BufRead, Seek, SeekFrom};
 use std::sync::atomic::Ordering;
 
 /// Checks header to see if we are dealing with a GHW file.
-pub(crate) fn is_ghw(input: &mut (impl BufRead + Seek)) -> bool {
+pub fn is_ghw(input: &mut (impl BufRead + Seek)) -> bool {
     let is_ghw = hierarchy::read_ghw_header(input).is_ok();
     // try to reset input
     let _ = input.seek(SeekFrom::Start(0));
     is_ghw
 }
 
-pub(crate) type Result<T> = std::result::Result<T, GhwParseError>;
+pub type Result<T> = std::result::Result<T, GhwParseError>;
 
-pub(crate) fn read_header(
+pub fn read_header(
     filename: &str,
     options: &LoadOptions,
 ) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
@@ -39,7 +39,7 @@ pub(crate) fn read_header(
     Ok((hierarchy, cont, body_len))
 }
 
-pub(crate) fn read_header_from_bytes(
+pub fn read_header_from_bytes(
     bytes: Vec<u8>,
     options: &LoadOptions,
 ) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
@@ -53,7 +53,7 @@ pub(crate) fn read_header_from_bytes(
     Ok((hierarchy, cont, body_len))
 }
 
-pub(crate) fn read_body(
+pub fn read_body(
     data: ReadBodyContinuation,
     hierarchy: &Hierarchy,
     progress: Option<ProgressCount>,
@@ -77,7 +77,7 @@ pub(crate) fn read_body(
     Ok((source, time_table))
 }
 
-pub(crate) struct ReadBodyContinuation {
+pub struct ReadBodyContinuation {
     header: HeaderData,
     decode_info: GhwDecodeInfo,
     input: Input,

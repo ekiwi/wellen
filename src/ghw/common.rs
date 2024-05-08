@@ -9,7 +9,7 @@ use std::num::NonZeroU32;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub(crate) enum GhwParseError {
+pub enum GhwParseError {
     #[error("[ghw] unsupported compression: {0}")]
     UnsupportedCompression(String),
     #[error("[ghw] unexpected header magic: {0}")]
@@ -58,7 +58,7 @@ pub const GHW_END_CYCLE_SECTION: &[u8; 4] = b"ECY\x00";
 
 pub const GHW_TAILER_LEN: usize = 12;
 
-pub(crate) type Result<T> = std::result::Result<T, GhwParseError>;
+pub type Result<T> = std::result::Result<T, GhwParseError>;
 
 pub fn read_directory(header: &HeaderData, input: &mut impl BufRead) -> Result<Vec<SectionPos>> {
     let mut h = [0u8; 8];
@@ -83,12 +83,12 @@ pub fn read_directory(header: &HeaderData, input: &mut impl BufRead) -> Result<V
 #[derive(Debug)]
 pub struct SectionPos {
     #[allow(dead_code)]
-    pub(crate) id: [u8; 4],
+    pub id: [u8; 4],
     #[allow(dead_code)]
-    pub(crate) pos: u32,
+    pub pos: u32,
 }
 
-pub(crate) fn check_header_zeros(section: &'static str, header: &[u8]) -> Result<()> {
+pub fn check_header_zeros(section: &'static str, header: &[u8]) -> Result<()> {
     if header.len() < 4 {
         return Err(GhwParseError::FailedToParseSection(
             section,

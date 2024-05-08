@@ -64,7 +64,7 @@ impl<'a> SignalValue<'a> {
     }
 
     /// Returns the states per bit. Returns None if the value is a real or string.
-    pub(crate) fn states(&self) -> Option<States> {
+    pub fn states(&self) -> Option<States> {
         match self {
             SignalValue::Binary(_, _) => Some(States::Two),
             SignalValue::FourValue(_, _) => Some(States::Four),
@@ -141,7 +141,7 @@ fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
 /// Specifies the encoding of a signal.
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub(crate) enum SignalEncoding {
+pub enum SignalEncoding {
     /// Bitvector of length N (u32) with 2, 4 or 9 states.
     /// If `meta_byte` is `true`, each sequence of data bytes is preceded by a meta-byte indicating whether the states
     /// are reduced by 1 (Four -> Two, Nine -> Four) or by 2 (Nine -> Two).
@@ -175,7 +175,7 @@ impl Debug for Signal {
 }
 
 impl Signal {
-    pub(crate) fn new_fixed_len(
+    pub fn new_fixed_len(
         idx: SignalRef,
         time_indices: Vec<TimeTableIdx>,
         encoding: SignalEncoding,
@@ -195,7 +195,7 @@ impl Signal {
         }
     }
 
-    pub(crate) fn new_var_len(
+    pub fn new_var_len(
         idx: SignalRef,
         time_indices: Vec<TimeTableIdx>,
         strings: Vec<String>,
@@ -282,7 +282,7 @@ impl<'a> Iterator for SignalChangeIterator<'a> {
     }
 }
 
-pub(crate) struct BitVectorBuilder {
+pub struct BitVectorBuilder {
     max_states: States,
     bits: u32,
     len: usize,
@@ -372,7 +372,7 @@ impl BitVectorBuilder {
     }
 }
 
-pub(crate) fn slice_signal(id: SignalRef, signal: &Signal, msb: u32, lsb: u32) -> Signal {
+pub fn slice_signal(id: SignalRef, signal: &Signal, msb: u32, lsb: u32) -> Signal {
     debug_assert!(msb >= lsb);
     if let SignalChangeData::FixedLength {
         encoding: SignalEncoding::BitVector { max_states, .. },
@@ -621,7 +621,7 @@ impl SignalChangeData {
     }
 }
 
-pub(crate) trait SignalSourceImplementation {
+pub trait SignalSourceImplementation {
     /// Loads new signals.
     /// Many implementations take advantage of loading multiple signals at a time.
     fn load_signals(
@@ -639,7 +639,7 @@ pub struct SignalSource {
 }
 
 impl SignalSource {
-    pub(crate) fn new(inner: Box<dyn SignalSourceImplementation + Send + Sync>) -> Self {
+    pub fn new(inner: Box<dyn SignalSourceImplementation + Send + Sync>) -> Self {
         Self { inner }
     }
 

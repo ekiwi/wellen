@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, Seek, SeekFrom};
 use std::num::NonZeroU32;
 
-pub(crate) fn read_ghw_header(input: &mut impl BufRead) -> Result<HeaderData> {
+pub fn read_ghw_header(input: &mut impl BufRead) -> Result<HeaderData> {
     // check for compression
     let mut comp_header = [0u8; 2];
     input.read_exact(&mut comp_header)?;
@@ -74,7 +74,7 @@ pub(crate) fn read_ghw_header(input: &mut impl BufRead) -> Result<HeaderData> {
 
 /// The last 8 bytes of a finished, uncompressed file indicate where to find the directory which
 /// contains the offset of all sections.
-pub(crate) fn try_read_directory(
+pub fn try_read_directory(
     header: &HeaderData,
     input: &mut (impl BufRead + Seek),
 ) -> Result<Option<Vec<SectionPos>>> {
@@ -108,7 +108,7 @@ pub(crate) fn try_read_directory(
 }
 
 /// Parses the beginning of the GHW file until the end of the hierarchy.
-pub(crate) fn read_hierarchy(
+pub fn read_hierarchy(
     header: &HeaderData,
     input: &mut impl BufRead,
 ) -> Result<(GhwDecodeInfo, Hierarchy)> {

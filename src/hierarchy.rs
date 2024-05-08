@@ -97,7 +97,7 @@ impl Default for ScopeRef {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub(crate) struct HierarchyStringId(NonZeroU32);
+pub struct HierarchyStringId(NonZeroU32);
 
 impl HierarchyStringId {
     #[inline]
@@ -202,7 +202,7 @@ pub enum VarDirection {
 }
 
 impl VarDirection {
-    pub(crate) fn vcd_default() -> Self {
+    pub fn vcd_default() -> Self {
         VarDirection::Unknown
     }
 }
@@ -212,7 +212,7 @@ impl VarDirection {
 pub struct VarIndex(NonZeroU64);
 
 impl VarIndex {
-    pub(crate) fn new(msb: i32, lsb: i32) -> Self {
+    pub fn new(msb: i32, lsb: i32) -> Self {
         let value = ((msb as u64) << 32) | ((lsb as u64) & (u32::MAX as u64));
         Self(NonZeroU64::new(value + 1).unwrap())
     }
@@ -282,10 +282,10 @@ pub struct Var {
 /// slices of other signals, and thus we only save the data of the larger signal.
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub(crate) struct SignalSlice {
-    pub(crate) msb: u32,
-    pub(crate) lsb: u32,
-    pub(crate) sliced_signal: SignalRef,
+pub struct SignalSlice {
+    pub msb: u32,
+    pub lsb: u32,
+    pub sliced_signal: SignalRef,
 }
 
 const SCOPE_SEPARATOR: char = '.';
@@ -359,7 +359,7 @@ impl Var {
             _ => false,
         }
     }
-    pub(crate) fn signal_tpe(&self) -> SignalType {
+    pub fn signal_tpe(&self) -> SignalType {
         self.signal_tpe
     }
 }
@@ -551,7 +551,7 @@ impl<'a> Iterator for HierarchyScopeRefIterator<'a> {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub(crate) struct SourceLocId(NonZeroU16);
+pub struct SourceLocId(NonZeroU16);
 
 impl SourceLocId {
     #[inline]
@@ -576,7 +576,7 @@ struct SourceLoc {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub(crate) struct EnumTypeId(NonZeroU16);
+pub struct EnumTypeId(NonZeroU16);
 
 impl EnumTypeId {
     #[inline]
@@ -737,18 +737,18 @@ impl Hierarchy {
 }
 
 impl Hierarchy {
-    pub(crate) fn num_unique_signals(&self) -> usize {
+    pub fn num_unique_signals(&self) -> usize {
         self.signal_idx_to_var.len()
     }
 
     /// Retrieves the length of a signal identified by its id by looking up a
     /// variable that refers to the signal.
-    pub(crate) fn get_signal_tpe(&self, signal_idx: SignalRef) -> Option<SignalType> {
+    pub fn get_signal_tpe(&self, signal_idx: SignalRef) -> Option<SignalType> {
         let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
         Some(self.get(var_id).signal_tpe)
     }
 
-    pub(crate) fn get_slice_info(&self, signal_idx: SignalRef) -> Option<SignalSlice> {
+    pub fn get_slice_info(&self, signal_idx: SignalRef) -> Option<SignalSlice> {
         self.slices.get(&signal_idx).copied()
     }
 }
@@ -822,7 +822,7 @@ pub struct HierarchyBuilder {
 const EMPTY_STRING: HierarchyStringId = HierarchyStringId(unsafe { NonZeroU32::new_unchecked(1) });
 
 impl HierarchyBuilder {
-    pub(crate) fn new(file_type: FileFormat) -> Self {
+    pub fn new(file_type: FileFormat) -> Self {
         // we start with a fake entry in the scope stack to keep track of multiple items in the top scope
         let scope_stack = vec![ScopeStackEntry {
             scope_id: usize::MAX,
@@ -866,7 +866,7 @@ impl HierarchyBuilder {
         }
     }
 
-    pub(crate) fn add_string(&mut self, value: String) -> HierarchyStringId {
+    pub fn add_string(&mut self, value: String) -> HierarchyStringId {
         if value.is_empty() {
             return EMPTY_STRING;
         }
@@ -877,11 +877,11 @@ impl HierarchyBuilder {
         sym
     }
 
-    pub(crate) fn get_str(&self, id: HierarchyStringId) -> &str {
+    pub fn get_str(&self, id: HierarchyStringId) -> &str {
         &self.strings[id.index()]
     }
 
-    pub(crate) fn add_source_loc(
+    pub fn add_source_loc(
         &mut self,
         path: HierarchyStringId,
         line: u64,
@@ -896,7 +896,7 @@ impl HierarchyBuilder {
         sym
     }
 
-    pub(crate) fn add_enum_type(
+    pub fn add_enum_type(
         &mut self,
         name: HierarchyStringId,
         mapping: Vec<(HierarchyStringId, HierarchyStringId)>,
@@ -1144,7 +1144,7 @@ impl HierarchyBuilder {
         self.meta.comments.push(comment);
     }
 
-    pub(crate) fn add_slice(
+    pub fn add_slice(
         &mut self,
         signal_ref: SignalRef,
         msb: u32,

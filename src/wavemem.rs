@@ -321,7 +321,7 @@ fn load_fixed_len_signal(
     debug_assert_eq!(out.len(), time_indices.len() * bytes_per_entry);
 }
 
-pub(crate) fn check_if_changed_and_truncate(bytes_per_entry: usize, out: &mut Vec<u8>) -> bool {
+pub fn check_if_changed_and_truncate(bytes_per_entry: usize, out: &mut Vec<u8>) -> bool {
     let changed = if out.len() < 2 * bytes_per_entry {
         true
     } else {
@@ -914,7 +914,7 @@ fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
 #[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
-pub(crate) enum States {
+pub enum States {
     #[default]
     Two = 0,
     Four = 1,
@@ -931,13 +931,13 @@ impl States {
             States::Nine
         }
     }
-    pub(crate) fn join(a: Self, b: Self) -> Self {
+    pub fn join(a: Self, b: Self) -> Self {
         let num = std::cmp::max(a as u8, b as u8);
         Self::try_from_primitive(num).unwrap()
     }
     /// Returns how many bits are needed in order to encode one bit of state.
     #[inline]
-    pub(crate) fn bits(&self) -> usize {
+    pub fn bits(&self) -> usize {
         match self {
             States::Two => 1,
             States::Four => 2,
@@ -946,7 +946,7 @@ impl States {
     }
 
     #[inline]
-    pub(crate) fn mask(&self) -> u8 {
+    pub fn mask(&self) -> u8 {
         match self {
             States::Two => 0x1,
             States::Four => 0x3,
@@ -956,7 +956,7 @@ impl States {
 
     /// Returns how many signal bits can be encoded in a u8.
     #[inline]
-    pub(crate) fn bits_in_a_byte(&self) -> usize {
+    pub fn bits_in_a_byte(&self) -> usize {
         8 / self.bits()
     }
 }
@@ -1024,7 +1024,7 @@ fn compress_template(
 }
 
 #[inline]
-pub(crate) fn check_states(value: &[u8]) -> Option<States> {
+pub fn check_states(value: &[u8]) -> Option<States> {
     let mut union = 0;
     for cc in value.iter() {
         union |= bit_char_to_num(*cc)?;
@@ -1033,7 +1033,7 @@ pub(crate) fn check_states(value: &[u8]) -> Option<States> {
 }
 
 #[inline]
-pub(crate) fn bit_char_to_num(value: u8) -> Option<u8> {
+pub fn bit_char_to_num(value: u8) -> Option<u8> {
     match value {
         // Value shared with 2 and 4-state logic
         b'0' | b'1' => Some(value - b'0'), // strong 0 / strong 1
@@ -1063,12 +1063,7 @@ fn try_write_1_bit_9_state(time_index_delta: u16, value: u8, data: &mut Vec<u8>)
 }
 
 #[inline]
-pub(crate) fn write_n_state(
-    states: States,
-    value: &[u8],
-    data: &mut Vec<u8>,
-    meta_data: Option<u8>,
-) {
+pub fn write_n_state(states: States, value: &[u8], data: &mut Vec<u8>, meta_data: Option<u8>) {
     let states_bits = states.bits();
     debug_assert!(states_bits == 1 || states_bits == 2 || states_bits == 4);
     let bits = value.len() * states_bits;
