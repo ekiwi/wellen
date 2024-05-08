@@ -40,8 +40,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install MSRV
-        run: cargo install cargo-msrv
+      - uses: taiki-e/cache-cargo-install-action@v2
+        with:
+          tool: cargo-msrv
       - name: Check MSRV
         run: cargo msrv verify
 
