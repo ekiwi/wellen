@@ -1,0 +1,43 @@
+[package]
+name = "wellen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+default-members.workspace = true
+include.workspace = true
+keywords.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytesize = { workspace = true }
+fst-native = { workspace = true }
+leb128 = { workspace = true }
+lz4_flex = { workspace = true }
+memmap2 = { workspace = true }
+rayon = { workspace = true }
+num_enum = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+itertools = { workspace = true }
+vcd = { workspace = true }
+clap = { workspace = true }
+criterion = { workspace = true }
+indicatif = { workspace = true }
+proptest = { workspace = true }
+
+
+[[bench]]
+name = "wavemem"
+harness = false
+
+[features]
+# makes internal functions public for benchmarking
+benchmark = []
+serde1 = ["dep:serde"]
