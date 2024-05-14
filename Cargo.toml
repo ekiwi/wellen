@@ -4,7 +4,7 @@
 
 [package]
 name = "wellen"
-version = "0.9.9"
+version = "0.9.10"
 edition = "2021"
 # we require the `div_ceil` method on integers
 rust-version="1.73.0"
@@ -24,7 +24,6 @@ leb128 = "0.2.5"
 lz4_flex = "0.11.1"
 memmap2 = "0.9.0"
 rayon = "1.8.0"
-smallvec = "1.11.1"
 num_enum = "0.7.1"
 thiserror = "1.0.56"
 serde = { version = "1.0.197", features = ["derive"], optional = true }
