@@ -19,13 +19,13 @@ jobs:
           - nightly
 
     steps:
-    - name: Update Rust to ${{ matrix.toolchain }}
-      run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Update Rust to ${{ matrix.toolchain }}
+        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
 
   semver:
     name: Check Semantic Versioning
@@ -44,8 +44,8 @@ jobs:
         with:
           tool: cargo-msrv
       - name: Check MSRV
+        working-directory: wellen
         run: cargo msrv verify
-
 
   examples:
     name: Try Examples
@@ -64,6 +64,7 @@ jobs:
       - name: Build
         run: cargo build --verbose --examples --release
       - name: load_signals
+        working-directory: wellen
         run: cargo run --release --example load_signals -- inputs/xilinx_isim/test1.vcd
 
   serialization:

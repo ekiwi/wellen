@@ -2,12 +2,11 @@
 name = "wellen"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.73.0"
 authors.workspace = true
 description.workspace = true
 repository.workspace = true
 license.workspace = true
-default-members.workspace = true
 include.workspace = true
 keywords.workspace = true
 

@@ -5,6 +5,7 @@
 [workspace]
 resolver = "2"
 members = ["wellen"]
+default-members = ["wellen"]
 
 [workspace.package]
 version = "0.9.10"
@@ -15,7 +16,8 @@ authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]
 description = "Fast VCD and FST library for waveform viewers written in Rust."
 repository = "https://github.com/ekiwi/wellen"
 license = "BSD-3-Clause"
-default-members = ["wellen"]
+
+
 include = ["Cargo.toml", "LICENSE", "src/", "benches/"]
 keywords = ["vcd", "fst", "waveform", "wavedump"]
 
