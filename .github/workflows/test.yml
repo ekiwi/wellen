@@ -65,7 +65,7 @@ jobs:
         run: cargo build --verbose --examples --release
       - name: load_signals
         working-directory: wellen
-        run: cargo run --release --example load_signals -- inputs/xilinx_isim/test1.vcd
+        run: cargo run --release --example load_signals -- ../inputs/xilinx_isim/test1.vcd
 
   serialization:
     name: Test Serialization Feature ("serde1")
