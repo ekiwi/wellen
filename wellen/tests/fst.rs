@@ -183,3 +183,23 @@ fn test_scope_merging() {
 fn test_nvc_xwb_fofb_shaper_filt_tb() {
     let _waves = read("inputs/nvc/xwb_fofb_shaper_filt_tb.fst").unwrap();
 }
+
+fn load_all_signals(waves: &mut Waveform) {
+    let all_signals = waves
+        .hierarchy()
+        .get_unique_signals_vars()
+        .iter()
+        .flatten()
+        .map(|v| v.signal_ref())
+        .collect::<Vec<_>>();
+    waves.load_signals(&all_signals);
+}
+
+/// This file was provided by Augusto Fraga Giachero in the following issue:
+/// https://github.com/ekiwi/wellen/issues/16
+#[test]
+fn test_nvc_vhdl_test_bool_issue_16() {
+    // turns out that NVC needs a little hack to deal with the way it encodes booleans
+    let mut waves = read("inputs/nvc/vhdl_test_bool_issue_16.fst").unwrap();
+    load_all_signals(&mut waves);
+}

@@ -181,7 +181,25 @@ impl SignalWriter {
                 }
                 SignalType::BitVector(len, _) => {
                     let bits = len.get();
-                    debug_assert_eq!(value.len(), bits as usize);
+
+                    // nvc will declare boolean signals as 1-bit bit-vectors and then generate
+                    // the strings "true" and "false"
+                    let value = if value.len() > bits as usize && bits == 1 {
+                        match value {
+                            b"true" => b"1",
+                            b"false" => b"0",
+                            _ => value,
+                        }
+                    } else {
+                        value
+                    };
+
+                    debug_assert_eq!(
+                        value.len(),
+                        bits as usize,
+                        "{}",
+                        String::from_utf8_lossy(value)
+                    );
                     let local_encoding = check_states(value).unwrap_or_else(|| {
                         panic!(
                             "Unexpected signal value: {}",
