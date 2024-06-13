@@ -202,4 +202,23 @@ fn test_nvc_vhdl_test_bool_issue_16() {
     // turns out that NVC needs a little hack to deal with the way it encodes booleans
     let mut waves = read("inputs/nvc/vhdl_test_bool_issue_16.fst").unwrap();
     load_all_signals(&mut waves);
+
+    // check signal values
+    let h = waves.hierarchy();
+    let toplevel = h.first_scope().unwrap();
+    let var = h.get(toplevel.vars(h).next().unwrap());
+    assert_eq!(var.full_name(h), "test_bool.bool");
+    let time_and_values = waves
+        .get_signal(var.signal_ref())
+        .unwrap()
+        .iter_changes()
+        .map(|(time, value)| format!("{time} {}", value.to_string()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        time_and_values,
+        [
+            // the boolean is encoded as string literals by nvc
+            "0 false", "1 true", "2 false"
+        ]
+    );
 }

@@ -182,18 +182,6 @@ impl SignalWriter {
                 SignalType::BitVector(len) => {
                     let bits = len.get();
 
-                    // nvc will declare boolean signals as 1-bit bit-vectors and then generate
-                    // the strings "true" and "false"
-                    let value = if value.len() > bits as usize && bits == 1 {
-                        match value {
-                            b"true" => b"1",
-                            b"false" => b"0",
-                            _ => value,
-                        }
-                    } else {
-                        value
-                    };
-
                     debug_assert_eq!(
                         value.len(),
                         bits as usize,
@@ -636,12 +624,21 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                 let name_id = h.add_string(var_name);
                 let type_name = type_name.map(|s| h.add_string(s));
                 let num_scopes = scopes.len();
+                // we derive the signal type from the fst tpe directly, the VHDL type should never factor in!
+                let signal_tpe = match tpe {
+                    FstVarType::GenericString => SignalType::String,
+                    FstVarType::Real
+                    | FstVarType::RealTime
+                    | FstVarType::RealParameter
+                    | FstVarType::ShortReal => SignalType::Real,
+                    _ => SignalType::from_uint(length),
+                };
                 h.add_array_scopes(scopes);
                 h.add_var(
                     name_id,
                     var_type,
+                    signal_tpe,
                     convert_var_direction(direction),
-                    length,
                     index,
                     SignalRef::from_index(handle.get_index()).unwrap(),
                     enum_type,

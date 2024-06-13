@@ -251,8 +251,16 @@ fn read_hierarchy(
                 }
             };
             let (var_name, index, scopes) = parse_name(name)?;
+            let raw_vcd_var_tpe = convert_var_tpe(tpe)?;
+            // we derive the signal type from the vcd var directly, the VHDL type should never factor in!
+            let signal_tpe = match raw_vcd_var_tpe {
+                VarType::String => SignalType::String,
+                VarType::Real | VarType::RealTime | VarType::ShortReal => SignalType::Real,
+                _ => SignalType::from_uint(length),
+            };
+            // combine the raw variable type with VHDL type attributes
             let (type_name, var_type, enum_type) =
-                parse_var_attributes(&mut attributes, convert_var_tpe(tpe)?, &var_name)?;
+                parse_var_attributes(&mut attributes, raw_vcd_var_tpe, &var_name)?;
             let name = h.add_string(var_name);
             let type_name = type_name.map(|s| h.add_string(s));
             let num_scopes = scopes.len();
@@ -260,8 +268,8 @@ fn read_hierarchy(
             h.add_var(
                 name,
                 var_type,
+                signal_tpe,
                 VarDirection::vcd_default(),
-                length,
                 index,
                 id_to_signal_ref(id, var_count),
                 enum_type,

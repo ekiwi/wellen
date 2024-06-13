@@ -1053,8 +1053,8 @@ impl HierarchyBuilder {
         &mut self,
         name: HierarchyStringId,
         tpe: VarType,
+        signal_tpe: SignalType,
         direction: VarDirection,
-        raw_length: u32,
         index: Option<VarIndex>,
         signal_idx: SignalRef,
         enum_type: Option<EnumTypeId>,
@@ -1074,13 +1074,6 @@ impl HierarchyBuilder {
             self.handle_to_node.resize(handle_idx + 1, None);
         }
         self.handle_to_node[handle_idx] = Some(var_id);
-
-        // for strings, the length is always flexible
-        let signal_tpe = match tpe {
-            VarType::String => SignalType::String,
-            VarType::Real => SignalType::Real,
-            _ => SignalType::from_uint(raw_length),
-        };
 
         // now we can build the node data structure and store it
         let node = Var {

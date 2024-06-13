@@ -1119,8 +1119,8 @@ fn add_var(
             h.add_var(
                 name,
                 VarType::Enum,
+                crate::hierarchy::SignalType::from_uint(bits),
                 dir,
-                bits,
                 None,
                 signal_ref,
                 Some(enum_type),
@@ -1140,8 +1140,8 @@ fn add_var(
             h.add_var(
                 name,
                 var_type,
+                crate::hierarchy::SignalType::from_uint(1),
                 dir,
-                1,
                 None,
                 signal_ref,
                 None,
@@ -1158,8 +1158,8 @@ fn add_var(
             h.add_var(
                 name,
                 var_type,
+                crate::hierarchy::SignalType::from_uint(bits),
                 dir,
-                bits,
                 None,
                 signal_ref,
                 None,
@@ -1169,15 +1169,14 @@ fn add_var(
         VhdlType::F64(_, maybe_range) => {
             // TODO: we could use the range to deduce indices and tighter widths
             let _range = FloatRange::from_f64_option(*maybe_range);
-            let bits = 64;
             let index = read_signal_id(input, signals.max_signal_id())?;
             let signal_ref = signals.register_scalar(index, SignalType::F64);
             let var_type = VarType::Real;
             h.add_var(
                 name,
                 var_type,
+                crate::hierarchy::SignalType::Real,
                 dir,
-                bits,
                 None,
                 signal_ref,
                 None,
@@ -1222,8 +1221,8 @@ fn add_var(
             h.add_var(
                 name,
                 var_type,
+                crate::hierarchy::SignalType::from_uint(num_bits),
                 dir,
-                num_bits,
                 Some(range.as_var_index()),
                 signal_ref,
                 None,
