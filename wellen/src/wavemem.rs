@@ -151,7 +151,7 @@ impl Reader {
                         &mut strings,
                     );
                 }
-                SignalType::BitVector(signal_len, _) => {
+                SignalType::BitVector(signal_len) => {
                     load_fixed_len_signal(
                         &mut data.as_ref(),
                         time_idx_offset,
@@ -178,7 +178,7 @@ impl Reader {
                 debug_assert!(data_bytes.is_empty());
                 Signal::new_var_len(id, time_indices, strings)
             }
-            SignalType::BitVector(len, _) => {
+            SignalType::BitVector(len) => {
                 debug_assert!(strings.is_empty());
                 let (bytes, meta_byte) = get_len_and_meta(meta.max_states, len.get());
                 let encoding = SignalEncoding::BitVector {
@@ -707,7 +707,7 @@ impl SignalEncoder {
         let time_idx_delta = time_index - self.prev_time_idx;
         self.max_states = States::join(self.max_states, states);
         match self.tpe {
-            SignalType::BitVector(len, _) => {
+            SignalType::BitVector(len) => {
                 let bits = len.get();
                 if bits == 1 {
                     debug_assert_eq!(value.len(), 1);
@@ -771,7 +771,7 @@ impl SignalEncoder {
     fn add_vcd_change(&mut self, time_index: u16, value: &[u8]) {
         let time_idx_delta = time_index - self.prev_time_idx;
         match self.tpe {
-            SignalType::BitVector(len, _) => {
+            SignalType::BitVector(len) => {
                 let value_bits: &[u8] = match value[0] {
                     b'b' | b'B' => &value[1..],
                     _ => value,

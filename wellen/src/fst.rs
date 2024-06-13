@@ -179,7 +179,7 @@ impl SignalWriter {
                         self.time_indices.push(time_idx);
                     }
                 }
-                SignalType::BitVector(len, _) => {
+                SignalType::BitVector(len) => {
                     let bits = len.get();
 
                     // nvc will declare boolean signals as 1-bit bit-vectors and then generate
@@ -288,7 +288,7 @@ impl SignalWriter {
                     self.data_bytes,
                 )
             }
-            SignalType::BitVector(len, _) => {
+            SignalType::BitVector(len) => {
                 debug_assert!(self.strings.is_empty());
                 let (bytes, meta_byte) = get_len_and_meta(self.max_states, len.get());
                 let encoding = SignalEncoding::BitVector {

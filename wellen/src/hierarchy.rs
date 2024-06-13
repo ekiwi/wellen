@@ -250,15 +250,15 @@ impl SignalRef {
 pub enum SignalType {
     String,
     Real,
-    BitVector(NonZeroU32, Option<VarIndex>),
+    BitVector(NonZeroU32),
 }
 
 impl SignalType {
-    pub fn from_uint(len: u32, index: Option<VarIndex>) -> Self {
+    pub fn from_uint(len: u32) -> Self {
         match NonZeroU32::new(len) {
             // a zero length signal should be represented as a 1-bit signal
-            None => SignalType::BitVector(NonZeroU32::new(1).unwrap(), index),
-            Some(value) => SignalType::BitVector(value, index),
+            None => SignalType::BitVector(NonZeroU32::new(1).unwrap()),
+            Some(value) => SignalType::BitVector(value),
         }
     }
 }
@@ -270,6 +270,7 @@ pub struct Var {
     var_tpe: VarType,
     direction: VarDirection,
     signal_tpe: SignalType,
+    index: Option<VarIndex>,
     signal_idx: SignalRef,
     enum_type: Option<EnumTypeId>,
     vhdl_type_name: Option<HierarchyStringId>,
@@ -329,10 +330,7 @@ impl Var {
         self.direction
     }
     pub fn index(&self) -> Option<VarIndex> {
-        match &self.signal_tpe {
-            SignalType::BitVector(_, index) => *index,
-            _ => None,
-        }
+        self.index
     }
     pub fn signal_ref(&self) -> SignalRef {
         self.signal_idx
@@ -341,7 +339,7 @@ impl Var {
         match &self.signal_tpe {
             SignalType::String => None,
             SignalType::Real => None,
-            SignalType::BitVector(len, _) => Some(len.get()),
+            SignalType::BitVector(len) => Some(len.get()),
         }
     }
     pub fn is_real(&self) -> bool {
@@ -351,7 +349,7 @@ impl Var {
         matches!(self.signal_tpe, SignalType::String)
     }
     pub fn is_bit_vector(&self) -> bool {
-        matches!(self.signal_tpe, SignalType::BitVector(_, _))
+        matches!(self.signal_tpe, SignalType::BitVector(_))
     }
     pub fn is_1bit(&self) -> bool {
         match self.length() {
@@ -1081,7 +1079,7 @@ impl HierarchyBuilder {
         let signal_tpe = match tpe {
             VarType::String => SignalType::String,
             VarType::Real => SignalType::Real,
-            _ => SignalType::from_uint(raw_length, index),
+            _ => SignalType::from_uint(raw_length),
         };
 
         // now we can build the node data structure and store it
@@ -1089,6 +1087,7 @@ impl HierarchyBuilder {
             parent,
             name,
             var_tpe: tpe,
+            index,
             direction,
             signal_tpe,
             signal_idx,
@@ -1185,8 +1184,8 @@ mod tests {
         // unfortunately this one is pretty big
         assert_eq!(std::mem::size_of::<HierarchyItemId>(), 8);
 
-        // 4 byte length, 8 byte index + tag + padding
-        assert_eq!(std::mem::size_of::<SignalType>(), 16);
+        // 4 byte length + tag + padding
+        assert_eq!(std::mem::size_of::<SignalType>(), 8);
 
         // Var
         assert_eq!(
