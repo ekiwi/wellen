@@ -254,9 +254,9 @@ fn read_hierarchy(
             let raw_vcd_var_tpe = convert_var_tpe(tpe)?;
             // we derive the signal type from the vcd var directly, the VHDL type should never factor in!
             let signal_tpe = match raw_vcd_var_tpe {
-                VarType::String => SignalType::String,
-                VarType::Real | VarType::RealTime | VarType::ShortReal => SignalType::Real,
-                _ => SignalType::from_uint(length),
+                VarType::String => SignalEncoding::String,
+                VarType::Real | VarType::RealTime | VarType::ShortReal => SignalEncoding::Real,
+                _ => SignalEncoding::bit_vec_of_len(length),
             };
             // combine the raw variable type with VHDL type attributes
             let (type_name, var_type, enum_type) =

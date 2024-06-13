@@ -3,10 +3,10 @@
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
-use crate::hierarchy::{SignalRef, SignalType};
+use crate::hierarchy::SignalRef;
 use crate::vcd::usize_div_ceil;
 use crate::wavemem::{check_if_changed_and_truncate, States};
-use crate::Hierarchy;
+use crate::{Hierarchy, SignalEncoding};
 use num_enum::TryFromPrimitive;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroU32;
@@ -141,7 +141,7 @@ fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
 /// Specifies the encoding of a signal.
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub enum SignalEncoding {
+pub enum FixedWidthEncoding {
     /// Bitvector of length N (u32) with 2, 4 or 9 states.
     /// If `meta_byte` is `true`, each sequence of data bytes is preceded by a meta-byte indicating whether the states
     /// are reduced by 1 (Four -> Two, Nine -> Four) or by 2 (Nine -> Two).
@@ -178,7 +178,7 @@ impl Signal {
     pub fn new_fixed_len(
         idx: SignalRef,
         time_indices: Vec<TimeTableIdx>,
-        encoding: SignalEncoding,
+        encoding: FixedWidthEncoding,
         width: u32,
         bytes: Vec<u8>,
     ) -> Self {
@@ -357,7 +357,7 @@ impl BitVectorBuilder {
             self.data.len(),
             self.time_indices.len() * self.bytes_per_entry
         );
-        let encoding = SignalEncoding::BitVector {
+        let encoding = FixedWidthEncoding::BitVector {
             max_states: self.max_states,
             bits: self.bits,
             meta_byte: self.has_meta,
@@ -375,7 +375,7 @@ impl BitVectorBuilder {
 pub fn slice_signal(id: SignalRef, signal: &Signal, msb: u32, lsb: u32) -> Signal {
     debug_assert!(msb >= lsb);
     if let SignalChangeData::FixedLength {
-        encoding: SignalEncoding::BitVector { max_states, .. },
+        encoding: FixedWidthEncoding::BitVector { max_states, .. },
         ..
     } = &signal.data
     {
@@ -539,7 +539,7 @@ pub struct DataOffset {
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 enum SignalChangeData {
     FixedLength {
-        encoding: SignalEncoding,
+        encoding: FixedWidthEncoding,
         width: u32, // bytes per entry
         bytes: Vec<u8>,
     },
@@ -576,7 +576,7 @@ impl SignalChangeData {
                 let start = offset * (*width as usize);
                 let raw_data = &bytes[start..(start + (*width as usize))];
                 match encoding {
-                    SignalEncoding::BitVector {
+                    FixedWidthEncoding::BitVector {
                         max_states,
                         bits,
                         meta_byte,
@@ -611,7 +611,7 @@ impl SignalChangeData {
                             }
                         }
                     }
-                    SignalEncoding::Real => SignalValue::Real(Real::from_le_bytes(
+                    FixedWidthEncoding::Real => SignalValue::Real(Real::from_le_bytes(
                         <[u8; 8]>::try_from(raw_data).unwrap(),
                     )),
                 }
@@ -627,7 +627,7 @@ pub trait SignalSourceImplementation {
     fn load_signals(
         &mut self,
         ids: &[SignalRef],
-        types: &[SignalType],
+        types: &[SignalEncoding],
         multi_threaded: bool,
     ) -> Vec<Signal>;
     /// Print memory size / speed statistics.
@@ -707,7 +707,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<SignalRef>(), 4);
 
         // 4 bytes for length + tag + padding
-        assert_eq!(std::mem::size_of::<SignalEncoding>(), 8);
+        assert_eq!(std::mem::size_of::<FixedWidthEncoding>(), 8);
 
         assert_eq!(std::mem::size_of::<SignalChangeData>(), 40);
         assert_eq!(std::mem::size_of::<Signal>(), 72);

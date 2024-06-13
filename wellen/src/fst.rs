@@ -4,7 +4,7 @@
 
 use crate::hierarchy::*;
 use crate::signals::{
-    Signal, SignalEncoding, SignalSource, SignalSourceImplementation, TimeTableIdx,
+    FixedWidthEncoding, Signal, SignalSource, SignalSourceImplementation, TimeTableIdx,
 };
 use crate::vcd::parse_name;
 use crate::wavemem::{check_if_changed_and_truncate, check_states, write_n_state, States};
@@ -82,7 +82,7 @@ impl<R: BufRead + Seek> SignalSourceImplementation for FstWaveDatabase<R> {
     fn load_signals(
         &mut self,
         ids: &[SignalRef],
-        types: &[SignalType],
+        types: &[SignalEncoding],
         _multi_threaded: bool,
     ) -> Vec<Signal> {
         // create a FST filter
@@ -131,7 +131,7 @@ impl<R: BufRead + Seek> SignalSourceImplementation for FstWaveDatabase<R> {
 }
 
 struct SignalWriter {
-    tpe: SignalType,
+    tpe: SignalEncoding,
     id: SignalRef,
     /// used to check that everything is going well
     handle: FstSignalHandle,
@@ -142,7 +142,7 @@ struct SignalWriter {
 }
 
 impl SignalWriter {
-    fn new(id: SignalRef, tpe: SignalType) -> Self {
+    fn new(id: SignalRef, tpe: SignalEncoding) -> Self {
         Self {
             tpe,
             id,
@@ -166,7 +166,7 @@ impl SignalWriter {
         }
         match value {
             FstSignalValue::String(value) => match self.tpe {
-                SignalType::String => {
+                SignalEncoding::String => {
                     let str_value = String::from_utf8_lossy(value).to_string();
                     // check to see if the value actually changed
                     let changed = self
@@ -179,7 +179,7 @@ impl SignalWriter {
                         self.time_indices.push(time_idx);
                     }
                 }
-                SignalType::BitVector(len) => {
+                SignalEncoding::BitVector(len) => {
                     let bits = len.get();
 
                     debug_assert_eq!(
@@ -245,13 +245,13 @@ impl SignalWriter {
                         self.time_indices.push(time_idx);
                     }
                 }
-                SignalType::Real => panic!(
+                SignalEncoding::Real => panic!(
                     "Expecting reals, but go: {}",
                     String::from_utf8_lossy(value)
                 ),
             },
             FstSignalValue::Real(value) => {
-                debug_assert_eq!(self.tpe, SignalType::Real);
+                debug_assert_eq!(self.tpe, SignalEncoding::Real);
                 self.data_bytes.extend_from_slice(&value.to_le_bytes());
                 if check_if_changed_and_truncate(8, &mut self.data_bytes) {
                     self.time_indices.push(time_idx);
@@ -262,24 +262,24 @@ impl SignalWriter {
 
     fn finish(self) -> Signal {
         match self.tpe {
-            SignalType::String => {
+            SignalEncoding::String => {
                 debug_assert!(self.data_bytes.is_empty());
                 Signal::new_var_len(self.id, self.time_indices, self.strings)
             }
-            SignalType::Real => {
+            SignalEncoding::Real => {
                 debug_assert!(self.strings.is_empty());
                 Signal::new_fixed_len(
                     self.id,
                     self.time_indices,
-                    SignalEncoding::Real,
+                    FixedWidthEncoding::Real,
                     8,
                     self.data_bytes,
                 )
             }
-            SignalType::BitVector(len) => {
+            SignalEncoding::BitVector(len) => {
                 debug_assert!(self.strings.is_empty());
                 let (bytes, meta_byte) = get_len_and_meta(self.max_states, len.get());
-                let encoding = SignalEncoding::BitVector {
+                let encoding = FixedWidthEncoding::BitVector {
                     max_states: self.max_states,
                     bits: len.get(),
                     meta_byte,
@@ -626,12 +626,12 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                 let num_scopes = scopes.len();
                 // we derive the signal type from the fst tpe directly, the VHDL type should never factor in!
                 let signal_tpe = match tpe {
-                    FstVarType::GenericString => SignalType::String,
+                    FstVarType::GenericString => SignalEncoding::String,
                     FstVarType::Real
                     | FstVarType::RealTime
                     | FstVarType::RealParameter
-                    | FstVarType::ShortReal => SignalType::Real,
-                    _ => SignalType::from_uint(length),
+                    | FstVarType::ShortReal => SignalEncoding::Real,
+                    _ => SignalEncoding::bit_vec_of_len(length),
                 };
                 h.add_array_scopes(scopes);
                 h.add_var(

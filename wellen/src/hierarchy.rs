@@ -245,20 +245,26 @@ impl SignalRef {
     }
 }
 
+/// Specifies how the underlying signal of a variable is encoded.
+/// This is different from the `VarType` which tries to correspond to the variable type in the
+/// source HDL code.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub enum SignalType {
+pub enum SignalEncoding {
+    /// encoded as variable length strings
     String,
+    /// encoded as 64-bit floating point values
     Real,
+    /// encoded as a fixed width bit-vector
     BitVector(NonZeroU32),
 }
 
-impl SignalType {
-    pub fn from_uint(len: u32) -> Self {
+impl SignalEncoding {
+    pub fn bit_vec_of_len(len: u32) -> Self {
         match NonZeroU32::new(len) {
             // a zero length signal should be represented as a 1-bit signal
-            None => SignalType::BitVector(NonZeroU32::new(1).unwrap()),
-            Some(value) => SignalType::BitVector(value),
+            None => SignalEncoding::BitVector(NonZeroU32::new(1).unwrap()),
+            Some(value) => SignalEncoding::BitVector(value),
         }
     }
 }
@@ -269,7 +275,7 @@ pub struct Var {
     name: HierarchyStringId,
     var_tpe: VarType,
     direction: VarDirection,
-    signal_tpe: SignalType,
+    signal_encoding: SignalEncoding,
     index: Option<VarIndex>,
     signal_idx: SignalRef,
     enum_type: Option<EnumTypeId>,
@@ -336,20 +342,20 @@ impl Var {
         self.signal_idx
     }
     pub fn length(&self) -> Option<u32> {
-        match &self.signal_tpe {
-            SignalType::String => None,
-            SignalType::Real => None,
-            SignalType::BitVector(len) => Some(len.get()),
+        match &self.signal_encoding {
+            SignalEncoding::String => None,
+            SignalEncoding::Real => None,
+            SignalEncoding::BitVector(len) => Some(len.get()),
         }
     }
     pub fn is_real(&self) -> bool {
-        matches!(self.signal_tpe, SignalType::Real)
+        matches!(self.signal_encoding, SignalEncoding::Real)
     }
     pub fn is_string(&self) -> bool {
-        matches!(self.signal_tpe, SignalType::String)
+        matches!(self.signal_encoding, SignalEncoding::String)
     }
     pub fn is_bit_vector(&self) -> bool {
-        matches!(self.signal_tpe, SignalType::BitVector(_))
+        matches!(self.signal_encoding, SignalEncoding::BitVector(_))
     }
     pub fn is_1bit(&self) -> bool {
         match self.length() {
@@ -357,8 +363,8 @@ impl Var {
             _ => false,
         }
     }
-    pub fn signal_tpe(&self) -> SignalType {
-        self.signal_tpe
+    pub fn signal_encoding(&self) -> SignalEncoding {
+        self.signal_encoding
     }
 }
 
@@ -741,9 +747,9 @@ impl Hierarchy {
 
     /// Retrieves the length of a signal identified by its id by looking up a
     /// variable that refers to the signal.
-    pub fn get_signal_tpe(&self, signal_idx: SignalRef) -> Option<SignalType> {
+    pub fn get_signal_tpe(&self, signal_idx: SignalRef) -> Option<SignalEncoding> {
         let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
-        Some(self.get(var_id).signal_tpe)
+        Some(self.get(var_id).signal_encoding)
     }
 
     pub fn get_slice_info(&self, signal_idx: SignalRef) -> Option<SignalSlice> {
@@ -1053,7 +1059,7 @@ impl HierarchyBuilder {
         &mut self,
         name: HierarchyStringId,
         tpe: VarType,
-        signal_tpe: SignalType,
+        signal_tpe: SignalEncoding,
         direction: VarDirection,
         index: Option<VarIndex>,
         signal_idx: SignalRef,
@@ -1082,7 +1088,7 @@ impl HierarchyBuilder {
             var_tpe: tpe,
             index,
             direction,
-            signal_tpe,
+            signal_encoding: signal_tpe,
             signal_idx,
             enum_type,
             next: None,
@@ -1178,7 +1184,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<HierarchyItemId>(), 8);
 
         // 4 byte length + tag + padding
-        assert_eq!(std::mem::size_of::<SignalType>(), 8);
+        assert_eq!(std::mem::size_of::<SignalEncoding>(), 8);
 
         // Var
         assert_eq!(

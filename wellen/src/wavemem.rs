@@ -5,12 +5,12 @@
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
-use crate::hierarchy::{Hierarchy, SignalRef, SignalType};
+use crate::hierarchy::{Hierarchy, SignalRef};
 use crate::signals::{
-    Real, Signal, SignalEncoding, SignalSource, SignalSourceImplementation, Time, TimeTableIdx,
+    FixedWidthEncoding, Real, Signal, SignalSource, SignalSourceImplementation, Time, TimeTableIdx,
 };
 use crate::vcd::{u32_div_ceil, usize_div_ceil};
-use crate::TimeTable;
+use crate::{SignalEncoding, TimeTable};
 use bytesize::ByteSize;
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
@@ -28,7 +28,7 @@ impl SignalSourceImplementation for Reader {
     fn load_signals(
         &mut self,
         ids: &[SignalRef],
-        types: &[SignalType],
+        types: &[SignalEncoding],
         multi_threaded: bool,
     ) -> Vec<Signal> {
         if multi_threaded {
@@ -128,7 +128,7 @@ impl Reader {
         SignalMetaData { max_states, blocks }
     }
 
-    fn load_signal(&self, id: SignalRef, tpe: SignalType) -> Signal {
+    fn load_signal(&self, id: SignalRef, tpe: SignalEncoding) -> Signal {
         let meta = self.collect_signal_meta_data(id);
         let mut time_indices: Vec<TimeTableIdx> = Vec::new();
         let mut data_bytes: Vec<u8> = Vec::new();
@@ -143,7 +143,7 @@ impl Reader {
             };
 
             match tpe {
-                SignalType::String => {
+                SignalEncoding::String => {
                     load_signal_strings(
                         &mut data.as_ref(),
                         time_idx_offset,
@@ -151,7 +151,7 @@ impl Reader {
                         &mut strings,
                     );
                 }
-                SignalType::BitVector(signal_len) => {
+                SignalEncoding::BitVector(signal_len) => {
                     load_fixed_len_signal(
                         &mut data.as_ref(),
                         time_idx_offset,
@@ -162,7 +162,7 @@ impl Reader {
                         id,
                     );
                 }
-                SignalType::Real => {
+                SignalEncoding::Real => {
                     load_reals(
                         &mut data.as_ref(),
                         time_idx_offset,
@@ -174,14 +174,14 @@ impl Reader {
         }
 
         match tpe {
-            SignalType::String => {
+            SignalEncoding::String => {
                 debug_assert!(data_bytes.is_empty());
                 Signal::new_var_len(id, time_indices, strings)
             }
-            SignalType::BitVector(len) => {
+            SignalEncoding::BitVector(len) => {
                 debug_assert!(strings.is_empty());
                 let (bytes, meta_byte) = get_len_and_meta(meta.max_states, len.get());
-                let encoding = SignalEncoding::BitVector {
+                let encoding = FixedWidthEncoding::BitVector {
                     max_states: meta.max_states,
                     bits: len.get(),
                     meta_byte,
@@ -194,9 +194,9 @@ impl Reader {
                     data_bytes,
                 )
             }
-            SignalType::Real => {
+            SignalEncoding::Real => {
                 assert!(strings.is_empty());
-                Signal::new_fixed_len(id, time_indices, SignalEncoding::Real, 8, data_bytes)
+                Signal::new_fixed_len(id, time_indices, FixedWidthEncoding::Real, 8, data_bytes)
             }
         }
     }
@@ -447,8 +447,8 @@ impl Encoder {
         let mut signals = Vec::with_capacity(hierarchy.num_unique_signals());
         for var in hierarchy.get_unique_signals_vars() {
             let tpe = match var {
-                None => SignalType::String, // we do not know!
-                Some(var) => var.signal_tpe(),
+                None => SignalEncoding::String, // we do not know!
+                Some(var) => var.signal_encoding(),
             };
             let pos = signals.len();
             signals.push(SignalEncoder::new(tpe, pos));
@@ -676,7 +676,7 @@ impl SignalEncodingMetaData {
 #[derive(Debug, Clone)]
 struct SignalEncoder {
     data: Vec<u8>,
-    tpe: SignalType,
+    tpe: SignalEncoding,
     prev_time_idx: u16,
     max_states: States,
     /// Same as the index of this encoder in a Vec<_>. Used for debugging purposes.
@@ -685,7 +685,7 @@ struct SignalEncoder {
 }
 
 impl SignalEncoder {
-    fn new(tpe: SignalType, pos: usize) -> Self {
+    fn new(tpe: SignalEncoding, pos: usize) -> Self {
         SignalEncoder {
             data: Vec::default(),
             tpe,
@@ -707,7 +707,7 @@ impl SignalEncoder {
         let time_idx_delta = time_index - self.prev_time_idx;
         self.max_states = States::join(self.max_states, states);
         match self.tpe {
-            SignalType::BitVector(len) => {
+            SignalEncoding::BitVector(len) => {
                 let bits = len.get();
                 if bits == 1 {
                     debug_assert_eq!(value.len(), 1);
@@ -771,7 +771,7 @@ impl SignalEncoder {
     fn add_vcd_change(&mut self, time_index: u16, value: &[u8]) {
         let time_idx_delta = time_index - self.prev_time_idx;
         match self.tpe {
-            SignalType::BitVector(len) => {
+            SignalEncoding::BitVector(len) => {
                 let value_bits: &[u8] = match value[0] {
                     b'b' | b'B' => &value[1..],
                     _ => value,
@@ -826,7 +826,7 @@ impl SignalEncoder {
                     write_n_state(states, &data_to_write, &mut self.data, None);
                 }
             }
-            SignalType::String => {
+            SignalEncoding::String => {
                 assert!(
                     matches!(value[0], b's' | b'S'),
                     "expected a string, not {}",
@@ -837,7 +837,7 @@ impl SignalEncoder {
                 leb128::write::unsigned(&mut self.data, (value.len() - 1) as u64).unwrap();
                 self.data.extend_from_slice(&value[1..]);
             }
-            SignalType::Real => {
+            SignalEncoding::Real => {
                 assert!(
                     matches!(value[0], b'r' | b'R'),
                     "expected a real, not {}",
