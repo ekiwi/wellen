@@ -87,3 +87,17 @@ fn test_vcd_with_decreasing_time() {
     let waves = read(filename).expect("failed to parse");
     assert_eq!(waves.time_table(), [4, 5]);
 }
+
+/// This VCD has multiple overlapping scopes that need to be merged.
+/// src: https://gitlab.com/surfer-project/surfer/-/issues/256
+#[test]
+fn test_vcd_scope_merging() {
+    let filename = "inputs/icarus/surfer_issue_256.vcd";
+    let waves = read(filename).expect("failed to parse");
+    let h = waves.hierarchy();
+    let top_scopes = h
+        .scopes()
+        .map(|s| h.get(s).full_name(h))
+        .collect::<Vec<_>>();
+    assert_eq!(top_scopes, ["tb"]);
+}

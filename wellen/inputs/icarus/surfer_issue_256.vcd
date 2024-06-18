@@ -1,0 +1,61 @@
+$date
+	Mon Jun 17 14:04:31 2024
+$end
+$version
+	Icarus Verilog
+$end
+$timescale
+	1s
+$end
+$scope module tb $end
+$var wire 8 ! b [7:0] $end
+$var reg 8 " a [7:0] $end
+$upscope $end
+$scope module tb $end
+$scope module d $end
+$var wire 8 # a [7:0] $end
+$var wire 8 $ b [7:0] $end
+$upscope $end
+$upscope $end
+$scope module tb $end
+$scope module d $end
+$scope module c $end
+$var wire 8 % a [7:0] $end
+$var wire 8 & d [7:0] $end
+$scope module g $end
+$var wire 8 ' a [7:0] $end
+$var wire 8 ( c [7:0] $end
+$var wire 8 ) b [7:0] $end
+$scope module a1a $end
+$var wire 8 * a [7:0] $end
+$var wire 8 + b [7:0] $end
+$upscope $end
+$scope module a1b $end
+$var wire 8 , a [7:0] $end
+$var wire 8 - b [7:0] $end
+$upscope $end
+$upscope $end
+$upscope $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+$comment Show the parameter values. $end
+$dumpall
+$end
+#0
+$dumpvars
+b10 -
+b1 ,
+b1 +
+b0 *
+b1 )
+b10 (
+b0 '
+b10 &
+b0 %
+b10 $
+b0 #
+b0 "
+b10 !
+$end
+#20
