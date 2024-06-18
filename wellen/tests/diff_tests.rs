@@ -444,6 +444,11 @@ fn diff_icarus_cpu() {
 }
 
 #[test]
+fn diff_icarus_dc_crossbar() {
+    run_diff_test_vcd_only("inputs/icarus/DCCrossbar.vcd");
+}
+
+#[test]
 fn diff_icarus_rv32_soc_tb() {
     run_diff_test(
         "inputs/icarus/rv32_soc_TB.vcd",

@@ -1069,8 +1069,9 @@ impl<'a> BodyReader<'a> {
                                 } else if token != b"$dumpvars"
                                     && token != b"$end"
                                     && token != b"$dumpoff"
+                                    && token != b"$dumpon"
                                 {
-                                    // ignore dumpvars, dumpoff, and end command
+                                    // ignore dumpvars, dumpoff, dumpon, and end command
                                     *prev_token = Some(token);
                                 }
                                 None
