@@ -948,26 +948,29 @@ impl HierarchyBuilder {
     /// Checks to see if a scope of the same name already exists.
     fn find_duplicate_scope(&self, name_id: HierarchyStringId) -> Option<ScopeRef> {
         let name = self.get_str(name_id);
+
         let parent = &self.scope_stack[find_parent_scope(&self.scope_stack)];
-        if parent.scope_id == usize::MAX {
-            None // no parent
+        let mut maybe_item = if parent.scope_id == usize::MAX {
+            // we are on the top
+            self.first_item
         } else {
             let parent_scope = &self.scopes[parent.scope_id];
-            let mut maybe_child = parent_scope.child;
-            while let Some(child) = maybe_child {
-                if let HierarchyItemId::Scope(other) = child {
-                    let scope = &self.scopes[other.index()];
-                    let other_name = self.get_str(scope.name);
-                    if other_name == name {
-                        // duplicate found!
-                        return Some(other);
-                    }
+            parent_scope.child
+        };
+
+        while let Some(item) = maybe_item {
+            if let HierarchyItemId::Scope(other) = item {
+                let scope = &self.scopes[other.index()];
+                let other_name = self.get_str(scope.name);
+                if other_name == name {
+                    // duplicate found!
+                    return Some(other);
                 }
-                maybe_child = self.get_next(child);
             }
-            // no duplicate found
-            None
+            maybe_item = self.get_next(item);
         }
+        // no duplicate found
+        None
     }
 
     fn get_next(&self, item: HierarchyItemId) -> Option<HierarchyItemId> {
