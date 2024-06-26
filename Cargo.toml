@@ -4,8 +4,8 @@
 
 [workspace]
 resolver = "2"
-members = ["wellen"]
-default-members = ["wellen"]
+members = ["wellen", "gtkw"]
+default-members = ["wellen", "gtkw"]
 
 [workspace.package]
 version = "0.9.14"

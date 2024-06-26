@@ -1,0 +1,179 @@
+[*] source: https://github.com/tomverbeure/math/blob/628be231b362b875b9d15540aca1df8532a9b73d/waves.gtkw 
+[*]
+[*] GTKWave Analyzer v3.3.90 (w)1999-2018 BSI
+[*] Sun Oct 14 04:55:40 2018
+[*]
+[dumpfile] "/home/tom/projects/math/simWorkspace/FpxxDemo/test.vcd"
+[dumpfile_mtime] "Sun Oct 14 04:54:44 2018"
+[dumpfile_size] 114361
+[savefile] "/home/tom/projects/math/waves.gtkw"
+[timestart] 6508
+[size] 2825 1316
+[pos] -1 -1
+*-5.474033 6700 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] TOP.
+[treeopen] TOP.FpxxDemo.
+[sst_width] 347
+[signals_width] 330
+[sst_expanded] 1
+[sst_vpaned_height] 410
+@28
+TOP.osc_clk
+@22
+TOP.lz_in[22:0]
+@25
+TOP.lz[4:0]
+@200
+-
+@28
+TOP.op_vld
+@22
+TOP.op_a[31:0]
+TOP.op_b[31:0]
+@200
+-
+@28
+TOP.op_a_p_op_b_vld
+@22
+TOP.op_a_p_op_b[31:0]
+@200
+-
+@420
+TOP.FpxxDemo.core_add.exp_diff_a_b_p0[8:0]
+@24
+TOP.FpxxDemo.core_add.exp_diff_b_a_p0[7:0]
+@200
+-
+@28
+TOP.FpxxDemo.core_add.op_a_p0_sign
+TOP.FpxxDemo.core_add.op_b_p0_sign
+@24
+TOP.FpxxDemo.core_add.op_a_p0_exp[7:0]
+TOP.FpxxDemo.core_add.op_b_p0_exp[7:0]
+@22
+TOP.FpxxDemo.core_add.mant_a_p0[23:0]
+TOP.FpxxDemo.core_add.mant_b_p0[23:0]
+@200
+-
+@28
+TOP.FpxxDemo.core_add.sign_a_swap_p0
+TOP.FpxxDemo.core_add.sign_b_swap_p0
+@22
+TOP.FpxxDemo.core_add.mant_a_swap_p0[23:0]
+TOP.FpxxDemo.core_add.mant_b_swap_p0[23:0]
+@200
+-
+@24
+TOP.FpxxDemo.core_add.exp_add_p0[7:0]
+@28
+TOP.FpxxDemo.core_add.exp_diff_ovfl_p0
+@22
+TOP.FpxxDemo.core_add.exp_diff_p0[4:0]
+@200
+-
+@24
+TOP.FpxxDemo.core_add.exp_add_p0[7:0]
+@22
+TOP.FpxxDemo.core_add.mant_a_adj_p1[24:0]
+TOP.FpxxDemo.core_add.mant_b_adj_p1[24:0]
+@200
+-
+@24
+TOP.FpxxDemo.core_add.exp_add_p2[7:0]
+@200
+-
+@22
+TOP.FpxxDemo.core_add.mant_a_adj_p2[24:0]
+TOP.FpxxDemo.core_add.mant_b_adj_p2[24:0]
+@200
+-
+@22
+TOP.FpxxDemo.core_add.mant_a_opt_inv_p2[25:0]
+TOP.FpxxDemo.core_add.mant_b_opt_inv_p2[25:0]
+@200
+-
+-
+@22
+TOP.FpxxDemo.core_add.mant_a_opt_inv_p3[25:0]
+TOP.FpxxDemo.core_add.mant_b_opt_inv_p3[25:0]
+>1080
+TOP.FpxxDemo.core_add.mant_add_p3[24:0]
+@200
+>0
+-
+@22
+TOP.FpxxDemo.core_add.lz_p4[4:0]
+@24
+TOP.FpxxDemo.core_add.exp_add_p4[7:0]
+TOP.FpxxDemo.core_add.exp_add_adj_p4[7:0]
+@c00022
+TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+@28
+(0)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(1)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(2)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(3)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(4)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(5)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(6)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(7)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(8)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(9)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(10)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(11)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(12)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(13)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(14)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(15)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(16)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(17)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(18)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(19)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(20)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(21)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(22)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(23)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+(24)TOP.FpxxDemo.core_add.mant_add_p4[24:0]
+@1401200
+-group_end
+@c00022
+TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+@28
+(0)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(1)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(2)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(3)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(4)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(5)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(6)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(7)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(8)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(9)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(10)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(11)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(12)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(13)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(14)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(15)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(16)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(17)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(18)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(19)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(20)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(21)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(22)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+(23)TOP.FpxxDemo.core_add.mant_add_adj_p4[23:0]
+@1401200
+-group_end
+@200
+-
+-
+@28
+TOP.FpxxDemo.core_add.io_result_vld
+@22
+TOP.FpxxDemo.core_add.io_result_exp[7:0]
+TOP.FpxxDemo.core_add.io_result_mant[22:0]
+@28
+TOP.FpxxDemo.core_add.io_result_sign
+[pattern_trace] 1
+[pattern_trace] 0

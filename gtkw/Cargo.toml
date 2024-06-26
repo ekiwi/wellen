@@ -1,0 +1,17 @@
+[package]
+name = "gtkw"
+version = "0.1.0"
+edition.workspace = true
+rust-version = "1.73.0"
+authors.workspace = true
+description = "GTKWave save file parser"
+repository.workspace = true
+license.workspace = true
+include = ["Cargo.toml", "src/"]
+keywords = ["gtkwave", "gtkw", "save"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+[dev-dependencies]
