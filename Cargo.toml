@@ -8,7 +8,7 @@ members = ["wellen"]
 default-members = ["wellen"]
 
 [workspace.package]
-version = "0.9.14"
+version = "0.9.15"
 edition = "2021"
 # we require the `div_ceil` method on integers
 rust-version = "1.73.0"
@@ -18,7 +18,6 @@ repository = "https://github.com/ekiwi/wellen"
 license = "BSD-3-Clause"
 
 
-include = ["Cargo.toml", "LICENSE", "src/", "benches/"]
 keywords = ["vcd", "fst", "waveform", "wavedump"]
 
 
