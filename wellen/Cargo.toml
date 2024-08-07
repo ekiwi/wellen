@@ -8,8 +8,9 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 keywords.workspace = true
-include = ["Cargo.toml", "../LICENSE", "../README.md", "src/", "benches/"]
+include = ["Cargo.toml", "src/", "benches/"]
 readme = "../Readme.md"
+license-file = "../LICENSE"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
