@@ -228,5 +228,6 @@ fn test_nvc_vhdl_test_bool_issue_16() {
 #[test]
 fn test_nvc_overlay_tb_issue_21() {
     // This used to crash because one of the variables used an index that does not fit into 32 bits.
-    let _ = read("inputs/nvc/overlay_tb_issue_21.fst").unwrap();
+    let mut waves = read("inputs/nvc/overlay_tb_issue_21.fst").unwrap();
+    load_all_signals(&mut waves);
 }
