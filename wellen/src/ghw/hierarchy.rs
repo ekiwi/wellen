@@ -1341,9 +1341,7 @@ impl IntRange {
     }
 
     fn as_var_index(&self) -> VarIndex {
-        let msb = self.1 as i32;
-        let lsb = self.2 as i32;
-        VarIndex::new(msb, lsb)
+        VarIndex::new(self.1, self.2)
     }
 
     fn from_i32_option(opt: Option<Self>) -> Self {

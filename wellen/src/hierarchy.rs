@@ -6,7 +6,7 @@
 
 use crate::FileFormat;
 use std::collections::HashMap;
-use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
+use std::num::{NonZeroI32, NonZeroU16, NonZeroU32};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
@@ -208,23 +208,33 @@ impl VarDirection {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[repr(packed(4))]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub struct VarIndex(NonZeroU64);
+pub struct VarIndex {
+    lsb: i64,
+    width: NonZeroI32,
+}
+
+const DEFAULT_ZERO_REPLACEMENT: NonZeroI32 = unsafe { NonZeroI32::new_unchecked(i32::MIN) };
 
 impl VarIndex {
-    pub fn new(msb: i32, lsb: i32) -> Self {
-        let value = ((msb as u64) << 32) | ((lsb as u64) & (u32::MAX as u64));
-        Self(NonZeroU64::new(value + 1).unwrap())
+    pub fn new(msb: i64, lsb: i64) -> Self {
+        let width = NonZeroI32::new((msb - lsb) as i32).unwrap_or(DEFAULT_ZERO_REPLACEMENT);
+        Self { lsb, width }
     }
 
-    pub fn msb(&self) -> i32 {
-        let value = self.0.get() - 1;
-        (value >> 32) as i32
+    #[inline]
+    pub fn msb(&self) -> i64 {
+        if self.width == DEFAULT_ZERO_REPLACEMENT {
+            self.lsb()
+        } else {
+            self.width.get() as i64 + self.lsb()
+        }
     }
 
-    pub fn lsb(&self) -> i32 {
-        let value = self.0.get() - 1;
-        (value & (u32::MAX as u64)) as i32
+    #[inline]
+    pub fn lsb(&self) -> i64 {
+        self.lsb
     }
 }
 
@@ -1189,19 +1199,28 @@ mod tests {
         // 4 byte length + tag + padding
         assert_eq!(std::mem::size_of::<SignalEncoding>(), 8);
 
+        // var index is packed in order to take up 12 bytes and contains a NonZero field to allow
+        // for zero cost optioning
+        assert_eq!(
+            std::mem::size_of::<VarIndex>(),
+            std::mem::size_of::<Option<VarIndex>>()
+        );
+        assert_eq!(std::mem::size_of::<VarIndex>(), 12);
+
         // Var
         assert_eq!(
             std::mem::size_of::<Var>(),
-            std::mem::size_of::<HierarchyStringId>() // name
-                + 1 // tpe
-                + 1 // direction
-                + 16 // signal tpe
+            std::mem::size_of::<HierarchyStringId>()        // name
+                + std::mem::size_of::<VarType>()            // var_tpe
+                + std::mem::size_of::<VarDirection>()       // direction
+                + std::mem::size_of::<SignalEncoding>()     // signal_encoding
+                + std::mem::size_of::<Option<VarIndex>>()   // index
+                + std::mem::size_of::<SignalRef>()          // signal_idx
                 + std::mem::size_of::<Option<EnumTypeId>>() // enum type
-                + std::mem::size_of::<HierarchyStringId>() // VHDL type name
-                + std::mem::size_of::<SignalRef>() // handle
-                + std::mem::size_of::<ScopeRef>() // parent
-                + std::mem::size_of::<HierarchyItemId>() // next
-                + 6 // padding
+                + std::mem::size_of::<HierarchyStringId>()  // VHDL type name
+                + std::mem::size_of::<Option<ScopeRef>>()   // parent
+                + std::mem::size_of::<HierarchyItemId>()    // next
+                + 2 // padding
         );
         // currently this all comes out to 48 bytes (~= 6x 64-bit pointers)
         assert_eq!(std::mem::size_of::<Var>(), 48);

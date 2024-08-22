@@ -212,12 +212,12 @@ fn diff_hierarchy_item(
             match ref_var.index {
                 None => assert!(our_var.index().is_none() || ref_name_contains_index),
                 Some(::vcd::ReferenceIndex::BitSelect(bit)) => {
-                    assert_eq!(our_var.index().unwrap().msb(), bit);
-                    assert_eq!(our_var.index().unwrap().lsb(), bit);
+                    assert_eq!(our_var.index().unwrap().msb(), bit as i64);
+                    assert_eq!(our_var.index().unwrap().lsb(), bit as i64);
                 }
                 Some(::vcd::ReferenceIndex::Range(msb, lsb)) => {
-                    assert_eq!(our_var.index().unwrap().msb(), msb);
-                    assert_eq!(our_var.index().unwrap().lsb(), lsb);
+                    assert_eq!(our_var.index().unwrap().msb(), msb as i64);
+                    assert_eq!(our_var.index().unwrap().lsb(), lsb as i64);
                 }
             }
         }

@@ -222,3 +222,11 @@ fn test_nvc_vhdl_test_bool_issue_16() {
         ]
     );
 }
+
+/// This file was provided by Tiago Gomes in the following issue:
+/// https://github.com/ekiwi/wellen/issues/21
+#[test]
+fn test_nvc_overlay_tb_issue_21() {
+    // This used to crash because one of the variables used an index that does not fit into 32 bits.
+    let _ = read("inputs/nvc/overlay_tb_issue_21.fst").unwrap();
+}

@@ -401,19 +401,20 @@ fn find_last(haystack: &[u8], needle: u8) -> Option<usize> {
 #[inline]
 fn parse_inner_index(index: &[u8]) -> Option<VarIndex> {
     let sep = index.iter().position(|b| *b == b':');
+    println!("{}", std::str::from_utf8(index).unwrap());
     match sep {
         None => {
             let inner_str = std::str::from_utf8(index).unwrap();
-            let bit = inner_str.parse::<i32>().unwrap();
+            let bit = inner_str.parse::<i64>().unwrap();
             Some(VarIndex::new(bit, bit))
         }
         Some(pos) => {
             let msb_bytes = &index[0..pos];
             let msb_str = std::str::from_utf8(msb_bytes).unwrap();
-            let msb = msb_str.parse::<i32>().unwrap();
+            let msb = msb_str.parse::<i64>().unwrap();
             let lsb_bytes = &index[(pos + 1)..index.len()];
             let lsb_str = std::str::from_utf8(lsb_bytes).unwrap();
-            let lsb = lsb_str.parse::<i32>().unwrap();
+            let lsb = lsb_str.parse::<i64>().unwrap();
             Some(VarIndex::new(msb, lsb))
         }
     }
@@ -1305,7 +1306,7 @@ x%i"
         assert_eq!(find_last(b"12341", b'1'), Some(4));
     }
 
-    fn do_test_parse_name(full_name: &str, name: &str, index: Option<(i32, i32)>, scopes: &[&str]) {
+    fn do_test_parse_name(full_name: &str, name: &str, index: Option<(i64, i64)>, scopes: &[&str]) {
         let (a_name, a_index, a_scopes) = parse_name(full_name.as_bytes()).unwrap();
         assert_eq!(a_name, name);
         match index {
