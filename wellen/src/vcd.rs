@@ -401,7 +401,6 @@ fn find_last(haystack: &[u8], needle: u8) -> Option<usize> {
 #[inline]
 fn parse_inner_index(index: &[u8]) -> Option<VarIndex> {
     let sep = index.iter().position(|b| *b == b':');
-    println!("{}", std::str::from_utf8(index).unwrap());
     match sep {
         None => {
             let inner_str = std::str::from_utf8(index).unwrap();
