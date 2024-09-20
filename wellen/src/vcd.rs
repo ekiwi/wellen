@@ -12,10 +12,11 @@ use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::io::{BufRead, Seek};
+use std::io::{BufRead, Seek, SeekFrom};
 use std::sync::atomic::Ordering;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum VcdParseError {
     #[error("[vcd] failed to parse length: `{0}` for variable `{1}`")]
     VcdVarLengthParsing(String, String),
@@ -39,6 +40,10 @@ pub enum VcdParseError {
     VcdUnknownVarType(String),
     #[error("[vcd] unknown scope type: {0}")]
     VcdUnknownScopeType(String),
+    /// This is not really an error, but our parser has to terminate and start a new attempt
+    /// at interpreting ids. This error should never reach any user.
+    #[error("[vcd] non-contiguous ids detected, applying a work around.")]
+    VcdNonContiguousIds,
     #[error("failed to decode string")]
     Utf8(#[from] std::str::Utf8Error),
     #[error("failed to parse an integer")]
@@ -183,40 +188,106 @@ fn read_hierarchy(
     input: &mut (impl BufRead + Seek),
     options: &LoadOptions,
 ) -> Result<(usize, Hierarchy, IdLookup)> {
+    // first we try to avoid using an id map
+    let input_start = input.stream_position()?;
+    match read_hierarchy_inner(input, false, options) {
+        Ok(res) => Ok(res),
+        Err(VcdParseError::VcdNonContiguousIds) => {
+            // second try, this time with an id map
+            input.seek(SeekFrom::Start(input_start))?;
+            read_hierarchy_inner(input, true, options)
+        }
+        // non recoverable error
+        Err(other) => Err(other),
+    }
+}
+
+/// Collects statistics on VCD IDs used in order to decide whether we should be
+/// using a hash map or a direct translation to indices.
+#[derive(Debug, Clone, Default)]
+struct IdTracker {
+    var_count: u64,
+    min_max_id: Option<(u64, u64)>,
+    not_monotonic_inc: bool,
+}
+
+impl IdTracker {
+    fn need_id_map(&mut self, id_value: u64) -> bool {
+        // update statistics
+        self.var_count += 1;
+        if !self.not_monotonic_inc {
+            // check to see if new increase is monotonic
+            let is_monotonic = self
+                .min_max_id
+                .map(|(_, old_max)| old_max < id_value)
+                .unwrap_or(true);
+            self.not_monotonic_inc = !is_monotonic;
+        }
+        let (min_id, max_id) = match self.min_max_id {
+            Some((min_id, max_id)) => (
+                std::cmp::min(min_id, id_value),
+                std::cmp::max(max_id, id_value),
+            ),
+            None => (id_value, id_value),
+        };
+        debug_assert!(min_id <= max_id);
+        self.min_max_id = Some((min_id, max_id));
+
+        if (id_value / self.var_count) > 1024 * 1024 {
+            // a very large id value means that our dense strategy won't work
+            // we are using 1MBi of addressable bytes as a threshold here
+            return true;
+        }
+
+        // if there are big gaps between ids, our dense strategy probably won't work
+        let inv_density = (max_id - min_id) / self.var_count;
+        if inv_density > 1000 {
+            // 1000 means only 0.1% of IDs are used, even if we employ and offset
+            return true;
+        }
+
+        false
+    }
+}
+
+fn read_hierarchy_inner(
+    input: &mut (impl BufRead + Seek),
+    use_id_map: bool,
+    options: &LoadOptions,
+) -> Result<(usize, Hierarchy, IdLookup)> {
     let start = input.stream_position().unwrap();
     let mut h = HierarchyBuilder::new(FileFormat::Vcd);
     let mut attributes = Vec::new();
     let mut path_names = HashMap::new();
     // this map is used to translate identifiers to signal references for cases where we detect ids that are too large
     let mut id_map: HashMap<Vec<u8>, SignalRef> = HashMap::new();
-    let mut use_id_map = false;
-    let mut var_count = 0u64;
+    // statistics to decide whether to switch to an ID map
+    let mut id_tracker = IdTracker::default();
 
-    let mut id_to_signal_ref = |id: &[u8], var_count: u64| -> SignalRef {
-        // currently we only make a decision of whether to switch to a hash_map based lookup when we are at the first variable
-        if var_count == 0 {
+    let mut id_to_signal_ref = |id: &[u8]| -> Result<SignalRef> {
+        // check to see if we should be using an id map
+        if !use_id_map {
             if let Some(id_value) = id_to_int(id) {
-                if id_value < 1024 * 1024 {
-                    return SignalRef::from_index(id_value as usize).unwrap();
-                } else {
-                    use_id_map = true;
+                if id_tracker.need_id_map(id_value) {
+                    return Err(VcdParseError::VcdNonContiguousIds); // restart with id map
                 }
             } else {
-                use_id_map = true;
+                return Err(VcdParseError::VcdNonContiguousIds); // restart with id map
             }
         }
 
+        // do the actual lookup / conversion
         if use_id_map {
             match id_map.get(id) {
-                Some(signal_ref) => *signal_ref,
+                Some(signal_ref) => Ok(*signal_ref),
                 None => {
                     let signal_ref = SignalRef::from_index(id_map.len() + 1).unwrap();
                     id_map.insert(id.to_vec(), signal_ref);
-                    signal_ref
+                    Ok(signal_ref)
                 }
             }
         } else {
-            SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap()
+            Ok(SignalRef::from_index(id_to_int(id).unwrap() as usize).unwrap())
         }
     };
 
@@ -265,18 +336,18 @@ fn read_hierarchy(
             let type_name = type_name.map(|s| h.add_string(s));
             let num_scopes = scopes.len();
             h.add_array_scopes(scopes);
+
             h.add_var(
                 name,
                 var_type,
                 signal_tpe,
                 VarDirection::vcd_default(),
                 index,
-                id_to_signal_ref(id, var_count),
+                id_to_signal_ref(id)?,
                 enum_type,
                 type_name,
             );
             h.pop_scopes(num_scopes);
-            var_count += 1;
             Ok(())
         }
         HeaderCmd::Date(value) => {
@@ -610,7 +681,7 @@ fn read_vcd_header(
                 }
             }
         };
-        (callback)(parsed)?;
+        callback(parsed)?;
     }
 }
 

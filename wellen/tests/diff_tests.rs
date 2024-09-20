@@ -727,3 +727,14 @@ fn diff_scope_with_comment() {
         "inputs/scope_with_comment.vcd.fst",
     );
 }
+
+/// The test file was provided by Robin Heinemann here:
+/// https://gitlab.com/surfer-project/surfer/-/issues/315
+/// The problem that this reveals is that Yosys SMTBMC assigns
+/// VCD identifiers by incrementing a counter and turning the number
+/// directly into a string. Like n1, n2, n3 ....
+/// This means that we really need to create a hash table to get sensible internal IDs.
+#[test]
+fn diff_yosys_smtbmc_surfer_issue_315() {
+    run_diff_test_vcd_only("inputs/yosys_smtbmc/surfer_issue_315.vcd");
+}
