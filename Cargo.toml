@@ -4,7 +4,7 @@
 
 [workspace]
 resolver = "2"
-members = ["wellen"]
+members = ["wellen", "py-wellen"]
 default-members = ["wellen"]
 
 [workspace.package]
@@ -29,7 +29,6 @@ rayon = "1.8.0"
 num_enum = "0.7.1"
 thiserror = "1.0.56"
 serde = { version = "1.0.197", features = ["derive"] }
-
 # dev dependencies
 itertools = "0.12.1"
 vcd = "0.7.0"
@@ -37,6 +36,7 @@ clap = { version = "4.4.6", features = ["derive"] }
 criterion = "0.5"
 indicatif = "0.17.8"
 proptest = "1.4.0"
+wellen = { path = "wellen" }
 
 [profile.release]
 debug = true
