@@ -9,5 +9,7 @@ name = "py_wellen"
 crate-type = ["cdylib"]
 
 [dependencies]
+bytemuck = "1.18.0"
+num-bigint = "0.4.6"
 pyo3 = "0.21.1"
 wellen = { workspace = true }
