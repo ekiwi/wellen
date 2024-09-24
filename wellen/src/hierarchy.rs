@@ -75,12 +75,12 @@ impl Default for VarRef {
 /// Replaces the old `ModuleRef`.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub struct ScopeRef(NonZeroU16);
+pub struct ScopeRef(NonZeroU32);
 
 impl ScopeRef {
     #[inline]
     fn from_index(index: usize) -> Option<Self> {
-        NonZeroU16::new(index as u16 + 1).map(Self)
+        NonZeroU32::new(index as u32 + 1).map(Self)
     }
 
     #[inline]
