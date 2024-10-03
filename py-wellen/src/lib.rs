@@ -1,4 +1,6 @@
 mod convert;
+use std::sync::Arc;
+
 use convert::Mappable;
 use pyo3::conversion::ToPyObject;
 use pyo3::{
@@ -78,7 +80,7 @@ impl Var {
 #[pyclass]
 struct Body {
     wave_source: wellen::SignalSource,
-    time_table: wellen::TimeTable,
+    time_table: std::sync::Arc<wellen::TimeTable>,
 }
 
 #[pyclass]
@@ -108,7 +110,7 @@ impl Trace {
             .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
         let body = Body {
             wave_source: body.source,
-            time_table: body.time_table,
+            time_table: Arc::new(body.time_table),
         };
         Ok(Self {
             hierarchy: hier,
@@ -143,20 +145,38 @@ impl Trace {
                 .wave_source
                 .load_signals(&[var.signal_ref()], &self.hierarchy.0, true);
         let (sr, sig) = signal.swap_remove(0);
-        Bound::new(py, Signal(sig))
+        Bound::new(
+            py,
+            Signal {
+                signal: sig,
+                all_times: self.body.time_table.clone(),
+            },
+        )
     }
 }
 
 #[pyclass]
-struct Signal(wellen::Signal);
+struct Signal {
+    signal: wellen::Signal,
+    all_times: Arc<wellen::TimeTable>,
+}
 
 #[pymethods]
 impl Signal {
-    fn value_at_idx(&self, idx: TimeTableIdx, py: Python<'_>) -> Option<Py<PyAny>> {
+    pub fn value_at_time(&self, time: wellen::Time, py: Python<'_>) -> Option<Py<PyAny>> {
+        let val = self
+            .all_times
+            .as_ref()
+            .binary_search(&time)
+            .unwrap_or_else(|val| val);
+        self.value_at_idx(val as TimeTableIdx, py)
+    }
+
+    pub fn value_at_idx(&self, idx: TimeTableIdx, py: Python<'_>) -> Option<Py<PyAny>> {
         let maybe_signal = self
-            .0
+            .signal
             .get_offset(idx)
-            .map(|data_offset| self.0.get_value_at(&data_offset, 0));
+            .map(|data_offset| self.signal.get_value_at(&data_offset, 0));
         if let Some(signal) = maybe_signal {
             let output = match signal {
                 SignalValue::Real(inner) => Some(inner.to_object(py)),
@@ -166,10 +186,16 @@ impl Signal {
                     None => signal.to_bit_string().map(|val| val.to_object(py)),
                 },
             };
-
             output
         } else {
             None
         }
     }
 }
+
+#[pyclass]
+struct SignalCursor {
+    signal: Signal,
+    idx: TimeTableIdx,
+}
+// TODO; do pyiter, searchable cursor
