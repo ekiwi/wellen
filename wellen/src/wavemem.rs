@@ -218,12 +218,8 @@ fn load_reals(
 ) {
     let mut last_time_idx = time_idx_offset;
 
-    loop {
-        // read time index
-        let time_idx_delta = match leb128::read::unsigned(data) {
-            Ok(value) => value as u32,
-            Err(_) => break, // presumably there is no more data to be read
-        };
+    while let Ok(value) = leb128::read::unsigned(data) {
+        let time_idx_delta = value as u32;
         last_time_idx += time_idx_delta;
 
         // read 8 bytes of reald
@@ -257,12 +253,8 @@ fn load_fixed_len_signal(
     let (len, has_meta) = get_len_and_meta(signal_states, bits);
     let bytes_per_entry = get_bytes_per_entry(len, has_meta);
 
-    loop {
-        // read time index
-        let time_idx_delta_raw = match leb128::read::unsigned(data) {
-            Ok(value) => value as u32,
-            Err(_) => break, // presumably there is no more data to be read
-        };
+    while let Ok(value) = leb128::read::unsigned(data) {
+        let time_idx_delta_raw = value as u32;
         // now the decoding depends on the size and whether it is two state
         let time_idx_delta = match bits {
             1 => {
@@ -346,12 +338,8 @@ fn load_signal_strings(
 ) {
     let mut last_time_idx = time_idx_offset;
 
-    loop {
-        // read time index
-        let time_idx_delta = match leb128::read::unsigned(data) {
-            Ok(value) => value as u32,
-            Err(_) => break, // presumably there is no more data to be read
-        };
+    while let Ok(value) = leb128::read::unsigned(data) {
+        let time_idx_delta = value as u32;
         last_time_idx += time_idx_delta;
 
         // read variable length string
