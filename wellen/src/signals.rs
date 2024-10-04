@@ -4,7 +4,6 @@
 
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::hierarchy::SignalRef;
-use crate::vcd::usize_div_ceil;
 use crate::wavemem::{check_if_changed_and_truncate, States};
 use crate::{Hierarchy, SignalEncoding};
 use num_enum::TryFromPrimitive;
@@ -25,7 +24,7 @@ pub enum SignalValue<'a> {
     Real(Real),
 }
 
-impl<'a> Display for SignalValue<'a> {
+impl Display for SignalValue<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
             SignalValue::Binary(data, bits) => {
@@ -43,7 +42,7 @@ impl<'a> Display for SignalValue<'a> {
     }
 }
 
-impl<'a> SignalValue<'a> {
+impl SignalValue<'_> {
     pub fn to_bit_string(&self) -> Option<String> {
         match &self {
             SignalValue::Binary(data, bits) => Some(two_state_to_bit_string(data, *bits)),
@@ -319,7 +318,7 @@ impl BitVectorBuilder {
             let meta_data = (local_encoding as u8) << 6;
             self.data.push(value | meta_data);
         } else {
-            let num_bytes = usize_div_ceil(self.bits as usize, local_encoding.bits_in_a_byte());
+            let num_bytes = (self.bits as usize).div_ceil(local_encoding.bits_in_a_byte());
             let data = value.data().unwrap();
             assert_eq!(data.len(), num_bytes);
             let (local_len, local_has_meta) = get_len_and_meta(local_encoding, self.bits);
@@ -700,7 +699,6 @@ impl SignalSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vcd::usize_div_ceil;
 
     #[test]
     fn test_sizes() {
@@ -728,7 +726,7 @@ mod tests {
 
         for bits in 0..(full_str_len + 1) {
             let expected: String = full_str.chars().skip(full_str_len - bits).collect();
-            let number_of_bytes = usize_div_ceil(bits, 8);
+            let number_of_bytes = bits.div_ceil(8);
             let drop_bytes = data0.len() - number_of_bytes;
             let data = &data0[drop_bytes..];
             assert_eq!(
@@ -750,7 +748,7 @@ mod tests {
 
         for bits in 0..(full_str_len + 1) {
             let expected: String = full_str.chars().skip(full_str_len - bits).collect();
-            let number_of_bytes = usize_div_ceil(bits, 4);
+            let number_of_bytes = bits.div_ceil(4);
             let drop_bytes = data0.len() - number_of_bytes;
             let data = &data0[drop_bytes..];
             assert_eq!(

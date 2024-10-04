@@ -9,7 +9,6 @@ use crate::hierarchy::{Hierarchy, SignalRef};
 use crate::signals::{
     FixedWidthEncoding, Real, Signal, SignalSource, SignalSourceImplementation, Time, TimeTableIdx,
 };
-use crate::vcd::{u32_div_ceil, usize_div_ceil};
 use crate::{SignalEncoding, TimeTable};
 use bytesize::ByteSize;
 use num_enum::TryFromPrimitive;
@@ -278,7 +277,7 @@ fn load_fixed_len_signal(
                 // the lower 2 bits of the time idx delta encode how many state bits are encoded in the local signal
                 let local_encoding =
                     States::try_from_primitive((time_idx_delta_raw & 0x3) as u8).unwrap();
-                let num_bytes = usize_div_ceil(other_len as usize, local_encoding.bits_in_a_byte());
+                let num_bytes = (other_len as usize).div_ceil(local_encoding.bits_in_a_byte());
                 let mut buf = vec![0u8; num_bytes];
                 data.read_exact(buf.as_mut()).unwrap();
                 let (local_len, local_has_meta) = get_len_and_meta(local_encoding, bits);
@@ -635,9 +634,9 @@ impl SignalEncodingMetaData {
 
     fn compressed(max_states: States, uncompressed_len: usize) -> Self {
         // turn the length into a value that we can actually encode
-        let uncompressed_len_approx =
-            u32_div_ceil(uncompressed_len as u32, SIGNAL_DECOMPRESSED_LEN_DIV)
-                * SIGNAL_DECOMPRESSED_LEN_DIV;
+        let uncompressed_len_approx = (uncompressed_len as u32)
+            .div_ceil(SIGNAL_DECOMPRESSED_LEN_DIV)
+            * SIGNAL_DECOMPRESSED_LEN_DIV;
         SignalEncodingMetaData {
             compression: SignalCompression::Compressed(uncompressed_len_approx as usize),
             max_states,
@@ -663,7 +662,7 @@ impl SignalEncodingMetaData {
         match &self.compression {
             SignalCompression::Compressed(decompressed_len) => {
                 let decompressed_len_bits =
-                    u32_div_ceil((*decompressed_len) as u32, SIGNAL_DECOMPRESSED_LEN_DIV);
+                    ((*decompressed_len) as u32).div_ceil(SIGNAL_DECOMPRESSED_LEN_DIV);
 
                 ((decompressed_len_bits as u64) << 3) | (1 << 2) | (self.max_states as u64)
             }

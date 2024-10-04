@@ -212,7 +212,7 @@ fn test_nvc_vhdl_test_bool_issue_16() {
         .get_signal(var.signal_ref())
         .unwrap()
         .iter_changes()
-        .map(|(time, value)| format!("{time} {}", value.to_string()))
+        .map(|(time, value)| format!("{time} {}", value))
         .collect::<Vec<_>>();
     assert_eq!(
         time_and_values,

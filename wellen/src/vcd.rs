@@ -910,25 +910,15 @@ enum HeaderCmd<'a> {
 /// The minimum number of bytes we want to read per thread.
 const MIN_CHUNK_SIZE: usize = 8 * 1024;
 
-#[inline]
-pub fn usize_div_ceil(a: usize, b: usize) -> usize {
-    (a + b - 1) / b
-}
-
-#[inline]
-pub fn u32_div_ceil(a: u32, b: u32) -> u32 {
-    (a + b - 1) / b
-}
-
 /// Returns starting byte and read length for every thread. Note that read-length is just an
 /// approximation and the thread might have to read beyond or might also run out of data before
 /// reaching read length.
 #[inline]
 fn determine_thread_chunks(body_len: usize) -> Vec<(usize, usize)> {
     let max_threads = rayon::current_num_threads();
-    let number_of_threads_for_min_chunk_size = usize_div_ceil(body_len, MIN_CHUNK_SIZE);
+    let number_of_threads_for_min_chunk_size = body_len.div_ceil(MIN_CHUNK_SIZE);
     let num_threads = std::cmp::min(max_threads, number_of_threads_for_min_chunk_size);
-    let chunk_size = usize_div_ceil(body_len, num_threads);
+    let chunk_size = body_len.div_ceil(num_threads);
     // TODO: for large file it might make sense to have more chunks than threads
     (0..num_threads)
         .map(|ii| (ii * chunk_size, chunk_size))
@@ -1221,16 +1211,15 @@ impl<'a> Iterator for BodyReader<'a> {
                         }
                     }
                 }
-                _ => match token_start {
-                    None => {
+                _ => {
+                    if token_start.is_none() {
                         token_start = Some(pos);
                         if prev_token.is_none() {
                             // remember the start of the first token
                             start_pos = pos;
                         }
                     }
-                    Some(_) => {}
-                },
+                }
             }
         }
         // update final position
@@ -1257,7 +1246,7 @@ enum BodyCmd<'a> {
     Value(&'a [u8], &'a [u8]),
 }
 
-impl<'a> Debug for BodyCmd<'a> {
+impl Debug for BodyCmd<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             BodyCmd::Time(value) => {

@@ -188,6 +188,7 @@ pub enum VarType {
 }
 
 /// Signal directions of a variable. Currently these have the exact same meaning as in the FST format.
+///
 /// For VCD inputs, all variables will be marked as `VarDirection::Unknown` since no direction information is included.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
@@ -486,7 +487,7 @@ impl<'a> HierarchyItemIdIterator<'a> {
     }
 }
 
-impl<'a> Iterator for HierarchyItemIdIterator<'a> {
+impl Iterator for HierarchyItemIdIterator<'_> {
     type Item = HierarchyItemId;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -531,7 +532,7 @@ pub struct HierarchyVarRefIterator<'a> {
     underlying: HierarchyItemIdIterator<'a>,
 }
 
-impl<'a> Iterator for HierarchyVarRefIterator<'a> {
+impl Iterator for HierarchyVarRefIterator<'_> {
     type Item = VarRef;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -549,7 +550,7 @@ pub struct HierarchyScopeRefIterator<'a> {
     underlying: HierarchyItemIdIterator<'a>,
 }
 
-impl<'a> Iterator for HierarchyScopeRefIterator<'a> {
+impl Iterator for HierarchyScopeRefIterator<'_> {
     type Item = ScopeRef;
 
     fn next(&mut self) -> Option<Self::Item> {
