@@ -4,7 +4,7 @@
 
 [workspace]
 resolver = "2"
-members = ["wellen", "py-wellen"]
+members = ["wellen", "pywellen"]
 default-members = ["wellen"]
 
 [workspace.package]
