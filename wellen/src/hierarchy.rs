@@ -392,7 +392,7 @@ pub enum HierarchyItem<'a> {
     Var(&'a Var),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Scope {
     name: HierarchyStringId,
