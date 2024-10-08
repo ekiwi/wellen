@@ -19,8 +19,8 @@ impl From<crate::vcd::VcdParseError> for WellenError {
     }
 }
 
-impl From<fst_native::ReaderError> for WellenError {
-    fn from(value: fst_native::ReaderError) -> Self {
+impl From<fst_reader::ReaderError> for WellenError {
+    fn from(value: fst_reader::ReaderError) -> Self {
         WellenError::FailedToLoad(FileFormat::Fst, value.to_string())
     }
 }
@@ -166,7 +166,7 @@ pub fn open_and_detect_file_format(filename: &str) -> FileFormat {
 fn detect_file_format(input: &mut (impl BufRead + Seek)) -> FileFormat {
     if crate::vcd::is_vcd(input) {
         FileFormat::Vcd
-    } else if fst_native::is_fst_file(input) {
+    } else if fst_reader::is_fst_file(input) {
         FileFormat::Fst
     } else if crate::ghw::is_ghw(input) {
         FileFormat::Ghw

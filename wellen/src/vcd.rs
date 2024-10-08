@@ -7,7 +7,7 @@ use crate::hierarchy::*;
 use crate::signals::SignalSource;
 use crate::viewers::ProgressCount;
 use crate::{FileFormat, LoadOptions, TimeTable};
-use fst_native::{FstVhdlDataType, FstVhdlVarType};
+use fst_reader::{FstVhdlDataType, FstVhdlVarType};
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -30,11 +30,11 @@ pub enum VcdParseError {
     VcdUnsupportedAttributeType(String),
     #[error("[vcd] failed to parse VHDL var type from attribute.")]
     VcdFailedToParseVhdlVarType(
-        #[from] num_enum::TryFromPrimitiveError<fst_native::FstVhdlVarType>,
+        #[from] num_enum::TryFromPrimitiveError<fst_reader::FstVhdlVarType>,
     ),
     #[error("[vcd] failed to parse VHDL data type from attribute.")]
     VcdFailedToParseVhdlDataType(
-        #[from] num_enum::TryFromPrimitiveError<fst_native::FstVhdlDataType>,
+        #[from] num_enum::TryFromPrimitiveError<fst_reader::FstVhdlDataType>,
     ),
     #[error("[vcd] unknown var type: {0}")]
     VcdUnknownVarType(String),

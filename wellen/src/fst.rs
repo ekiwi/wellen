@@ -9,7 +9,7 @@ use crate::signals::{
 use crate::vcd::parse_name;
 use crate::wavemem::{check_if_changed_and_truncate, check_states, write_n_state, States};
 use crate::{FileFormat, LoadOptions, TimeTable, WellenError};
-use fst_native::*;
+use fst_reader::*;
 use std::collections::HashMap;
 use std::io::{BufRead, Seek};
 

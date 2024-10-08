@@ -15,7 +15,7 @@ readme = "Readme.md"
 
 [dependencies]
 bytesize = { workspace = true }
-fst-native = { workspace = true }
+fst-reader = { workspace = true }
 leb128 = { workspace = true }
 lz4_flex = { workspace = true }
 memmap2 = { workspace = true }
