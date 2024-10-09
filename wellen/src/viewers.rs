@@ -58,7 +58,8 @@ pub fn read_header(filename: &str, options: &LoadOptions) -> Result<HeaderResult
             })
         }
         FileFormat::Fst => {
-            let (hierarchy, body) = crate::fst::read_header(filename, options)?;
+            let input = std::io::BufReader::new(std::fs::File::open(filename)?);
+            let (hierarchy, body) = crate::fst::read_header(input, options)?;
             let body = ReadBodyContinuation::new(ReadBodyData::Fst(body));
             Ok(HeaderResult {
                 hierarchy,
@@ -71,34 +72,42 @@ pub fn read_header(filename: &str, options: &LoadOptions) -> Result<HeaderResult
 }
 
 pub fn read_header_from_bytes(bytes: Vec<u8>, options: &LoadOptions) -> Result<HeaderResult> {
-    let file_format = {
-        let mut cursor = &mut std::io::Cursor::new(&bytes);
-        detect_file_format(&mut cursor)
-    };
+    read_header_from_reader(std::io::Cursor::new(bytes), options)
+}
+
+pub fn read_header_from_reader<R>(mut input: R, options: &LoadOptions) -> Result<HeaderResult>
+where
+    R: std::io::BufRead + std::io::Seek,
+{
+    // remember where we are supposed to start reading
+    let start = input.stream_position()?;
+    let file_format = { detect_file_format(&mut input) };
     match file_format {
         FileFormat::Unknown => Err(WellenError::UnknownFileFormat),
         FileFormat::Vcd => {
-            let (hierarchy, body, body_len) = crate::vcd::read_header_from_bytes(bytes, options)?;
-            let body = ReadBodyContinuation::new(ReadBodyData::Vcd(body));
-            Ok(HeaderResult {
-                hierarchy,
-                file_format,
-                body_len,
-                body,
-            })
+            todo!()
+            // let (hierarchy, body, body_len) = crate::vcd::read_header_from_bytes(bytes, options)?;
+            // let body = ReadBodyContinuation::new(ReadBodyData::Vcd(body));
+            // Ok(HeaderResult {
+            //     hierarchy,
+            //     file_format,
+            //     body_len,
+            //     body,
+            // })
         }
         FileFormat::Ghw => {
-            let (hierarchy, body, body_len) = crate::ghw::read_header_from_bytes(bytes, options)?;
-            let body = ReadBodyContinuation::new(ReadBodyData::Ghw(body));
-            Ok(HeaderResult {
-                hierarchy,
-                file_format,
-                body_len,
-                body,
-            })
+            todo!()
+            // let (hierarchy, body, body_len) = crate::ghw::read_header_from_bytes(bytes, options)?;
+            // let body = ReadBodyContinuation::new(ReadBodyData::Ghw(body));
+            // Ok(HeaderResult {
+            //     hierarchy,
+            //     file_format,
+            //     body_len,
+            //     body,
+            // })
         }
         FileFormat::Fst => {
-            let (hierarchy, body) = crate::fst::read_header_from_bytes(bytes, options)?;
+            let (hierarchy, body) = crate::fst::read_header(input, options)?;
             let body = ReadBodyContinuation::new(ReadBodyData::Fst(body));
             Ok(HeaderResult {
                 hierarchy,

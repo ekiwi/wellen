@@ -15,12 +15,11 @@ use std::io::{BufRead, Seek};
 
 pub type Result<T> = std::result::Result<T, WellenError>;
 
-pub fn read_header(
-    filename: &str,
+pub fn read_header<R: BufRead + Seek>(
+    input: R,
     _options: &LoadOptions,
 ) -> Result<(Hierarchy, ReadBodyContinuation)> {
-    let input = std::fs::File::open(filename)?;
-    let mut reader = FstReader::open_and_read_time_table(std::io::BufReader::new(input))?;
+    let mut reader = FstReader::open_and_read_time_table(input)?;
     let hierarchy = read_hierarchy(&mut reader)?;
     let cont = ReadBodyContinuation {
         reader: Reader::File(reader),
