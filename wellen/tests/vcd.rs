@@ -101,3 +101,13 @@ fn test_vcd_scope_merging() {
         .collect::<Vec<_>>();
     assert_eq!(top_scopes, ["tb"]);
 }
+
+/// This test file was provided by Gianluca Bellocchi in the following issue:
+/// https://github.com/ekiwi/wellen/issues/27
+/// Because of our automatic scope creation from variable names, we aren't able to run a diff test
+/// on this file which is why we opt to just check that we can load it without crashing.
+#[test]
+fn diff_vivado_surfer_test() {
+    let filename = "inputs/vivado/vivado_surfer_test.vcd";
+    let _waves = read(filename).expect("failed to parse");
+}

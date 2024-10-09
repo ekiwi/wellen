@@ -193,7 +193,12 @@ fn diff_hierarchy_item(
             if !ref_name_contains_index {
                 assert_eq!(ref_var.reference, our_var.name(our_hier));
             } else {
-                assert!(ref_var.reference.starts_with(our_var.name(our_hier)));
+                assert!(
+                    ref_var.reference.starts_with(our_var.name(our_hier)),
+                    "{} vs. {} (OUR)",
+                    ref_var.reference,
+                    our_var.name(our_hier)
+                );
             }
             assert_eq!(
                 ref_var.var_type.to_string(),
@@ -216,8 +221,12 @@ fn diff_hierarchy_item(
                     assert_eq!(our_var.index().unwrap().lsb(), bit as i64);
                 }
                 Some(::vcd::ReferenceIndex::Range(msb, lsb)) => {
-                    assert_eq!(our_var.index().unwrap().msb(), msb as i64);
-                    assert_eq!(our_var.index().unwrap().lsb(), lsb as i64);
+                    let (our_msb, our_lsb) = (
+                        our_var.index().unwrap().msb(),
+                        our_var.index().unwrap().lsb(),
+                    );
+                    assert_eq!(our_msb, msb as i64);
+                    assert_eq!(our_lsb, lsb as i64);
                 }
             }
         }
