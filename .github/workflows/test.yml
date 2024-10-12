@@ -43,7 +43,7 @@ jobs:
           python-version: "3.10"
       - uses: actions/checkout@v4
       - name: Build
-        run: pip install -e . -v
+        run: pip install -e . -v && pip install pytest
         working-directory: pywellen
       - name: Run tests
         run: pytest tests/
