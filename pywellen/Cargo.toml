@@ -1,6 +1,6 @@
 [package]
 name = "pywellen"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 authors = ["James Connolly <dogman3117@gmail.com>"]
 
