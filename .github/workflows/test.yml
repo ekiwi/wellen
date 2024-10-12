@@ -38,6 +38,9 @@ jobs:
     steps:
       - name: Update Rust to ${{ matrix.toolchain }}
         run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
       - uses: actions/checkout@v4
       - name: Build
         run: pip install -e . -v
