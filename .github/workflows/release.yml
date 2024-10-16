@@ -11,7 +11,7 @@ permissions:
 jobs:
   create-release:
     name: create-release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Get the release version from the tag
@@ -21,7 +21,7 @@ jobs:
       version: ${{ env.VERSION }}
 
   linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: ["create-release"]
 
     strategy:
@@ -69,7 +69,9 @@ jobs:
           path: dist
 
   sdist:
-    runs-on: ubuntu-latest
+    # switch back to ubuntu-22.04 once this issue is resolved:
+    # https://github.com/PyO3/maturin-action/issues/291
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Build sdist
@@ -85,7 +87,7 @@ jobs:
 
   release:
     name: Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: "startsWith(github.ref, 'refs/tags/')"
     needs: [linux, macos, sdist]
     steps:
