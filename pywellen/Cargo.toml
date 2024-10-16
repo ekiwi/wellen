@@ -1,0 +1,16 @@
+[package]
+name = "pywellen"
+version.workspace = true
+edition = "2021"
+authors = ["James Connolly <dogman3117@gmail.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "pywellen"
+crate-type = ["cdylib"]
+
+[dependencies]
+bytemuck = "1.18.0"
+num-bigint = "0.4.6"
+pyo3 = { version = "0.21.1", features = ["num-bigint"] }
+wellen = { workspace = true }
