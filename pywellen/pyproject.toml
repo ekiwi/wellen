@@ -13,7 +13,10 @@ classifiers = [
 dynamic = ["version"]
 license = "BSD-3-Clause"
 
-authors = [{ name = "James Connolly", email = "dogman3117@gmail.com" }]
+authors = [
+  { name = "James Connolly", email = "dogman3117@gmail.com" },
+  { name = "Kevin Laeufer", email = "laeufer@cornell.edu" },
+]
 
 
 [build-system]
