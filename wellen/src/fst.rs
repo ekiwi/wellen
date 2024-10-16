@@ -15,8 +15,8 @@ use std::io::{BufRead, Seek};
 
 pub type Result<T> = std::result::Result<T, WellenError>;
 
-pub fn read_header(
-    filename: &str,
+pub fn read_header<P: AsRef<std::path::Path>>(
+    filename: P,
     _options: &LoadOptions,
 ) -> Result<(Hierarchy, ReadBodyContinuation)> {
     let input = std::fs::File::open(filename)?;

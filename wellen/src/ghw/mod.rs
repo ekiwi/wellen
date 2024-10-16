@@ -24,8 +24,8 @@ pub fn is_ghw(input: &mut (impl BufRead + Seek)) -> bool {
 
 pub type Result<T> = std::result::Result<T, GhwParseError>;
 
-pub fn read_header(
-    filename: &str,
+pub fn read_header<P: AsRef<std::path::Path>>(
+    filename: P,
     options: &LoadOptions,
 ) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
     let f = std::fs::File::open(filename)?;

@@ -54,8 +54,8 @@ pub enum VcdParseError {
 
 pub type Result<T> = std::result::Result<T, VcdParseError>;
 
-pub fn read_header(
-    filename: &str,
+pub fn read_header<P: AsRef<std::path::Path>>(
+    filename: P,
     options: &LoadOptions,
 ) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
     let input_file = std::fs::File::open(filename)?;

@@ -33,8 +33,11 @@ pub struct HeaderResult {
     pub body: ReadBodyContinuation,
 }
 
-pub fn read_header(filename: &str, options: &LoadOptions) -> Result<HeaderResult> {
-    let file_format = open_and_detect_file_format(filename);
+pub fn read_header<P: AsRef<std::path::Path>>(
+    filename: P,
+    options: &LoadOptions,
+) -> Result<HeaderResult> {
+    let file_format = open_and_detect_file_format(filename.as_ref());
     match file_format {
         FileFormat::Unknown => Err(WellenError::UnknownFileFormat),
         FileFormat::Vcd => {
@@ -156,7 +159,7 @@ pub fn read_body(
 }
 
 /// Tries to guess the format of the file.
-pub fn open_and_detect_file_format(filename: &str) -> FileFormat {
+pub fn open_and_detect_file_format<P: AsRef<std::path::Path>>(filename: P) -> FileFormat {
     let input_file = std::fs::File::open(filename).expect("failed to open input file!");
     let mut reader = std::io::BufReader::new(input_file);
     detect_file_format(&mut reader)

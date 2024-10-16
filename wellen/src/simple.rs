@@ -12,12 +12,15 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
 /// Read a waveform file with the default options. Reads in header and body at once.
-pub fn read(filename: &str) -> Result<Waveform> {
+pub fn read<P: AsRef<std::path::Path>>(filename: P) -> Result<Waveform> {
     read_with_options(filename, &LoadOptions::default())
 }
 
 /// Read a waveform file. Reads in header and body at once.
-pub fn read_with_options(filename: &str, options: &LoadOptions) -> Result<Waveform> {
+pub fn read_with_options<P: AsRef<std::path::Path>>(
+    filename: P,
+    options: &LoadOptions,
+) -> Result<Waveform> {
     let header = viewers::read_header(filename, options)?;
     let body = viewers::read_body(header.body, &header.hierarchy, None)?;
     Ok(Waveform::new(
