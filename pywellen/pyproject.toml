@@ -12,12 +12,16 @@ classifiers = [
 ]
 dynamic = ["version"]
 license = "BSD-3-Clause"
-
+description = "Fast VCD, GHW and FST wavedump reading."
+readme = "../Readme.md"
 authors = [
   { name = "James Connolly", email = "dogman3117@gmail.com" },
   { name = "Kevin Laeufer", email = "laeufer@cornell.edu" },
 ]
 
+[project.urls]
+Homepage = "https://github.com/ekiwi/wellen"
+Issues = "https://github.com/ekiwi/wellen/issues"
 
 [build-system]
 requires = ["maturin>=1.5,<2.0"]
