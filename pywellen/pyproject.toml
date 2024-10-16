@@ -13,7 +13,7 @@ classifiers = [
 dynamic = ["version"]
 license = "BSD-3-Clause"
 description = "Fast VCD, GHW and FST wavedump reading."
-readme = "../Readme.md"
+readme = "Readme.md"
 authors = [
   { name = "James Connolly", email = "dogman3117@gmail.com" },
   { name = "Kevin Laeufer", email = "laeufer@cornell.edu" },
