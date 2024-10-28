@@ -12,6 +12,12 @@ pub trait Mappable: Sized {
     }
 }
 
+/// Trait to convert a data type into a `wellen::SignalValue`
+///
+pub trait ToValue: Sized {
+    fn as_signal_value(&self) -> SignalValue;
+}
+
 macro_rules! impl_mappable_basic {
     ($t:ty) => {
         impl Mappable for $t {

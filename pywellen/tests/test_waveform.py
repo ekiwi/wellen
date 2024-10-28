@@ -1,3 +1,4 @@
+from abc import ABC
 from pywellen import Waveform
 from pathlib import Path
 import subprocess

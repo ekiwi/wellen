@@ -2,13 +2,21 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::hierarchy::SignalRef;
 use crate::wavemem::{check_if_changed_and_truncate, States};
+use crate::{
+    fst::{get_bytes_per_entry, get_len_and_meta, push_zeros},
+    signal_utils::merge_indices,
+};
 use crate::{Hierarchy, SignalEncoding};
 use num_enum::TryFromPrimitive;
-use std::fmt::{Debug, Display, Formatter};
-use std::num::NonZeroU32;
+use std::{
+    num::NonZeroU32,
+};
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Display, Formatter},
+};
 
 pub type Real = f64;
 pub type Time = u64;
@@ -292,7 +300,7 @@ pub struct BitVectorBuilder {
 }
 
 impl BitVectorBuilder {
-    fn new(max_states: States, bits: u32) -> Self {
+    pub fn new(max_states: States, bits: u32) -> Self {
         assert!(bits > 0);
         let (len, has_meta) = get_len_and_meta(max_states, bits);
         let bytes_per_entry = get_bytes_per_entry(len, has_meta);
@@ -309,7 +317,7 @@ impl BitVectorBuilder {
         }
     }
 
-    fn add_change(&mut self, time_idx: TimeTableIdx, value: SignalValue) {
+    pub fn add_change(&mut self, time_idx: TimeTableIdx, value: SignalValue) {
         debug_assert_eq!(value.bits().unwrap(), self.bits);
         let local_encoding = value.states().unwrap();
         debug_assert!(local_encoding.bits() >= self.max_states.bits());
@@ -351,7 +359,7 @@ impl BitVectorBuilder {
         }
     }
 
-    fn finish(self, id: SignalRef) -> Signal {
+    pub fn finish(self, id: SignalRef) -> Signal {
         debug_assert_eq!(
             self.data.len(),
             self.time_indices.len() * self.bytes_per_entry
@@ -500,6 +508,71 @@ fn find_offset_from_time_table_idx(indices: &[TimeTableIdx], needle: TimeTableId
     }
 }
 
+pub trait LazySignal {
+    fn value_at_idx(&self, time_idx: TimeTableIdx) -> Option<SignalValue>;
+    fn time_indices(&self) -> &[TimeTableIdx];
+    fn width(&self) -> u32;
+    fn max_states(&self) -> States;
+    fn to_signal(&self) -> Signal {
+        let mut vec_builder = BitVectorBuilder::new(self.max_states(), self.width());
+
+        for change in self.time_indices().iter().cloned() {
+            let value = self.value_at_idx(change);
+            if let Some(actual_val) = value {
+                vec_builder.add_change(change, actual_val)
+            }
+        }
+        vec_builder.finish(SignalRef::from_index(0xbeedad69).unwrap())
+    }
+}
+
+pub struct SimpleLazy {
+    signals: HashMap<String, Signal>,
+    generator: Box<dyn Fn(&'_ HashMap<String, Signal>, TimeTableIdx) -> Option<SignalValue<'_>>>,
+    all_times: Vec<TimeTableIdx>,
+    width: u32,
+}
+
+impl SimpleLazy {
+    pub fn new(
+        signals: HashMap<String, Signal>,
+        generator: Box<dyn Fn(&HashMap<String, Signal>, TimeTableIdx) -> Option<SignalValue>>,
+        width: u32,
+    ) -> SimpleLazy {
+        let all_times = signals
+            .values()
+            .map(|sig| sig.time_indices())
+            .collect();
+        let all_times = merge_indices(all_times);
+        SimpleLazy {
+            all_times,
+            signals,
+            generator,
+            width,
+        }
+    }
+}
+
+impl LazySignal for SimpleLazy {
+    fn max_states(&self) -> States {
+        self.signals
+            .values()
+            .filter_map(|val| val.data.max_states())
+            .max()
+            .unwrap_or(States::Two)
+    }
+    fn value_at_idx(&self, time_idx: TimeTableIdx) -> Option<SignalValue> {
+        let gen = &self.generator;
+        gen(&self.signals, time_idx)
+    }
+    fn width(&self) -> u32 {
+        self.width
+    }
+    fn time_indices(&self) -> &[TimeTableIdx] {
+        &self.all_times
+    }
+}
+
 #[inline]
 fn binary_search(indices: &[TimeTableIdx], needle: TimeTableIdx) -> usize {
     debug_assert!(!indices.is_empty(), "empty time table!");
@@ -565,6 +638,19 @@ impl Debug for SignalChangeData {
 }
 
 impl SignalChangeData {
+    fn max_states(&self) -> Option<States> {
+        match self {
+            Self::VariableLength(_) => None,
+            Self::FixedLength { encoding, .. } => match encoding {
+                FixedWidthEncoding::BitVector {
+                    max_states,
+                    bits: _,
+                    meta_byte: _,
+                } => Some(*max_states),
+                _ => None,
+            },
+        }
+    }
     fn get_value_at(&self, offset: usize) -> SignalValue {
         match &self {
             SignalChangeData::FixedLength {

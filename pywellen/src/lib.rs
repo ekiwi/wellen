@@ -2,14 +2,14 @@ mod convert;
 use std::sync::Arc;
 
 use convert::Mappable;
-use num_bigint::BigUint;
-use pyo3::conversion::ToPyObject;
+use num_bigint::{BigInt, BigUint};
+use pyo3::{conversion::ToPyObject, types::PyList};
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use wellen::GetItem;
 
 use wellen::{
     viewers::{self},
-    LoadOptions, SignalValue, TimeTableIdx,
+    LoadOptions, TimeTableIdx,
 };
 
 pub trait PyErrExt<T> {
@@ -276,8 +276,8 @@ impl Signal {
             .map(|data_offset| self.signal.get_value_at(&data_offset, 0));
         if let Some(signal) = maybe_signal {
             let output = match signal {
-                SignalValue::Real(inner) => Some(inner.to_object(py)),
-                SignalValue::String(str) => Some(str.to_object(py)),
+                wellen::SignalValue::Real(inner) => Some(inner.to_object(py)),
+                wellen::SignalValue::String(str) => Some(str.to_object(py)),
                 _ => match BigUint::try_from_signal(signal) {
                     // If this signal is 2bits, this function will return an int
                     Some(number) => Some(number.to_object(py)),
@@ -298,6 +298,54 @@ impl Signal {
             offset: 0,
         }
     }
+}
+
+#[derive(Clone)]
+struct PyLazySignal<'py> {
+    py_lazy_impl: Bound<'py, PyAny>,
+    all_times: Vec<TimeTableIdx>,
+    width: u32,
+}
+
+impl<'py> PyLazySignal<'py> {
+    const fn get_val_name() -> &'static str {
+        "get_val"
+    }
+}
+
+#[pyfunction]
+fn create_derived_signal(pyinterface: Bound<'_, PyAny>) -> PyResult<Signal> {
+    let all_signals: Vec<Signal> = pyinterface
+        .call_method("get_all_signals", (), None)?
+        .extract()?;
+    let all_slices = all_signals
+        .iter()
+        .map(|sig| sig.signal.as_ref().time_indices())
+        .collect();
+    let all_changes = wellen::merge_indices(all_slices);
+    let bits: u32 = pyinterface.call_method("width", (), None)?.extract()?;
+    let mut builder = wellen::BitVectorBuilder::new(wellen::States::Two, bits);
+    for change_idx in all_changes {
+        let value: BigUint = pyinterface
+            .call_method("get_value_at_idx", (change_idx,), None)?
+            .extract()?;
+        //FIXME: optimize this -- so much copying, needlessly
+        let bytes = value.to_bytes_be();
+        builder.add_change(
+            change_idx,
+            wellen::SignalValue::Binary(bytes.as_slice(), bits),
+        );
+    }
+    let sig = builder.finish(wellen::SignalRef::from_index(0xbeebabe5).unwrap());
+    let all_times = all_signals
+        .first()
+        .expect("No signals provided")
+        .all_times
+        .clone();
+    Ok(Signal {
+        signal: Arc::new(sig),
+        all_times,
+    })
 }
 
 #[pyclass]

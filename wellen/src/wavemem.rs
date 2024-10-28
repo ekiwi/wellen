@@ -898,7 +898,7 @@ fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
 }
 
 #[repr(u8)]
-#[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq)]
+#[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
 pub enum States {
