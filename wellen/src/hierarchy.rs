@@ -737,15 +737,26 @@ impl Hierarchy {
     }
 
     pub fn lookup_var<N: AsRef<str>>(&self, path: &[N], name: &N) -> Option<VarRef> {
+        self.lookup_var_with_index(path, name, &None)
+    }
+
+    pub fn lookup_var_with_index<N: AsRef<str>>(
+        &self,
+        path: &[N],
+        name: &N,
+        index: &Option<VarIndex>,
+    ) -> Option<VarRef> {
         match path {
-            [] => self
-                .vars()
-                .find(|v| self.get(*v).name(self) == name.as_ref()),
+            [] => self.vars().find(|v| {
+                let v = self.get(*v);
+                v.name(self) == name.as_ref() && (index.is_none() || (v.index == *index))
+            }),
             scopes => {
                 let scope = self.get(self.lookup_scope(scopes)?);
-                scope
-                    .vars(self)
-                    .find(|v| self.get(*v).name(self) == name.as_ref())
+                scope.vars(self).find(|v| {
+                    let v = self.get(*v);
+                    v.name(self) == name.as_ref() && (index.is_none() || (v.index == *index))
+                })
             }
         }
     }
