@@ -3,7 +3,7 @@ use std::{
     collections::BinaryHeap,
 };
 
-use crate::TimeTableIdx;
+use crate::{Signal, TimeTableIdx};
 
 #[derive(Debug, Eq)]
 pub struct ChangesWithIdx<'a> {
@@ -39,7 +39,11 @@ impl<'a> ChangesWithIdx<'a> {
     }
 }
 
-pub fn merge_indices(arrays: Vec<&[TimeTableIdx]>) -> Vec<TimeTableIdx> {
+pub fn all_changes<'a>(arrays: impl IntoIterator<Item = &'a Signal>) -> Vec<TimeTableIdx> {
+    merge_indices(arrays.into_iter().map(|sig| sig.time_indices()).collect())
+}
+
+fn merge_indices(arrays: Vec<&[TimeTableIdx]>) -> Vec<TimeTableIdx> {
     let mut sorted = vec![];
 
     let mut heap = BinaryHeap::with_capacity(arrays.len());

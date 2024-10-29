@@ -2,8 +2,8 @@ mod convert;
 use std::sync::Arc;
 
 use convert::Mappable;
-use num_bigint::{BigInt, BigUint};
-use pyo3::{conversion::ToPyObject, types::PyList};
+use num_bigint::BigUint;
+use pyo3::conversion::ToPyObject;
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use wellen::GetItem;
 
@@ -29,6 +29,7 @@ fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Waveform>()?;
     m.add_class::<Signal>()?;
     m.add_class::<SignalChangeIter>()?;
+    m.add_function(wrap_pyfunction!(create_derived_signal, &m)?)?;
     Ok(())
 }
 
@@ -300,34 +301,18 @@ impl Signal {
     }
 }
 
-#[derive(Clone)]
-struct PyLazySignal<'py> {
-    py_lazy_impl: Bound<'py, PyAny>,
-    all_times: Vec<TimeTableIdx>,
-    width: u32,
-}
-
-impl<'py> PyLazySignal<'py> {
-    const fn get_val_name() -> &'static str {
-        "get_val"
-    }
-}
-
 #[pyfunction]
 fn create_derived_signal(pyinterface: Bound<'_, PyAny>) -> PyResult<Signal> {
     let all_signals: Vec<Signal> = pyinterface
         .call_method("get_all_signals", (), None)?
         .extract()?;
-    let all_slices = all_signals
-        .iter()
-        .map(|sig| sig.signal.as_ref().time_indices())
-        .collect();
-    let all_changes = wellen::merge_indices(all_slices);
+    let all_wellen_sigs = all_signals.iter().map(|sig| sig.signal.as_ref());
+    let all_changes = wellen::all_changes(all_wellen_sigs);
     let bits: u32 = pyinterface.call_method("width", (), None)?.extract()?;
     let mut builder = wellen::BitVectorBuilder::new(wellen::States::Two, bits);
     for change_idx in all_changes {
         let value: BigUint = pyinterface
-            .call_method("get_value_at_idx", (change_idx,), None)?
+            .call_method("get_value_at_index", (change_idx,), None)?
             .extract()?;
         //FIXME: optimize this -- so much copying, needlessly
         let bytes = value.to_bytes_be();

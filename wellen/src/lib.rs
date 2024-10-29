@@ -2,6 +2,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
+pub mod derived_signals;
 mod fst;
 mod ghw;
 mod hierarchy;
@@ -58,10 +59,8 @@ pub use hierarchy::{
     GetItem, Hierarchy, HierarchyItem, Scope, ScopeRef, ScopeType, SignalEncoding, SignalRef,
     Timescale, TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
 };
-pub use signal_utils::{merge_indices, ChangesWithIdx};
-pub use signals::{
-    BitVectorBuilder, LazySignal, Real, Signal, SignalSource, SignalValue, Time, TimeTableIdx,
-};
+pub use signal_utils::all_changes;
+pub use signals::{BitVectorBuilder, Real, Signal, SignalSource, SignalValue, Time, TimeTableIdx};
 pub use wavemem::States;
 
 #[cfg(feature = "benchmark")]
