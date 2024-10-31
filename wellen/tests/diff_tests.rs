@@ -8,27 +8,32 @@ use wellen::simple::*;
 use wellen::*;
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
-    run_diff_test_internal(vcd_filename, Some(fst_filename), false);
+    run_diff_test_internal(vcd_filename, Some(fst_filename), false, false);
+}
+
+fn run_diff_test_from_bytes(vcd_filename: &str, fst_filename: &str) {
+    run_diff_test_internal(vcd_filename, Some(fst_filename), false, true);
 }
 
 fn run_diff_test_vcd_only(vcd_filename: &str) {
-    run_diff_test_internal(vcd_filename, None, false);
+    run_diff_test_internal(vcd_filename, None, false, false);
 }
 
 /// Skips trying to load the content with the `vcd` library. This is important for files
 /// with 9-state values since these cannot be read by the `vcd` library.
 fn run_load_test(vcd_filename: &str, fst_filename: &str) {
-    run_diff_test_internal(vcd_filename, Some(fst_filename), true);
+    run_diff_test_internal(vcd_filename, Some(fst_filename), true, false);
 }
 
 fn run_load_test_vcd(vcd_filename: &str) {
-    run_diff_test_internal(vcd_filename, None, true);
+    run_diff_test_internal(vcd_filename, None, true, false);
 }
 
 fn run_diff_test_internal(
     vcd_filename: &str,
     fst_filename: Option<&str>,
     skip_content_comparison: bool,
+    load_from_bytes_instead_of_file: bool,
 ) {
     {
         let single_thread = LoadOptions {
@@ -39,13 +44,25 @@ fn run_diff_test_internal(
             .expect("Failed to load VCD with a single thread");
         diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
-    {
+    if load_from_bytes_instead_of_file {
+        let bytes = std::io::Cursor::new(std::fs::read(vcd_filename).expect("failed"));
+        let wave =
+            read_from_reader(bytes).expect("Failed to load VCD with multiple threads from bytes");
+        diff_test_one(vcd_filename, wave, skip_content_comparison);
+    } else {
         let wave = read(vcd_filename).expect("Failed to load VCD with multiple threads");
         diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
     if let Some(fst_filename) = fst_filename {
-        let wave = read(fst_filename).expect("Failed to load FST");
-        diff_test_one(vcd_filename, wave, skip_content_comparison);
+        if load_from_bytes_instead_of_file {
+            let bytes = std::io::Cursor::new(std::fs::read(fst_filename).expect("failed"));
+            let wave = read_from_reader(bytes)
+                .expect("Failed to load FST with multiple threads from bytes");
+            diff_test_one(fst_filename, wave, skip_content_comparison);
+        } else {
+            let wave = read(fst_filename).expect("Failed to load FST");
+            diff_test_one(vcd_filename, wave, skip_content_comparison);
+        }
     }
 }
 
@@ -468,6 +485,11 @@ fn diff_icarus_rv32_soc_tb() {
 #[test]
 fn diff_icarus_test1() {
     run_diff_test("inputs/icarus/test1.vcd", "inputs/icarus/test1.vcd.fst");
+}
+
+#[test]
+fn diff_icarus_test1_from_bytes() {
+    run_diff_test_from_bytes("inputs/icarus/test1.vcd", "inputs/icarus/test1.vcd.fst");
 }
 
 #[test]

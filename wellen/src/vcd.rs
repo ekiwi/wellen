@@ -12,7 +12,7 @@ use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::io::{BufRead, Seek, SeekFrom};
+use std::io::{BufRead, Read, Seek, SeekFrom};
 use std::sync::atomic::Ordering;
 
 #[derive(Debug, thiserror::Error)]
@@ -117,7 +117,26 @@ pub fn read_body<R: BufRead + Seek>(
     progress: Option<ProgressCount>,
 ) -> Result<(SignalSource, TimeTable)> {
     let (source, time_table) = match data.input {
-        Input::Reader(input) => todo!("parse VCD from reader"),
+        Input::Reader(mut input) => {
+            // determine body length
+            let start = input.stream_position()?;
+            input.seek(SeekFrom::End(0))?;
+            let end = input.stream_position()?;
+            input.seek(SeekFrom::Start(start))?;
+            let input_len = end - start;
+
+            // encode signals
+            let encoder = read_single_stream_of_values(
+                &mut input,
+                input_len - 1,
+                true,
+                true,
+                hierarchy,
+                &data.lookup,
+                progress,
+            )?;
+            encoder.finish()
+        }
         Input::Mmap(mmap) => read_values(
             &mmap[data.header_len..],
             data.multi_thread,
@@ -963,7 +982,7 @@ fn read_values(
 ) -> Result<(SignalSource, TimeTable)> {
     if multi_thread {
         let chunks = determine_thread_chunks(input.len());
-        let encoders: Vec<crate::wavemem::Encoder> = chunks
+        let encoders: Result<Vec<crate::wavemem::Encoder>> = chunks
             .par_iter()
             .map(|(start, len)| {
                 let is_first = *start == 0;
@@ -975,9 +994,10 @@ fn read_values(
                     // TODO: deal with \n\r
                     before == b'\n'
                 };
+                let mut inp = std::io::Cursor::new(&input[*start..]);
                 read_single_stream_of_values(
-                    &input[*start..],
-                    *len - 1,
+                    &mut inp,
+                    (*len - 1) as u64,
                     is_first,
                     starts_on_new_line,
                     hierarchy,
@@ -986,6 +1006,7 @@ fn read_values(
                 )
             })
             .collect();
+        let encoders = encoders?;
 
         // combine encoders
         let mut encoder_iter = encoders.into_iter();
@@ -995,46 +1016,47 @@ fn read_values(
         }
         Ok(encoder.finish())
     } else {
+        let mut inp = std::io::Cursor::new(input);
         let encoder = read_single_stream_of_values(
-            input,
-            input.len() - 1,
+            &mut inp,
+            (input.len() - 1) as u64,
             true,
             true,
             hierarchy,
             lookup,
             progress,
-        );
+        )?;
         Ok(encoder.finish())
     }
 }
 
-fn read_single_stream_of_values(
-    input: &[u8],
-    stop_pos: usize,
+fn read_single_stream_of_values<R: BufRead + Seek>(
+    input: &mut R,
+    stop_pos: u64,
     is_first: bool,
     starts_on_new_line: bool,
     hierarchy: &Hierarchy,
     lookup: &IdLookup,
     progress: Option<ProgressCount>,
-) -> crate::wavemem::Encoder {
+) -> Result<crate::wavemem::Encoder> {
     let mut encoder = crate::wavemem::Encoder::new(hierarchy);
 
-    let (input2, offset) = if starts_on_new_line {
-        (input, 0)
-    } else {
-        advance_to_first_newline(input)
-    };
-    let mut reader = BodyReader::new(input2);
+    if !starts_on_new_line {
+        // if we start in the middle of a line, we need to skip it
+        let mut dummy = Vec::new();
+        input.read_until(b'\n', &mut dummy)?;
+    }
+    let mut reader = BodyReader::new(input);
     // We only start recording once we have encountered our first time step
     let mut found_first_time_step = false;
 
     // progress tracking
     let mut last_reported_pos = 0;
-    let report_increments = std::cmp::max(input2.len() as u64 / 1000, 512);
+    let report_increments = std::cmp::max(stop_pos as u64 / 1000, 512);
 
     loop {
         if let Some((pos, cmd)) = reader.next() {
-            if (pos + offset) > stop_pos {
+            if pos > stop_pos {
                 if let BodyCmd::Time(_to) = cmd {
                     if let Some(p) = progress.as_ref() {
                         let increment = (pos - last_reported_pos) as u64;
@@ -1074,14 +1096,14 @@ fn read_single_stream_of_values(
             };
         } else {
             if let Some(p) = progress.as_ref() {
-                let increment = (reader.pos - last_reported_pos) as u64;
+                let increment = reader.get_pos()? - last_reported_pos;
                 p.fetch_add(increment, Ordering::SeqCst);
             }
             break; // done, no more values to read
         }
     }
 
-    encoder
+    Ok(encoder)
 }
 
 #[inline]
@@ -1094,144 +1116,145 @@ fn advance_to_first_newline(input: &[u8]) -> (&[u8], usize) {
     (&[], 0) // no whitespaces found
 }
 
-struct BodyReader<'a> {
-    input: &'a [u8],
+struct BodyReader<'a, R: BufRead> {
+    input: &'a mut R,
     // state
-    pos: usize,
+    token: Vec<u8>,
+    prev_token: Vec<u8>,
     // statistics
-    lines_read: usize,
+    lines_read: u64,
 }
 
 const ASCII_ZERO: &[u8] = b"0";
 
-impl<'a> BodyReader<'a> {
-    fn new(input: &'a [u8]) -> Self {
+impl<'a, R: BufRead + Seek> BodyReader<'a, R> {
+    fn new(input: &'a mut R) -> Self {
         BodyReader {
             input,
-            pos: 0,
+            token: Vec::with_capacity(64),
+            prev_token: Vec::with_capacity(64),
             lines_read: 0,
         }
     }
 
     #[inline]
-    fn try_finish_token(
-        &mut self,
-        pos: usize,
-        token_start: &mut Option<usize>,
-        prev_token: &mut Option<&'a [u8]>,
-        search_for_end: &mut bool,
-    ) -> Option<BodyCmd<'a>> {
-        match *token_start {
-            None => None,
-            Some(start) => {
-                let token = &self.input[start..pos];
-                if token.is_empty() {
-                    return None;
-                }
-                if *search_for_end {
-                    *search_for_end = token != b"$end";
-                    // consume token and return
-                    *token_start = None;
-                    return None;
-                }
-                let ret = match *prev_token {
-                    None => {
-                        if token.len() == 1 {
-                            // too short
-                            return None;
-                        }
-                        // 1-token commands are binary changes or time commands
-                        match token[0] {
-                            b'#' => Some(BodyCmd::Time(&token[1..])),
-                            b'0' | b'1' | b'z' | b'Z' | b'x' | b'X' | b'h' | b'H' | b'u' | b'U'
-                            | b'w' | b'W' | b'l' | b'L' | b'-' => {
-                                Some(BodyCmd::Value(&token[0..1], &token[1..]))
-                            }
-                            _ => {
-                                if token == b"$dumpall" {
-                                    // interpret dumpall as indicating timestep zero
-                                    return Some(BodyCmd::Time(ASCII_ZERO));
-                                }
-                                if token == b"$comment" {
-                                    // drop token, but start searching for $end in order to skip the comment
-                                    *search_for_end = true;
-                                } else if token != b"$dumpvars"
-                                    && token != b"$end"
-                                    && token != b"$dumpoff"
-                                    && token != b"$dumpon"
-                                {
-                                    // ignore dumpvars, dumpoff, dumpon, and end command
-                                    *prev_token = Some(token);
-                                }
-                                None
-                            }
-                        }
-                    }
-                    Some(first) => {
-                        let cmd = match first[0] {
-                            b'b' | b'B' | b'r' | b'R' | b's' | b'S' => {
-                                BodyCmd::Value(&first[0..], token)
-                            }
-                            _ => {
-                                panic!(
-                                    "Unexpected tokens: `{}` and `{}` ({} lines after header)",
-                                    String::from_utf8_lossy(first),
-                                    String::from_utf8_lossy(token),
-                                    self.lines_read
-                                );
-                            }
-                        };
-                        *prev_token = None;
-                        Some(cmd)
-                    }
-                };
-                *token_start = None;
-                ret
-            }
+    fn try_finish_token(&mut self, search_for_end: &mut bool) -> Option<BodyCmd<'_>> {
+        // no token means that there is nothing to do
+        if self.token.is_empty() {
+            return None;
         }
+
+        // if we are looking for the $end token, we discard everything else
+        if *search_for_end {
+            // did we find the end token?
+            *search_for_end = self.token != b"$end";
+            // consume token and return
+            self.token.clear();
+            return None;
+        }
+
+        // if there was no previous token
+        if self.prev_token.is_empty() {
+            if self.token.len() == 1 {
+                // too short, wait for more input
+                return None;
+            }
+
+            // 1-token commands are binary changes or time commands
+            match self.token[0] {
+                b'#' => Some(BodyCmd::Time(&self.token[1..])),
+                b'0' | b'1' | b'z' | b'Z' | b'x' | b'X' | b'h' | b'H' | b'u' | b'U' | b'w'
+                | b'W' | b'l' | b'L' | b'-' => {
+                    Some(BodyCmd::Value(&self.token[0..1], &self.token[1..]))
+                }
+                _ => {
+                    // parse command tokens
+                    match self.token.as_slice() {
+                        b"$dumpall" => {
+                            // interpret dumpall as indicating timestep zero
+                            self.token.clear();
+                            return Some(BodyCmd::Time(ASCII_ZERO));
+                        }
+                        b"$comment" => {
+                            // drop token, but start searching for $end in order to skip the comment
+                            *search_for_end = true;
+                        }
+                        b"$dumpvars" | b"$end" | b"$dumpoff" | b"$dumpon" => {
+                            // ignore dumpvars, dumpoff, dumpon, and end command
+                            self.prev_token.copy_from_slice(self.token.as_slice());
+                        }
+                        _ => {} // do nothing
+                    }
+                    // wait for more input
+                    None
+                }
+            }
+        } else {
+            let cmd = match self.prev_token[0] {
+                b'b' | b'B' | b'r' | b'R' | b's' | b'S' => {
+                    BodyCmd::Value(&self.prev_token[0..], self.token.as_slice())
+                }
+                _ => {
+                    panic!(
+                        "Unexpected tokens: `{}` and `{}` ({} lines after header)",
+                        String::from_utf8_lossy(self.prev_token.as_slice()),
+                        String::from_utf8_lossy(self.token.as_slice()),
+                        self.lines_read
+                    );
+                }
+            };
+            Some(cmd)
+        }
+    }
+
+    #[inline]
+    fn get_pos(&mut self) -> Result<u64> {
+        Ok(self.input.stream_position()?)
     }
 }
 
-impl<'a> Iterator for BodyReader<'a> {
-    type Item = (usize, BodyCmd<'a>);
+#[inline]
+fn try_read_u8(input: &mut impl BufRead) -> Option<u8> {
+    let mut buf = [0u8; 1];
+    match input.read_exact(&mut buf) {
+        Ok(_) => Some(buf[0]),
+        Err(_) => None,
+    }
+}
+
+impl<'a, R: BufRead + Seek> Iterator for BodyReader<'a, R> {
+    type Item = (u64, BodyCmd<'a>);
 
     /// returns the starting position and the body of the command
     #[inline]
-    fn next(&mut self) -> Option<(usize, BodyCmd<'a>)> {
-        if self.pos >= self.input.len() {
-            return None; // done!
-        }
-        let mut token_start: Option<usize> = None;
-        let mut prev_token: Option<&'a [u8]> = None;
-        let mut pending_lines = 0;
-        let mut start_pos = 0;
+    fn next(&mut self) -> Option<(u64, BodyCmd<'a>)> {
+        debug_assert!(self.token.is_empty());
+        debug_assert!(self.prev_token.is_empty());
+
+        let mut pending_lines = 0u64;
+        let mut start_pos = 0u64;
         // if we encounter a $comment, we will just be searching for a $end token
         let mut search_for_end = false;
-        for (offset, b) in self.input[self.pos..].iter().enumerate() {
-            let pos = self.pos + offset;
+        while let Some(b) = try_read_u8(self.input) {
             match b {
+                // a white space indicates the end of a token
                 b' ' | b'\n' | b'\r' | b'\t' => {
-                    if token_start.is_none() {
-                        if *b == b'\n' {
+                    // skip whitespace if we haven't started a token yet
+                    if self.token.is_empty() {
+                        if b == b'\n' {
                             self.lines_read += 1;
                         }
                     } else {
-                        match self.try_finish_token(
-                            pos,
-                            &mut token_start,
-                            &mut prev_token,
-                            &mut search_for_end,
-                        ) {
+                        match self.try_finish_token(&mut search_for_end) {
                             None => {
-                                if *b == b'\n' {
+                                if b == b'\n' {
                                     pending_lines += 1;
                                 }
                             }
                             Some(cmd) => {
                                 // save state
-                                self.pos = pos;
                                 self.lines_read += pending_lines;
-                                if *b == b'\n' {
+                                if b == b'\n' {
                                     self.lines_read += 1;
                                 }
                                 return Some((start_pos, cmd));
@@ -1240,25 +1263,17 @@ impl<'a> Iterator for BodyReader<'a> {
                     }
                 }
                 _ => {
-                    if token_start.is_none() {
-                        token_start = Some(pos);
-                        if prev_token.is_none() {
-                            // remember the start of the first token
-                            start_pos = pos;
-                        }
+                    self.token.push(b);
+                    if self.prev_token.is_empty() {
+                        // remember the start of the first token
+                        start_pos = self.input.stream_position().unwrap();
                     }
                 }
             }
         }
-        // update final position
-        self.pos = self.input.len();
+
         // check to see if there is a final token at the end
-        match self.try_finish_token(
-            self.pos,
-            &mut token_start,
-            &mut prev_token,
-            &mut search_for_end,
-        ) {
+        match self.try_finish_token(&mut search_for_end) {
             None => {}
             Some(cmd) => {
                 return Some((start_pos, cmd));
