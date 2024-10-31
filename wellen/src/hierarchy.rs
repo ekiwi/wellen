@@ -55,12 +55,12 @@ pub struct VarRef(NonZeroU32);
 
 impl VarRef {
     #[inline]
-    fn from_index(index: usize) -> Option<Self> {
+    pub fn from_index(index: usize) -> Option<Self> {
         NonZeroU32::new(index as u32 + 1).map(VarRef)
     }
 
     #[inline]
-    fn index(&self) -> usize {
+    pub fn index(&self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
@@ -79,12 +79,12 @@ pub struct ScopeRef(NonZeroU32);
 
 impl ScopeRef {
     #[inline]
-    fn from_index(index: usize) -> Option<Self> {
+    pub fn from_index(index: usize) -> Option<Self> {
         NonZeroU32::new(index as u32 + 1).map(Self)
     }
 
     #[inline]
-    fn index(&self) -> usize {
+    pub fn index(&self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
