@@ -54,10 +54,14 @@ pub enum VcdParseError {
 
 pub type Result<T> = std::result::Result<T, VcdParseError>;
 
-pub fn read_header<P: AsRef<std::path::Path>>(
+pub fn read_header_from_file<P: AsRef<std::path::Path>>(
     filename: P,
     options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
+) -> Result<(
+    Hierarchy,
+    ReadBodyContinuation<std::io::BufReader<std::fs::File>>,
+    u64,
+)> {
     let input_file = std::fs::File::open(filename)?;
     let mmap = unsafe { memmap2::Mmap::map(&input_file)? };
     let (header_len, hierarchy, lookup) =
@@ -67,54 +71,55 @@ pub fn read_header<P: AsRef<std::path::Path>>(
         multi_thread: options.multi_thread,
         header_len,
         lookup,
-        input: Input::File(mmap),
+        input: Input::Mmap(mmap),
     };
     Ok((hierarchy, cont, body_len))
 }
 
-pub fn read_header_from_bytes(
-    bytes: Vec<u8>,
+pub fn read_header<R: BufRead + Seek>(
+    mut input: R,
     options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
-    let (header_len, hierarchy, lookup) =
-        read_hierarchy(&mut std::io::Cursor::new(&bytes), options)?;
-    let body_len = (bytes.len() - header_len) as u64;
+) -> Result<(Hierarchy, ReadBodyContinuation<R>, u64)> {
+    // determine the length of the input
+    let start = input.stream_position()?;
+    input.seek(SeekFrom::End(0))?;
+    let end = input.stream_position()?;
+    input.seek(SeekFrom::Start(start))?;
+    let input_len = end - start;
+
+    // actually read the header
+    let (header_len, hierarchy, lookup) = read_hierarchy(&mut input, options)?;
+    let body_len = input_len - header_len as u64;
     let cont = ReadBodyContinuation {
         multi_thread: options.multi_thread,
         header_len,
         lookup,
-        input: Input::Bytes(bytes),
+        input: Input::Reader(input),
     };
     Ok((hierarchy, cont, body_len))
 }
 
-pub struct ReadBodyContinuation {
+pub struct ReadBodyContinuation<R: BufRead + Seek> {
     multi_thread: bool,
     header_len: usize,
     lookup: IdLookup,
-    input: Input,
+    input: Input<R>,
 }
 
-enum Input {
-    Bytes(Vec<u8>),
-    File(memmap2::Mmap),
+enum Input<R: BufRead + Seek> {
+    Reader(R),
+    Mmap(memmap2::Mmap),
 }
 
-pub fn read_body(
-    data: ReadBodyContinuation,
+pub fn read_body<R: BufRead + Seek>(
+    data: ReadBodyContinuation<R>,
     hierarchy: &Hierarchy,
     progress: Option<ProgressCount>,
 ) -> Result<(SignalSource, TimeTable)> {
     let (source, time_table) = match data.input {
-        Input::Bytes(mmap) => read_values(
+        Input::Reader(input) => todo!("parse VCD from reader"),
+        Input::Mmap(mmap) => read_values(
             &mmap[data.header_len..],
-            data.multi_thread,
-            hierarchy,
-            &data.lookup,
-            progress,
-        )?,
-        Input::File(bytes) => read_values(
-            &bytes[data.header_len..],
             data.multi_thread,
             hierarchy,
             &data.lookup,

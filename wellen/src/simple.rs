@@ -21,7 +21,7 @@ pub fn read_with_options<P: AsRef<std::path::Path>>(
     filename: P,
     options: &LoadOptions,
 ) -> Result<Waveform> {
-    let header = viewers::read_header(filename, options)?;
+    let header = viewers::read_header_from_file(filename, options)?;
     let body = viewers::read_body(header.body, &header.hierarchy, None)?;
     Ok(Waveform::new(
         header.hierarchy,

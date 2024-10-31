@@ -199,7 +199,7 @@ impl Waveform {
             multi_thread: multi_threaded,
             remove_scopes_with_empty_name,
         };
-        let header_result = viewers::read_header(path.as_str(), &opts).toerr()?;
+        let header_result = viewers::read_header_from_file(path.as_str(), &opts).toerr()?;
         let hier = Hierarchy(Arc::new(header_result.hierarchy));
 
         let body = viewers::read_body(header_result.body, &hier.0, None)

@@ -15,58 +15,27 @@ use std::io::{BufRead, Seek};
 
 pub type Result<T> = std::result::Result<T, WellenError>;
 
-pub fn read_header<P: AsRef<std::path::Path>>(
-    filename: P,
+pub fn read_header<R: BufRead + Seek>(
+    input: R,
     _options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation)> {
-    let input = std::fs::File::open(filename)?;
-    let mut reader = FstReader::open_and_read_time_table(std::io::BufReader::new(input))?;
+) -> Result<(Hierarchy, ReadBodyContinuation<R>)> {
+    let mut reader = FstReader::open_and_read_time_table(input)?;
     let hierarchy = read_hierarchy(&mut reader)?;
-    let cont = ReadBodyContinuation {
-        reader: Reader::File(reader),
-    };
+    let cont = ReadBodyContinuation(reader);
     Ok((hierarchy, cont))
 }
-
-pub fn read_header_from_bytes(
-    bytes: Vec<u8>,
-    _options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation)> {
-    let mut reader = FstReader::open_and_read_time_table(std::io::Cursor::new(bytes))?;
-    let hierarchy = read_hierarchy(&mut reader)?;
-    let cont = ReadBodyContinuation {
-        reader: Reader::Bytes(reader),
-    };
-    Ok((hierarchy, cont))
+pub fn read_body<R: BufRead + Seek + Sync + Send + 'static>(
+    data: ReadBodyContinuation<R>,
+) -> Result<(SignalSource, TimeTable)> {
+    let time_table = data.0.get_time_table().unwrap().to_vec();
+    let reader = data.0;
+    let db = FstWaveDatabase::new(reader);
+    let boxed_db = Box::new(db);
+    let source = SignalSource::new(boxed_db);
+    Ok((source, time_table))
 }
 
-pub fn read_body(data: ReadBodyContinuation) -> Result<(SignalSource, TimeTable)> {
-    match data.reader {
-        Reader::File(reader) => {
-            let time_table = reader.get_time_table().unwrap().to_vec();
-            Ok((
-                SignalSource::new(Box::new(FstWaveDatabase::new(reader))),
-                time_table,
-            ))
-        }
-        Reader::Bytes(reader) => {
-            let time_table = reader.get_time_table().unwrap().to_vec();
-            Ok((
-                SignalSource::new(Box::new(FstWaveDatabase::new(reader))),
-                time_table,
-            ))
-        }
-    }
-}
-
-pub struct ReadBodyContinuation {
-    reader: Reader,
-}
-
-enum Reader {
-    File(FstReader<std::io::BufReader<std::fs::File>>),
-    Bytes(FstReader<std::io::Cursor<Vec<u8>>>),
-}
+pub struct ReadBodyContinuation<R: BufRead + Seek>(FstReader<R>);
 
 struct FstWaveDatabase<R: BufRead + Seek> {
     reader: FstReader<R>,
@@ -78,7 +47,7 @@ impl<R: BufRead + Seek> FstWaveDatabase<R> {
     }
 }
 
-impl<R: BufRead + Seek> SignalSourceImplementation for FstWaveDatabase<R> {
+impl<R: BufRead + Seek + Sync + Send> SignalSourceImplementation for FstWaveDatabase<R> {
     fn load_signals(
         &mut self,
         ids: &[SignalRef],
