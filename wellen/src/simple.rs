@@ -10,6 +10,7 @@ use crate::{
 };
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::io::{BufRead, Seek};
 
 /// Read a waveform file with the default options. Reads in header and body at once.
 pub fn read<P: AsRef<std::path::Path>>(filename: P) -> Result<Waveform> {
@@ -21,7 +22,19 @@ pub fn read_with_options<P: AsRef<std::path::Path>>(
     filename: P,
     options: &LoadOptions,
 ) -> Result<Waveform> {
-    let header = viewers::read_header(filename, options)?;
+    let header = viewers::read_header_from_file(filename, options)?;
+    let body = viewers::read_body(header.body, &header.hierarchy, None)?;
+    Ok(Waveform::new(
+        header.hierarchy,
+        body.source,
+        body.time_table,
+    ))
+}
+
+/// Read from something that is not a file.
+pub fn read_from_reader<R: BufRead + Seek + Send + Sync + 'static>(input: R) -> Result<Waveform> {
+    let options = LoadOptions::default();
+    let header = viewers::read_header(input, &options)?;
     let body = viewers::read_body(header.body, &header.hierarchy, None)?;
     Ok(Waveform::new(
         header.hierarchy,

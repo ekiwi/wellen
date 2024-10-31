@@ -24,68 +24,38 @@ pub fn is_ghw(input: &mut (impl BufRead + Seek)) -> bool {
 
 pub type Result<T> = std::result::Result<T, GhwParseError>;
 
-pub fn read_header<P: AsRef<std::path::Path>>(
-    filename: P,
+pub fn read_header<R: BufRead + Seek>(
+    mut input: R,
     options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
-    let f = std::fs::File::open(filename)?;
-    let mut input = std::io::BufReader::new(f);
+) -> Result<(Hierarchy, ReadBodyContinuation<R>, u64)> {
     let (hierarchy, header, decode_info, body_len) = read_header_internal(&mut input, options)?;
     let cont = ReadBodyContinuation {
         header,
         decode_info,
-        input: Input::File(input),
+        input,
     };
     Ok((hierarchy, cont, body_len))
 }
 
-pub fn read_header_from_bytes(
-    bytes: Vec<u8>,
-    options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
-    let mut input = std::io::Cursor::new(bytes);
-    let (hierarchy, header, decode_info, body_len) = read_header_internal(&mut input, options)?;
-    let cont = ReadBodyContinuation {
-        header,
-        decode_info,
-        input: Input::Bytes(input),
-    };
-    Ok((hierarchy, cont, body_len))
-}
-
-pub fn read_body(
-    data: ReadBodyContinuation,
+pub fn read_body<R: BufRead + Seek>(
+    data: ReadBodyContinuation<R>,
     hierarchy: &Hierarchy,
     progress: Option<ProgressCount>,
 ) -> Result<(SignalSource, TimeTable)> {
-    let (source, time_table) = match data.input {
-        Input::Bytes(mut input) => match progress {
-            Some(p) => {
-                let mut wrapped = ProgressTracker::new(input, p);
-                signals::read_signals(&data.header, data.decode_info, hierarchy, &mut wrapped)?
-            }
-            None => signals::read_signals(&data.header, data.decode_info, hierarchy, &mut input)?,
-        },
-        Input::File(mut input) => match progress {
-            Some(p) => {
-                let mut wrapped = ProgressTracker::new(input, p);
-                signals::read_signals(&data.header, data.decode_info, hierarchy, &mut wrapped)?
-            }
-            None => signals::read_signals(&data.header, data.decode_info, hierarchy, &mut input)?,
-        },
-    };
-    Ok((source, time_table))
+    let mut input = data.input;
+    match progress {
+        Some(p) => {
+            let mut wrapped = ProgressTracker::new(input, p);
+            signals::read_signals(&data.header, data.decode_info, hierarchy, &mut wrapped)
+        }
+        None => signals::read_signals(&data.header, data.decode_info, hierarchy, &mut input),
+    }
 }
 
-pub struct ReadBodyContinuation {
+pub struct ReadBodyContinuation<R: BufRead + Seek> {
     header: HeaderData,
     decode_info: GhwDecodeInfo,
-    input: Input,
-}
-
-enum Input {
-    Bytes(std::io::Cursor<Vec<u8>>),
-    File(std::io::BufReader<std::fs::File>),
+    input: R,
 }
 
 fn read_header_internal(

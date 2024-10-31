@@ -72,7 +72,8 @@ fn main() {
 
     // load header
     let header_start = std::time::Instant::now();
-    let header = viewers::read_header(&args.filename, &LOAD_OPTS).expect("Failed to load file!");
+    let header =
+        viewers::read_header_from_file(&args.filename, &LOAD_OPTS).expect("Failed to load file!");
     let header_load_duration = header_start.elapsed();
     println!(
         "It took {:?} to load the header of {}",

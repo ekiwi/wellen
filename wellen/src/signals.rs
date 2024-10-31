@@ -620,7 +620,7 @@ impl SignalChangeData {
     }
 }
 
-pub trait SignalSourceImplementation {
+pub trait SignalSourceImplementation: Sync + Send {
     /// Loads new signals.
     /// Many implementations take advantage of loading multiple signals at a time.
     fn load_signals(
@@ -634,7 +634,7 @@ pub trait SignalSourceImplementation {
 }
 
 pub struct SignalSource {
-    inner: Box<dyn SignalSourceImplementation + Send + Sync>,
+    inner: Box<dyn SignalSourceImplementation>,
 }
 
 impl SignalSource {

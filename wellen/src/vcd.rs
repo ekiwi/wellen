@@ -54,10 +54,14 @@ pub enum VcdParseError {
 
 pub type Result<T> = std::result::Result<T, VcdParseError>;
 
-pub fn read_header<P: AsRef<std::path::Path>>(
+pub fn read_header_from_file<P: AsRef<std::path::Path>>(
     filename: P,
     options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
+) -> Result<(
+    Hierarchy,
+    ReadBodyContinuation<std::io::BufReader<std::fs::File>>,
+    u64,
+)> {
     let input_file = std::fs::File::open(filename)?;
     let mmap = unsafe { memmap2::Mmap::map(&input_file)? };
     let (header_len, hierarchy, lookup) =
@@ -67,54 +71,73 @@ pub fn read_header<P: AsRef<std::path::Path>>(
         multi_thread: options.multi_thread,
         header_len,
         lookup,
-        input: Input::File(mmap),
+        input: Input::Mmap(mmap),
     };
     Ok((hierarchy, cont, body_len))
 }
 
-pub fn read_header_from_bytes(
-    bytes: Vec<u8>,
+pub fn read_header<R: BufRead + Seek>(
+    mut input: R,
     options: &LoadOptions,
-) -> Result<(Hierarchy, ReadBodyContinuation, u64)> {
-    let (header_len, hierarchy, lookup) =
-        read_hierarchy(&mut std::io::Cursor::new(&bytes), options)?;
-    let body_len = (bytes.len() - header_len) as u64;
+) -> Result<(Hierarchy, ReadBodyContinuation<R>, u64)> {
+    // determine the length of the input
+    let start = input.stream_position()?;
+    input.seek(SeekFrom::End(0))?;
+    let end = input.stream_position()?;
+    input.seek(SeekFrom::Start(start))?;
+    let input_len = end - start;
+
+    // actually read the header
+    let (header_len, hierarchy, lookup) = read_hierarchy(&mut input, options)?;
+    let body_len = input_len - header_len as u64;
     let cont = ReadBodyContinuation {
         multi_thread: options.multi_thread,
         header_len,
         lookup,
-        input: Input::Bytes(bytes),
+        input: Input::Reader(input),
     };
     Ok((hierarchy, cont, body_len))
 }
 
-pub struct ReadBodyContinuation {
+pub struct ReadBodyContinuation<R: BufRead + Seek> {
     multi_thread: bool,
     header_len: usize,
     lookup: IdLookup,
-    input: Input,
+    input: Input<R>,
 }
 
-enum Input {
-    Bytes(Vec<u8>),
-    File(memmap2::Mmap),
+enum Input<R: BufRead + Seek> {
+    Reader(R),
+    Mmap(memmap2::Mmap),
 }
 
-pub fn read_body(
-    data: ReadBodyContinuation,
+pub fn read_body<R: BufRead + Seek>(
+    data: ReadBodyContinuation<R>,
     hierarchy: &Hierarchy,
     progress: Option<ProgressCount>,
 ) -> Result<(SignalSource, TimeTable)> {
     let (source, time_table) = match data.input {
-        Input::Bytes(mmap) => read_values(
+        Input::Reader(mut input) => {
+            // determine binput length
+            let start = input.stream_position()?;
+            input.seek(SeekFrom::End(0))?;
+            let end = input.stream_position()?;
+            input.seek(SeekFrom::Start(start))?;
+
+            // encode signals
+            let encoder = read_single_stream_of_values(
+                &mut input,
+                end as usize, // end_pos includes the size of the header
+                true,
+                true,
+                hierarchy,
+                &data.lookup,
+                progress,
+            )?;
+            encoder.finish()
+        }
+        Input::Mmap(mmap) => read_values(
             &mmap[data.header_len..],
-            data.multi_thread,
-            hierarchy,
-            &data.lookup,
-            progress,
-        )?,
-        Input::File(bytes) => read_values(
-            &bytes[data.header_len..],
             data.multi_thread,
             hierarchy,
             &data.lookup,
@@ -958,7 +981,7 @@ fn read_values(
 ) -> Result<(SignalSource, TimeTable)> {
     if multi_thread {
         let chunks = determine_thread_chunks(input.len());
-        let encoders: Vec<crate::wavemem::Encoder> = chunks
+        let encoders: Result<Vec<crate::wavemem::Encoder>> = chunks
             .par_iter()
             .map(|(start, len)| {
                 let is_first = *start == 0;
@@ -970,8 +993,9 @@ fn read_values(
                     // TODO: deal with \n\r
                     before == b'\n'
                 };
+                let mut inp = std::io::Cursor::new(&input[*start..]);
                 read_single_stream_of_values(
-                    &input[*start..],
+                    &mut inp,
                     *len - 1,
                     is_first,
                     starts_on_new_line,
@@ -981,6 +1005,7 @@ fn read_values(
                 )
             })
             .collect();
+        let encoders = encoders?;
 
         // combine encoders
         let mut encoder_iter = encoders.into_iter();
@@ -990,51 +1015,63 @@ fn read_values(
         }
         Ok(encoder.finish())
     } else {
+        let mut inp = std::io::Cursor::new(input);
         let encoder = read_single_stream_of_values(
-            input,
+            &mut inp,
             input.len() - 1,
             true,
             true,
             hierarchy,
             lookup,
             progress,
-        );
+        )?;
         Ok(encoder.finish())
     }
 }
 
-fn read_single_stream_of_values(
-    input: &[u8],
+fn read_single_stream_of_values<R: BufRead + Seek>(
+    input: &mut R,
     stop_pos: usize,
     is_first: bool,
     starts_on_new_line: bool,
     hierarchy: &Hierarchy,
     lookup: &IdLookup,
     progress: Option<ProgressCount>,
-) -> crate::wavemem::Encoder {
+) -> Result<crate::wavemem::Encoder> {
     let mut encoder = crate::wavemem::Encoder::new(hierarchy);
 
-    let (input2, offset) = if starts_on_new_line {
-        (input, 0)
-    } else {
-        advance_to_first_newline(input)
-    };
-    let mut reader = BodyReader::new(input2);
+    if !starts_on_new_line {
+        // if we start in the middle of a line, we need to skip it
+        let mut dummy = Vec::new();
+        input.read_until(b'\n', &mut dummy)?;
+    }
+
     // We only start recording once we have encountered our first time step
     let mut found_first_time_step = false;
 
     // progress tracking
     let mut last_reported_pos = 0;
-    let report_increments = std::cmp::max(input2.len() as u64 / 1000, 512);
+    let report_increments = std::cmp::max(stop_pos / 1000, 512) as u64;
 
+    let mut lines_read = 0;
     loop {
-        if let Some((pos, cmd)) = reader.next() {
-            if (pos + offset) > stop_pos {
+        let start_pos = input.stream_position()? as usize;
+        // parse one buffer full of content
+        let buf = input.fill_buf()?;
+        if buf.is_empty() {
+            // did we reach the end of the input?
+            break;
+        }
+        let mut reader = BodyReader::new(buf, start_pos, lines_read);
+        let mut reached_end_of_time_step_after_stop = false;
+        while let Some((pos, cmd)) = reader.next() {
+            if pos > stop_pos {
                 if let BodyCmd::Time(_to) = cmd {
                     if let Some(p) = progress.as_ref() {
                         let increment = (pos - last_reported_pos) as u64;
                         p.fetch_add(increment, Ordering::SeqCst);
                     }
+                    reached_end_of_time_step_after_stop = true;
                     break; // stop before the next time value when we go beyond the stop position
                 }
             }
@@ -1067,44 +1104,57 @@ fn read_single_stream_of_values(
                     }
                 }
             };
-        } else {
-            if let Some(p) = progress.as_ref() {
-                let increment = (reader.pos - last_reported_pos) as u64;
-                p.fetch_add(increment, Ordering::SeqCst);
-            }
+        }
+        let res = reader.finish();
+
+        if reached_end_of_time_step_after_stop {
             break; // done, no more values to read
+        } else {
+            lines_read = res.lines_read;
+            debug_assert!(res.pos > 0, "not consuming anything!");
+            input.consume(res.pos);
         }
     }
 
-    encoder
-}
-
-#[inline]
-fn advance_to_first_newline(input: &[u8]) -> (&[u8], usize) {
-    for (pos, byte) in input.iter().enumerate() {
-        if *byte == b'\n' {
-            return (&input[pos..], pos);
-        }
+    if let Some(p) = progress.as_ref() {
+        let pos = input.stream_position()?;
+        let increment = pos - last_reported_pos as u64;
+        p.fetch_add(increment, Ordering::SeqCst);
     }
-    (&[], 0) // no whitespaces found
+
+    Ok(encoder)
 }
 
 struct BodyReader<'a> {
     input: &'a [u8],
     // state
+    pos_offset: usize,
     pos: usize,
     // statistics
+    lines_read: usize,
+}
+
+struct BodyReaderResult {
+    pos: usize,
     lines_read: usize,
 }
 
 const ASCII_ZERO: &[u8] = b"0";
 
 impl<'a> BodyReader<'a> {
-    fn new(input: &'a [u8]) -> Self {
+    fn new(input: &'a [u8], start_pos: usize, lines_read: usize) -> Self {
         BodyReader {
             input,
+            pos_offset: start_pos,
             pos: 0,
-            lines_read: 0,
+            lines_read,
+        }
+    }
+
+    fn finish(self) -> BodyReaderResult {
+        BodyReaderResult {
+            pos: self.pos,
+            lines_read: self.lines_read,
         }
     }
 
@@ -1229,7 +1279,7 @@ impl<'a> Iterator for BodyReader<'a> {
                                 if *b == b'\n' {
                                     self.lines_read += 1;
                                 }
-                                return Some((start_pos, cmd));
+                                return Some((start_pos + self.pos_offset, cmd));
                             }
                         }
                     }
@@ -1256,7 +1306,7 @@ impl<'a> Iterator for BodyReader<'a> {
         ) {
             None => {}
             Some(cmd) => {
-                return Some((start_pos, cmd));
+                return Some((start_pos + self.pos_offset, cmd));
             }
         }
         // now we are done
@@ -1293,7 +1343,7 @@ mod tests {
 
     fn read_body_to_vec(input: &[u8]) -> Vec<String> {
         let mut out = Vec::new();
-        let reader = BodyReader::new(input);
+        let reader = BodyReader::new(input, 0, 0);
         for (_, cmd) in reader {
             let desc = match cmd {
                 BodyCmd::Time(value) => {
