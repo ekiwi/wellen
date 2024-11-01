@@ -1,5 +1,5 @@
 mod convert;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use convert::Mappable;
 use num_bigint::BigUint;
@@ -23,7 +23,7 @@ impl<T> PyErrExt<T> for wellen::Result<T> {
 }
 
 #[pymodule]
-fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
+pub fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Var>()?;
     m.add_class::<VarIter>()?;
     m.add_class::<Waveform>()?;
@@ -31,6 +31,31 @@ fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SignalChangeIter>()?;
     m.add_function(wrap_pyfunction!(create_derived_signal, &m)?)?;
     Ok(())
+}
+
+pub fn execute_get_signals(
+    script: &str,
+    fn_name: &str,
+    wave_path: String,
+) -> PyResult<HashMap<String, wellen::Signal>> {
+    pyo3::append_to_inittab!(pywellen);
+    let val: PyResult<HashMap<String, Signal>> = Python::with_gil(|py| {
+        let activators = PyModule::from_code_bound(py, script, "signal_get.py", "signal_get")?;
+        let wave = Bound::new(py, Waveform::new(wave_path, true, true)?)?;
+
+        let all_waves: HashMap<String, Signal> =
+            activators.getattr(fn_name)?.call1((wave,))?.extract()?;
+
+        Ok(all_waves)
+    });
+    let val = val?
+        .into_iter()
+        .map(|(name, signal)| (name, signal.to_wellen_signal().unwrap()))
+        .fold(HashMap::new(), |mut mapper, val| {
+            mapper.insert(val.0, val.1);
+            mapper
+        });
+    Ok(val)
 }
 
 #[pyclass]
@@ -301,6 +326,12 @@ impl Signal {
     }
 }
 
+impl Signal {
+    fn to_wellen_signal(self) -> Option<wellen::Signal> {
+        Arc::try_unwrap(self.signal).ok()
+    }
+}
+
 #[pyfunction]
 fn create_derived_signal(pyinterface: Bound<'_, PyAny>) -> PyResult<Signal> {
     let all_signals: Vec<Signal> = pyinterface
@@ -331,6 +362,34 @@ fn create_derived_signal(pyinterface: Bound<'_, PyAny>) -> PyResult<Signal> {
         signal: Arc::new(sig),
         all_times,
     })
+}
+
+pub fn create_wellen_signal(pyinterface: Bound<'_, PyAny>) -> PyResult<wellen::Signal> {
+    let all_signals: Vec<Signal> = pyinterface
+        .call_method("get_all_signals", (), None)?
+        .extract()?;
+    let all_wellen_sigs = all_signals.iter().map(|sig| sig.signal.as_ref());
+    let all_changes = wellen::all_changes(all_wellen_sigs);
+    let bits: u32 = pyinterface.call_method("width", (), None)?.extract()?;
+    let mut builder = wellen::BitVectorBuilder::new(wellen::States::Two, bits);
+    for change_idx in all_changes {
+        let value: BigUint = pyinterface
+            .call_method("get_value_at_index", (change_idx,), None)?
+            .extract()?;
+        //FIXME: optimize this -- so much copying, needlessly
+        let bytes = value.to_bytes_be();
+        builder.add_change(
+            change_idx,
+            wellen::SignalValue::Binary(bytes.as_slice(), bits),
+        );
+    }
+    let sig = builder.finish(wellen::SignalRef::from_index(0xbeebabe5).unwrap());
+    let all_times = all_signals
+        .first()
+        .expect("No signals provided")
+        .all_times
+        .clone();
+    Ok(sig)
 }
 
 #[pyclass]
