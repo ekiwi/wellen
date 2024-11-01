@@ -1116,6 +1116,19 @@ fn advance_to_first_newline(input: &[u8]) -> (&[u8], usize) {
     (&[], 0) // no whitespaces found
 }
 
+
+fn read_body_command<'a>(input: &mut impl BufRead, buf: &'a mut Vec<u8>, line_count: ) -> Result<BodyCmd<'a>> {
+    // start out with an empty buffer
+    assert!(buf.is_empty());
+
+    // skip over any preceding whitespace
+    let start_char = skip_whitespace(input)?;
+
+
+}
+
+
+
 struct BodyReader<'a, R: BufRead> {
     input: &'a mut R,
     // state
