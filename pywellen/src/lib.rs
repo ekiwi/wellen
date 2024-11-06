@@ -216,7 +216,7 @@ struct Waveform {
 impl Waveform {
     #[new]
     #[pyo3(signature = (path, multi_threaded = true, remove_scopes_with_empty_name = false))]
-    fn new(
+    pub fn new(
         path: String,
         multi_threaded: bool,
         remove_scopes_with_empty_name: bool,

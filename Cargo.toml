@@ -39,6 +39,7 @@ criterion = "0.5"
 indicatif = "0.17.8"
 proptest = "1.4.0"
 wellen = { path = "wellen" }
+pywellen = { path = "pywellen" }
 
 [profile.release]
 debug = true
