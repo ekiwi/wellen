@@ -60,7 +60,7 @@ pub fn execute_get_signals(
 
 #[pyclass]
 #[derive(Clone)]
-struct Hierarchy(pub(crate) Arc<wellen::Hierarchy>);
+pub struct Hierarchy(pub(crate) Arc<wellen::Hierarchy>);
 
 #[pymethods]
 impl Hierarchy {
@@ -87,7 +87,7 @@ impl Hierarchy {
 }
 
 #[pyclass]
-struct Scope(pub(crate) wellen::Scope);
+pub struct Scope(pub(crate) wellen::Scope);
 
 #[pymethods]
 impl Scope {
@@ -136,7 +136,7 @@ impl Scope {
 }
 
 #[pyclass]
-struct ScopeIter(Box<dyn Iterator<Item = Scope> + Send>);
+pub struct ScopeIter(Box<dyn Iterator<Item = Scope> + Send>);
 #[pymethods]
 impl ScopeIter {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -164,7 +164,7 @@ impl Var {
 }
 
 #[pyclass]
-struct VarIter(Box<dyn Iterator<Item = Var> + Send>);
+pub struct VarIter(Box<dyn Iterator<Item = Var> + Send>);
 
 #[pymethods]
 impl VarIter {
@@ -201,7 +201,7 @@ impl TimeTable {
 }
 
 #[pyclass]
-struct Waveform {
+pub struct Waveform {
     #[pyo3(get)]
     hierarchy: Hierarchy,
 
@@ -237,7 +237,7 @@ impl Waveform {
             time_table: TimeTable(Arc::new(body.time_table)),
         })
     }
-    fn get_signal<'py>(&mut self, var: &Var, py: Python<'py>) -> PyResult<Bound<'py, Signal>> {
+    pub fn get_signal<'py>(&mut self, var: &Var, py: Python<'py>) -> PyResult<Bound<'py, Signal>> {
         let mut signal =
             self.wave_source
                 .load_signals(&[var.0.signal_ref()], &self.hierarchy.0, true);
@@ -252,7 +252,7 @@ impl Waveform {
     }
 
     /// Assumes a dotted signal
-    fn get_signal_from_path<'py>(
+    pub fn get_signal_from_path<'py>(
         &mut self,
         abs_hierarchy_path: String,
         py: Python<'py>,
@@ -278,7 +278,7 @@ impl Waveform {
 
 #[pyclass]
 #[derive(Clone)]
-struct Signal {
+pub struct Signal {
     signal: Arc<wellen::Signal>,
     all_times: TimeTable,
 }
@@ -327,7 +327,7 @@ impl Signal {
 }
 
 impl Signal {
-    fn to_wellen_signal(self) -> Option<wellen::Signal> {
+    pub fn to_wellen_signal(self) -> Option<wellen::Signal> {
         Arc::try_unwrap(self.signal).ok()
     }
 }
@@ -394,7 +394,7 @@ pub fn create_wellen_signal(pyinterface: Bound<'_, PyAny>) -> PyResult<wellen::S
 
 #[pyclass]
 /// Iterates across all changes -- the returned object is a tuple of (Time, Value)
-struct SignalChangeIter {
+pub struct SignalChangeIter {
     signal: Signal,
     offset: usize,
 }
