@@ -7,7 +7,7 @@ authors = ["James Connolly <dogman3117@gmail.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "pywellen"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 bytemuck = "1.18.0"
