@@ -58,6 +58,10 @@ impl Mappable for BigUint {
     }
 }
 
+pub fn bytes_as_signal_value(bytes: &Vec<u8>, bit_width: u32) -> SignalValue {
+    SignalValue::Binary(bytes.as_slice(), bit_width)
+}
+
 #[cfg(test)]
 mod tests {
     use super::Mappable;

@@ -1,8 +1,8 @@
 mod convert;
 use std::{collections::HashMap, sync::Arc};
 
-use convert::Mappable;
-use num_bigint::BigUint;
+use convert::{bytes_as_signal_value, Mappable};
+use num_bigint::{BigInt, BigUint};
 use pyo3::conversion::ToPyObject;
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use wellen::GetItem;
@@ -148,7 +148,7 @@ impl ScopeIter {
 }
 
 #[pyclass]
-struct Var(pub(crate) wellen::Var);
+pub struct Var(pub(crate) wellen::Var);
 
 #[pymethods]
 impl Var {
@@ -274,6 +274,34 @@ impl Waveform {
         let var = self.hierarchy.0.get(maybe_var);
         self.get_signal(&Var(var.clone()), py)
     }
+
+    fn create_new_signal(
+        &self,
+        time_changes: Bound<'_, PyAny>,
+        value_changes: Bound<'_, PyAny>,
+        width: u32,
+    ) -> PyResult<Signal> {
+        let mut builder = wellen::BitVectorBuilder::new(wellen::States::Two, width);
+        let all_times: Vec<u32> = time_changes.extract()?;
+        let all_val_changes: Vec<BigInt> = value_changes.extract()?;
+        if all_times.len() != all_val_changes.len() {
+            return Err(PyRuntimeError::new_err(
+                "Changes and value lists are not equal in length",
+            ));
+        }
+
+        for (change_idx, change) in all_times.iter().zip(all_val_changes) {
+            let (_sign, bytes) = change.to_bytes_be();
+            let sv = bytes_as_signal_value(&bytes, width);
+            builder.add_change(change_idx.clone(), sv);
+        }
+        let sig = builder.finish(wellen::SignalRef::from_index(0xbeebabe5).unwrap());
+
+        Ok(Signal {
+            signal: Arc::new(sig),
+            all_times: self.time_table.clone(),
+        })
+    }
 }
 
 #[pyclass]
@@ -362,34 +390,6 @@ fn create_derived_signal(pyinterface: Bound<'_, PyAny>) -> PyResult<Signal> {
         signal: Arc::new(sig),
         all_times,
     })
-}
-
-pub fn create_wellen_signal(pyinterface: Bound<'_, PyAny>) -> PyResult<wellen::Signal> {
-    let all_signals: Vec<Signal> = pyinterface
-        .call_method("get_all_signals", (), None)?
-        .extract()?;
-    let all_wellen_sigs = all_signals.iter().map(|sig| sig.signal.as_ref());
-    let all_changes = wellen::all_changes(all_wellen_sigs);
-    let bits: u32 = pyinterface.call_method("width", (), None)?.extract()?;
-    let mut builder = wellen::BitVectorBuilder::new(wellen::States::Two, bits);
-    for change_idx in all_changes {
-        let value: BigUint = pyinterface
-            .call_method("get_value_at_index", (change_idx,), None)?
-            .extract()?;
-        //FIXME: optimize this -- so much copying, needlessly
-        let bytes = value.to_bytes_be();
-        builder.add_change(
-            change_idx,
-            wellen::SignalValue::Binary(bytes.as_slice(), bits),
-        );
-    }
-    let sig = builder.finish(wellen::SignalRef::from_index(0xbeebabe5).unwrap());
-    let all_times = all_signals
-        .first()
-        .expect("No signals provided")
-        .all_times
-        .clone();
-    Ok(sig)
 }
 
 #[pyclass]
