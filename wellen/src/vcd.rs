@@ -1114,11 +1114,15 @@ impl<'a> ParseBodyOutput for VcdEncoder<'a> {
         if self.is_first_part_of_vcd && !self.found_first_time_step {
             self.time(0);
         }
-        let num_id = match self.lookup {
-            None => id_to_int(id).unwrap(),
-            Some(lookup) => lookup[id].index() as u64,
-        };
-        self.enc.vcd_value_change(num_id, value);
+        // if we are not the first part of the VCD, we are skipping value changes until the
+        // first timestep is found which serves as a synchronization point
+        if self.found_first_time_step {
+            let num_id = match self.lookup {
+                None => id_to_int(id).unwrap(),
+                Some(lookup) => lookup[id].index() as u64,
+            };
+            self.enc.vcd_value_change(num_id, value);
+        }
     }
 }
 
@@ -1208,13 +1212,14 @@ fn parse_body(
                     } else {
                         state = match parse_first_token(&first)? {
                             FirstTokenResult::Time(value) => {
-                                out.time(value);
                                 // check to see if this time value is already past the stop position
                                 if pos > stop_pos {
                                     // exit
                                     progress_report.report(pos, true);
                                     return Ok(());
                                 }
+                                // record time step if we aren't exiting
+                                out.time(value);
                                 BodyState::ParsingFirstToken
                             }
                             FirstTokenResult::OneBitValue => {
