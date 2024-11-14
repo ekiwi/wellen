@@ -1212,10 +1212,10 @@ fn parse_body(
                     } else {
                         state = match parse_first_token(&first)? {
                             FirstTokenResult::Time(value) => {
-                                // check to see if this time value is already past the stop position
-                                // we subtract one to account for the fact that the current
-                                // character is a whitespace and thus not part of the time command
-                                if pos - 1 > stop_pos {
+                                // check to see if this time value is already fully past
+                                // the stop position
+                                let time_token_start = pos - first.len() - 1;
+                                if time_token_start > stop_pos {
                                     // exit
                                     progress_report.report(pos, true);
                                     return Ok(());
