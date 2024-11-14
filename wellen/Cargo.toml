@@ -23,6 +23,7 @@ rayon = { workspace = true }
 num_enum = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
+memchr = "2.7.4"
 
 [dev-dependencies]
 itertools = { workspace = true }

@@ -12,7 +12,7 @@ use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::io::{BufRead, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::sync::atomic::Ordering;
 
 #[derive(Debug, thiserror::Error)]
@@ -76,7 +76,7 @@ pub fn read_header_from_file<P: AsRef<std::path::Path>>(
     Ok((hierarchy, cont, body_len))
 }
 
-pub fn read_header<R: BufRead + Seek>(
+pub fn read_header<R: Read + Seek>(
     mut input: R,
     options: &LoadOptions,
 ) -> Result<(Hierarchy, ReadBodyContinuation<R>, u64)> {
@@ -99,19 +99,19 @@ pub fn read_header<R: BufRead + Seek>(
     Ok((hierarchy, cont, body_len))
 }
 
-pub struct ReadBodyContinuation<R: BufRead + Seek> {
+pub struct ReadBodyContinuation<R: Read + Seek> {
     multi_thread: bool,
     header_len: usize,
     lookup: IdLookup,
     input: Input<R>,
 }
 
-enum Input<R: BufRead + Seek> {
+enum Input<R: Read + Seek> {
     Reader(R),
     Mmap(memmap2::Mmap),
 }
 
-pub fn read_body<R: BufRead + Seek>(
+pub fn read_body<R: Read + Seek>(
     data: ReadBodyContinuation<R>,
     hierarchy: &Hierarchy,
     progress: Option<ProgressCount>,
@@ -208,7 +208,7 @@ fn parse_attribute(
 type IdLookup = Option<HashMap<Vec<u8>, SignalRef>>;
 
 fn read_hierarchy(
-    input: &mut (impl BufRead + Seek),
+    input: &mut (impl Read + Seek),
     options: &LoadOptions,
 ) -> Result<(usize, Hierarchy, IdLookup)> {
     // first we try to avoid using an id map
@@ -274,7 +274,7 @@ impl IdTracker {
 }
 
 fn read_hierarchy_inner(
-    input: &mut (impl BufRead + Seek),
+    input: &mut (impl Read + Seek),
     use_id_map: bool,
     options: &LoadOptions,
 ) -> Result<(usize, Hierarchy, IdLookup)> {
@@ -652,7 +652,7 @@ fn unexpected_n_tokens(cmd: &str, tokens: &[&[u8]]) -> VcdParseError {
 }
 
 fn read_vcd_header(
-    input: &mut impl BufRead,
+    input: &mut impl Read,
     mut callback: impl FnMut(HeaderCmd) -> Result<()>,
 ) -> Result<()> {
     let mut buf: Vec<u8> = Vec::with_capacity(128);
@@ -812,7 +812,7 @@ impl VcdCmd {
 }
 
 /// Tries to guess whether this input could be a VCD by looking at the first token.
-pub fn is_vcd(input: &mut (impl BufRead + Seek)) -> bool {
+pub fn is_vcd(input: &mut (impl Read + Seek)) -> bool {
     let is_vcd = matches!(internal_is_vcd(input), Ok(true));
     // try to reset input
     let _ = input.seek(std::io::SeekFrom::Start(0));
@@ -820,7 +820,7 @@ pub fn is_vcd(input: &mut (impl BufRead + Seek)) -> bool {
 }
 
 /// Returns an error or false if not a vcd. Returns Ok(true) only if we think it is a vcd.
-fn internal_is_vcd(input: &mut (impl BufRead + Seek)) -> Result<bool> {
+fn internal_is_vcd(input: &mut (impl Read + Seek)) -> Result<bool> {
     let mut buf = Vec::with_capacity(64);
     let (_cmd, _body) = read_command(input, &mut buf)?;
     Ok(true)
@@ -828,7 +828,7 @@ fn internal_is_vcd(input: &mut (impl BufRead + Seek)) -> Result<bool> {
 
 /// Reads in a command until the `$end`. Uses buf to store the read data.
 /// Returns the name and the body of the command.
-fn read_command<'a>(input: &mut impl BufRead, buf: &'a mut Vec<u8>) -> Result<(VcdCmd, &'a [u8])> {
+fn read_command<'a>(input: &mut impl Read, buf: &'a mut Vec<u8>) -> Result<(VcdCmd, &'a [u8])> {
     // start out with an empty buffer
     assert!(buf.is_empty());
 
@@ -863,7 +863,7 @@ fn find_tokens(line: &[u8]) -> Vec<&[u8]> {
 }
 
 #[inline]
-fn read_until_end_token(input: &mut impl BufRead, buf: &mut Vec<u8>) -> std::io::Result<()> {
+fn read_until_end_token(input: &mut impl Read, buf: &mut Vec<u8>) -> std::io::Result<()> {
     // count how many characters of the $end token we have recognized
     let mut end_index = 0;
     // we skip any whitespace at the beginning, but not between tokens
@@ -898,7 +898,7 @@ fn read_until_end_token(input: &mut impl BufRead, buf: &mut Vec<u8>) -> std::io:
 }
 
 #[inline]
-fn read_token(input: &mut impl BufRead, buf: &mut Vec<u8>) -> std::io::Result<()> {
+fn read_token(input: &mut impl Read, buf: &mut Vec<u8>) -> std::io::Result<()> {
     loop {
         let byte = read_byte(input)?;
         match byte {
@@ -914,7 +914,7 @@ fn read_token(input: &mut impl BufRead, buf: &mut Vec<u8>) -> std::io::Result<()
 
 /// Advances the input until the first non-whitespace character which is then returned.
 #[inline]
-fn skip_whitespace(input: &mut impl BufRead) -> std::io::Result<u8> {
+fn skip_whitespace(input: &mut impl Read) -> std::io::Result<u8> {
     loop {
         let byte = read_byte(input)?;
         match byte {
@@ -925,7 +925,7 @@ fn skip_whitespace(input: &mut impl BufRead) -> std::io::Result<u8> {
 }
 
 #[inline]
-fn read_byte(input: &mut impl BufRead) -> std::io::Result<u8> {
+fn read_byte(input: &mut impl Read) -> std::io::Result<u8> {
     let mut buf = [0u8; 1];
     input.read_exact(&mut buf)?;
     Ok(buf[0])
@@ -1029,7 +1029,79 @@ fn read_values(
     }
 }
 
-fn read_single_stream_of_values<R: BufRead + Seek>(
+/// Works similar to `std::io::BufReader`, but will actually refill a non-empty buffer.
+struct ShiftingBufReader<'a, R: Read + Seek> {
+    buf: Box<[u8]>,
+    input: &'a mut R,
+    pos: usize,
+    filled: usize,
+}
+
+const DEFAULT_BUF_SIZE: usize = 8 * 1024;
+
+impl<'a, R: Read + Seek> ShiftingBufReader<'a, R> {
+    fn new(input: &'a mut R) -> Self {
+        let buf = vec![0u8; DEFAULT_BUF_SIZE].into_boxed_slice();
+        Self {
+            buf,
+            input,
+            pos: 0,
+            filled: 0,
+        }
+    }
+
+    #[inline]
+    fn consume(&mut self, amt: usize) {
+        self.pos = std::cmp::min(self.pos + amt, self.filled);
+    }
+
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        if self.pos > 0 {
+            let remaining = self.filled - self.pos;
+            if remaining > 0 {
+                for ii in 0..remaining {
+                    self.buf[ii] = self.buf[self.pos + ii];
+                }
+            }
+            self.pos = 0;
+            self.filled = remaining;
+        }
+        debug_assert_eq!(self.pos, 0);
+        if self.filled < self.buf.len() {
+            let dst_range = self.filled..self.buf.len();
+            let read_len = self.input.read(&mut self.buf[dst_range])?;
+            self.filled += read_len;
+        }
+        Ok(&self.buf[self.pos..self.filled])
+    }
+
+    fn read_until(&mut self, delim: u8) -> std::io::Result<()> {
+        loop {
+            let found = {
+                let data = self.fill_buf()?;
+                memchr::memchr(delim, data)
+            };
+            if let Some(ii) = found {
+                self.consume(ii + 1);
+                return Ok(());
+            } else {
+                let all_data = self.filled - self.pos;
+                self.consume(all_data);
+            }
+        }
+    }
+
+    fn stream_position(&mut self) -> std::io::Result<u64> {
+        let remainder = (self.filled - self.pos) as u64;
+        self.input.stream_position().map(|pos| {
+            pos.checked_sub(remainder).expect(
+                "overflow when subtracting remaining buffer size from inner stream position",
+            )
+        })
+    }
+}
+
+fn read_single_stream_of_values<R: Read + Seek>(
     input: &mut R,
     stop_pos: usize,
     is_first: bool,
@@ -1039,11 +1111,11 @@ fn read_single_stream_of_values<R: BufRead + Seek>(
     progress: Option<ProgressCount>,
 ) -> Result<crate::wavemem::Encoder> {
     let mut encoder = crate::wavemem::Encoder::new(hierarchy);
+    let mut buf_reader = ShiftingBufReader::new(input);
 
     if !starts_on_new_line {
         // if we start in the middle of a line, we need to skip it
-        let mut dummy = Vec::new();
-        input.read_until(b'\n', &mut dummy)?;
+        buf_reader.read_until(b'\n')?;
     }
 
     // We only start recording once we have encountered our first time step
@@ -1055,9 +1127,9 @@ fn read_single_stream_of_values<R: BufRead + Seek>(
 
     let mut lines_read = 0;
     loop {
-        let start_pos = input.stream_position()? as usize;
+        let start_pos = buf_reader.stream_position()? as usize;
         // parse one buffer full of content
-        let buf = input.fill_buf()?;
+        let buf = buf_reader.fill_buf()?;
         if buf.is_empty() {
             // did we reach the end of the input?
             break;
@@ -1112,12 +1184,12 @@ fn read_single_stream_of_values<R: BufRead + Seek>(
         } else {
             lines_read = res.lines_read;
             debug_assert!(res.pos > 0, "not consuming anything!");
-            input.consume(res.pos);
+            buf_reader.consume(res.pos);
         }
     }
 
     if let Some(p) = progress.as_ref() {
-        let pos = input.stream_position()?;
+        let pos = buf_reader.stream_position()?;
         let increment = pos - last_reported_pos as u64;
         p.fetch_add(increment, Ordering::SeqCst);
     }
