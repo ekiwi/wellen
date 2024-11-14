@@ -8,32 +8,50 @@ use wellen::simple::*;
 use wellen::*;
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
-    run_diff_test_internal(vcd_filename, Some(fst_filename), false, false);
+    run_diff_test_internal(vcd_filename, Some(fst_filename), false, LoadType::FromFile);
 }
 
 fn run_diff_test_from_bytes(vcd_filename: &str, fst_filename: &str) {
-    run_diff_test_internal(vcd_filename, Some(fst_filename), false, true);
+    run_diff_test_internal(vcd_filename, Some(fst_filename), false, LoadType::FromBytes);
+}
+
+fn run_diff_test_from_generic_file(vcd_filename: &str, fst_filename: &str) {
+    run_diff_test_internal(
+        vcd_filename,
+        Some(fst_filename),
+        false,
+        LoadType::FromFileGeneric,
+    );
 }
 
 fn run_diff_test_vcd_only(vcd_filename: &str) {
-    run_diff_test_internal(vcd_filename, None, false, false);
+    run_diff_test_internal(vcd_filename, None, false, LoadType::FromFile);
 }
 
 /// Skips trying to load the content with the `vcd` library. This is important for files
 /// with 9-state values since these cannot be read by the `vcd` library.
 fn run_load_test(vcd_filename: &str, fst_filename: &str) {
-    run_diff_test_internal(vcd_filename, Some(fst_filename), true, false);
+    run_diff_test_internal(vcd_filename, Some(fst_filename), true, LoadType::FromFile);
 }
 
 fn run_load_test_vcd(vcd_filename: &str) {
-    run_diff_test_internal(vcd_filename, None, true, false);
+    run_diff_test_internal(vcd_filename, None, true, LoadType::FromFile);
+}
+
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+enum LoadType {
+    FromFile,
+    FromBytes,
+    /// Uses the read that is generic over any ReadBuf to read from file instead of the
+    /// specialized implementation which will mmap for VCDs
+    FromFileGeneric,
 }
 
 fn run_diff_test_internal(
     vcd_filename: &str,
     fst_filename: Option<&str>,
     skip_content_comparison: bool,
-    load_from_bytes_instead_of_file: bool,
+    load_tpe: LoadType,
 ) {
     {
         let single_thread = LoadOptions {
@@ -44,24 +62,44 @@ fn run_diff_test_internal(
             .expect("Failed to load VCD with a single thread");
         diff_test_one(vcd_filename, wave, skip_content_comparison);
     }
-    if load_from_bytes_instead_of_file {
-        let bytes = std::io::Cursor::new(std::fs::read(vcd_filename).expect("failed"));
-        let wave =
-            read_from_reader(bytes).expect("Failed to load VCD with multiple threads from bytes");
-        diff_test_one(vcd_filename, wave, skip_content_comparison);
-    } else {
-        let wave = read(vcd_filename).expect("Failed to load VCD with multiple threads");
-        diff_test_one(vcd_filename, wave, skip_content_comparison);
+
+    match load_tpe {
+        LoadType::FromFile => {
+            let wave = read(vcd_filename).expect("Failed to load VCD with multiple threads");
+            diff_test_one(vcd_filename, wave, skip_content_comparison);
+        }
+        LoadType::FromBytes => {
+            let bytes = std::io::Cursor::new(std::fs::read(vcd_filename).expect("failed"));
+            let wave = read_from_reader(bytes)
+                .expect("Failed to load VCD with multiple threads from bytes");
+            diff_test_one(vcd_filename, wave, skip_content_comparison);
+        }
+        LoadType::FromFileGeneric => {
+            let file = std::io::BufReader::new(std::fs::File::open(vcd_filename).expect("failed"));
+            let wave = read_from_reader(file)
+                .expect("Failed to load VCD with multiple threads from generic file");
+            diff_test_one(vcd_filename, wave, skip_content_comparison);
+        }
     }
     if let Some(fst_filename) = fst_filename {
-        if load_from_bytes_instead_of_file {
-            let bytes = std::io::Cursor::new(std::fs::read(fst_filename).expect("failed"));
-            let wave = read_from_reader(bytes)
-                .expect("Failed to load FST with multiple threads from bytes");
-            diff_test_one(fst_filename, wave, skip_content_comparison);
-        } else {
-            let wave = read(fst_filename).expect("Failed to load FST");
-            diff_test_one(vcd_filename, wave, skip_content_comparison);
+        match load_tpe {
+            LoadType::FromFile => {
+                let wave = read(fst_filename).expect("Failed to load FST");
+                diff_test_one(vcd_filename, wave, skip_content_comparison);
+            }
+            LoadType::FromBytes => {
+                let bytes = std::io::Cursor::new(std::fs::read(fst_filename).expect("failed"));
+                let wave = read_from_reader(bytes)
+                    .expect("Failed to load FST with multiple threads from bytes");
+                diff_test_one(fst_filename, wave, skip_content_comparison);
+            }
+            LoadType::FromFileGeneric => {
+                let file =
+                    std::io::BufReader::new(std::fs::File::open(fst_filename).expect("failed"));
+                let wave = read_from_reader(file)
+                    .expect("Failed to load FST with multiple threads from generic file");
+                diff_test_one(fst_filename, wave, skip_content_comparison);
+            }
         }
     }
 }
@@ -487,9 +525,16 @@ fn diff_icarus_test1() {
     run_diff_test("inputs/icarus/test1.vcd", "inputs/icarus/test1.vcd.fst");
 }
 
+/// tests loading a VCD and FST from a Vec<u8>
 #[test]
 fn diff_icarus_test1_from_bytes() {
     run_diff_test_from_bytes("inputs/icarus/test1.vcd", "inputs/icarus/test1.vcd.fst");
+}
+
+/// tests loading a VCD and FST from a BufReader<File> without using mmap
+#[test]
+fn diff_icarus_test1_from_generic_file() {
+    run_diff_test_from_generic_file("inputs/icarus/test1.vcd", "inputs/icarus/test1.vcd.fst");
 }
 
 #[test]
