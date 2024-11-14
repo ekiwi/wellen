@@ -12,7 +12,7 @@ use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::io::{BufRead, Seek, SeekFrom};
+use std::io::{BufRead, Read, Seek, SeekFrom};
 use std::sync::atomic::Ordering;
 
 #[derive(Debug, thiserror::Error)]
@@ -40,6 +40,8 @@ pub enum VcdParseError {
     VcdUnknownVarType(String),
     #[error("[vcd] unknown scope type: {0}")]
     VcdUnknownScopeType(String),
+    #[error("[vcd] unexpected token in VCD body: {0}")]
+    VcdUnexpectedBodyToken(String),
     /// This is not really an error, but our parser has to terminate and start a new attempt
     /// at interpreting ids. This error should never reach any user.
     #[error("[vcd] non-contiguous ids detected, applying a work around.")]
@@ -1029,6 +1031,48 @@ fn read_values(
     }
 }
 
+fn is_white_space(b: u8) -> bool {
+    matches!(b, b' ' | b'\n' | b'\r' | b'\t')
+}
+
+enum FirstTokenResult {
+    Time(u64),
+    OneBitValue,
+    MultiBitValue,
+    CommentStart,
+    IgnoredCmd,
+}
+
+fn parse_first_token(token: &[u8]) -> Result<FirstTokenResult> {
+    debug_assert!(token.len() > 1, "1-byte tokens don't make sense!");
+    match token[0] {
+        b'#' => {
+            let value_str = std::str::from_utf8(&token[1..])?;
+            let value: u64 = value_str.parse()?;
+            Ok(FirstTokenResult::Time(value))
+        }
+        b'0' | b'1' | b'z' | b'Z' | b'x' | b'X' | b'h' | b'H' | b'u' | b'U' | b'w' | b'W'
+        | b'l' | b'L' | b'-' => Ok(FirstTokenResult::OneBitValue),
+        b'b' | b'B' | b'r' | b'R' | b's' | b'S' => Ok(FirstTokenResult::MultiBitValue),
+        _ => {
+            match token {
+                b"$dumpall" => {
+                    // interpret dumpall as indicating timestep zero
+                    Ok(FirstTokenResult::Time(0))
+                }
+                b"$comment" => Ok(FirstTokenResult::CommentStart),
+                b"$dumpvars" | b"$end" | b"$dumpoff" | b"$dumpon" => {
+                    // ignore dumpvars, dumpoff, dumpon, and end command
+                    Ok(FirstTokenResult::IgnoredCmd)
+                }
+                _ => Err(VcdParseError::VcdUnexpectedBodyToken(
+                    String::from_utf8_lossy(token).to_string(),
+                )),
+            }
+        }
+    }
+}
+
 fn read_single_stream_of_values<R: BufRead + Seek>(
     input: &mut R,
     stop_pos: usize,
@@ -1039,6 +1083,89 @@ fn read_single_stream_of_values<R: BufRead + Seek>(
     progress: Option<ProgressCount>,
 ) -> Result<crate::wavemem::Encoder> {
     let mut encoder = crate::wavemem::Encoder::new(hierarchy);
+
+    let mut state = if starts_on_new_line {
+        BodyState::SkippingNewLine
+    } else {
+        BodyState::SkippingNewLine
+    };
+
+    let mut first = Vec::with_capacity(32);
+    let mut id = Vec::with_capacity(32);
+
+    for b in input.bytes() {
+        let b = b?;
+        match state {
+            BodyState::SkippingNewLine => {
+                if b == b'\n' {
+                    debug_assert!(first.is_empty());
+                    state = BodyState::ParsingFirstToken;
+                }
+            }
+            BodyState::ParsingFirstToken => {
+                if is_white_space(b) {
+                    if first.is_empty() {
+                        // we are in front of the token => nothing to do
+                    } else {
+                        state = match parse_first_token(&first)? {
+                            FirstTokenResult::Time(value) => {
+                                let cmd = BodyCmd::Time(value);
+                                todo!("{cmd:?}");
+                                BodyState::ParsingFirstToken
+                            }
+                            FirstTokenResult::OneBitValue => {
+                                let cmd = Some(BodyCmd::Value(&first[0..1], &first[1..]));
+                                todo!("{cmd:?}");
+                                BodyState::ParsingFirstToken
+                            }
+                            FirstTokenResult::MultiBitValue => BodyState::ParsingIdToken,
+                            FirstTokenResult::CommentStart => BodyState::LookingForEndToken,
+                            FirstTokenResult::IgnoredCmd => BodyState::ParsingFirstToken,
+                        };
+
+                        // clear buffer to find next token
+                        if state != BodyState::ParsingIdToken {
+                            first.clear();
+                        }
+                    }
+                } else {
+                    first.push(b);
+                }
+            }
+
+            BodyState::ParsingIdToken => {
+                if is_white_space(b) {
+                    if id.is_empty() {
+                        // we are in front of the token => nothing to do
+                    } else {
+                        {
+                            let cmd = BodyCmd::Value(first.as_slice(), id.as_slice());
+                            todo!("{cmd:?}");
+                        }
+                        first.clear();
+                        id.clear();
+                        state = BodyState::ParsingFirstToken;
+                    }
+                } else {
+                    id.push(b);
+                }
+            }
+            BodyState::LookingForEndToken => {
+                if is_white_space(b) {
+                    if first.is_empty() {
+                        // we are in front of the token => nothing to do
+                    } else {
+                        if first == b"$end" {
+                            state = BodyState::ParsingFirstToken;
+                        }
+                        first.clear();
+                    }
+                } else {
+                    first.push(b);
+                }
+            }
+        }
+    }
 
     if !starts_on_new_line {
         // if we start in the middle of a line, we need to skip it
@@ -1123,6 +1250,15 @@ fn read_single_stream_of_values<R: BufRead + Seek>(
     }
 
     Ok(encoder)
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum BodyState {
+    /// initially the body parser might skip ahead to the next newline in order to synchronize
+    SkippingNewLine,
+    ParsingFirstToken,
+    ParsingIdToken,
+    LookingForEndToken,
 }
 
 struct BodyReader<'a> {
@@ -1315,7 +1451,7 @@ impl<'a> Iterator for BodyReader<'a> {
 }
 
 enum BodyCmd<'a> {
-    Time(&'a [u8]),
+    Time(u64),
     Value(&'a [u8], &'a [u8]),
 }
 
@@ -1323,7 +1459,7 @@ impl Debug for BodyCmd<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             BodyCmd::Time(value) => {
-                write!(f, "Time({})", String::from_utf8_lossy(value))
+                write!(f, "Time({value})")
             }
             BodyCmd::Value(value, id) => {
                 write!(
@@ -1347,7 +1483,7 @@ mod tests {
         for (_, cmd) in reader {
             let desc = match cmd {
                 BodyCmd::Time(value) => {
-                    format!("Time({})", std::str::from_utf8(value).unwrap())
+                    format!("Time({value})")
                 }
                 BodyCmd::Value(value, id) => {
                     format!(
