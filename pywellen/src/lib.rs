@@ -1,15 +1,15 @@
 mod convert;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use convert::Mappable;
-use num_bigint::BigUint;
+use convert::{bytes_as_signal_value, Mappable};
+use num_bigint::{BigInt, BigUint};
 use pyo3::conversion::ToPyObject;
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use wellen::GetItem;
 
 use wellen::{
     viewers::{self},
-    LoadOptions, SignalValue, TimeTableIdx,
+    LoadOptions, TimeTableIdx,
 };
 
 pub trait PyErrExt<T> {
@@ -23,18 +23,44 @@ impl<T> PyErrExt<T> for wellen::Result<T> {
 }
 
 #[pymodule]
-fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
+pub fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Var>()?;
     m.add_class::<VarIter>()?;
     m.add_class::<Waveform>()?;
     m.add_class::<Signal>()?;
     m.add_class::<SignalChangeIter>()?;
+    m.add_function(wrap_pyfunction!(create_derived_signal, &m)?)?;
     Ok(())
+}
+
+pub fn execute_get_signals(
+    script: &str,
+    fn_name: &str,
+    wave_path: String,
+) -> PyResult<HashMap<String, wellen::Signal>> {
+    pyo3::append_to_inittab!(pywellen);
+    let val: PyResult<HashMap<String, Signal>> = Python::with_gil(|py| {
+        let activators = PyModule::from_code_bound(py, script, "signal_get.py", "signal_get")?;
+        let wave = Bound::new(py, Waveform::new(wave_path, true, true)?)?;
+
+        let all_waves: HashMap<String, Signal> =
+            activators.getattr(fn_name)?.call1((wave,))?.extract()?;
+
+        Ok(all_waves)
+    });
+    let val = val?
+        .into_iter()
+        .map(|(name, signal)| (name, signal.to_wellen_signal().unwrap()))
+        .fold(HashMap::new(), |mut mapper, val| {
+            mapper.insert(val.0, val.1);
+            mapper
+        });
+    Ok(val)
 }
 
 #[pyclass]
 #[derive(Clone)]
-struct Hierarchy(pub(crate) Arc<wellen::Hierarchy>);
+pub struct Hierarchy(pub(crate) Arc<wellen::Hierarchy>);
 
 #[pymethods]
 impl Hierarchy {
@@ -61,7 +87,7 @@ impl Hierarchy {
 }
 
 #[pyclass]
-struct Scope(pub(crate) wellen::Scope);
+pub struct Scope(pub(crate) wellen::Scope);
 
 #[pymethods]
 impl Scope {
@@ -110,7 +136,7 @@ impl Scope {
 }
 
 #[pyclass]
-struct ScopeIter(Box<dyn Iterator<Item = Scope> + Send>);
+pub struct ScopeIter(Box<dyn Iterator<Item = Scope> + Send>);
 #[pymethods]
 impl ScopeIter {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -122,7 +148,7 @@ impl ScopeIter {
 }
 
 #[pyclass]
-struct Var(pub(crate) wellen::Var);
+pub struct Var(pub(crate) wellen::Var);
 
 #[pymethods]
 impl Var {
@@ -138,7 +164,7 @@ impl Var {
 }
 
 #[pyclass]
-struct VarIter(Box<dyn Iterator<Item = Var> + Send>);
+pub struct VarIter(Box<dyn Iterator<Item = Var> + Send>);
 
 #[pymethods]
 impl VarIter {
@@ -175,7 +201,7 @@ impl TimeTable {
 }
 
 #[pyclass]
-struct Waveform {
+pub struct Waveform {
     #[pyo3(get)]
     hierarchy: Hierarchy,
 
@@ -190,7 +216,7 @@ struct Waveform {
 impl Waveform {
     #[new]
     #[pyo3(signature = (path, multi_threaded = true, remove_scopes_with_empty_name = false))]
-    fn new(
+    pub fn new(
         path: String,
         multi_threaded: bool,
         remove_scopes_with_empty_name: bool,
@@ -211,7 +237,7 @@ impl Waveform {
             time_table: TimeTable(Arc::new(body.time_table)),
         })
     }
-    fn get_signal<'py>(&mut self, var: &Var, py: Python<'py>) -> PyResult<Bound<'py, Signal>> {
+    pub fn get_signal<'py>(&mut self, var: &Var, py: Python<'py>) -> PyResult<Bound<'py, Signal>> {
         let mut signal =
             self.wave_source
                 .load_signals(&[var.0.signal_ref()], &self.hierarchy.0, true);
@@ -226,7 +252,7 @@ impl Waveform {
     }
 
     /// Assumes a dotted signal
-    fn get_signal_from_path<'py>(
+    pub fn get_signal_from_path<'py>(
         &mut self,
         abs_hierarchy_path: String,
         py: Python<'py>,
@@ -248,11 +274,39 @@ impl Waveform {
         let var = self.hierarchy.0.get(maybe_var);
         self.get_signal(&Var(var.clone()), py)
     }
+
+    fn create_new_signal(
+        &self,
+        time_changes: Bound<'_, PyAny>,
+        value_changes: Bound<'_, PyAny>,
+        width: u32,
+    ) -> PyResult<Signal> {
+        let mut builder = wellen::BitVectorBuilder::new(wellen::States::Two, width);
+        let all_times: Vec<u32> = time_changes.extract()?;
+        let all_val_changes: Vec<BigInt> = value_changes.extract()?;
+        if all_times.len() != all_val_changes.len() {
+            return Err(PyRuntimeError::new_err(
+                "Changes and value lists are not equal in length",
+            ));
+        }
+
+        for (change_idx, change) in all_times.iter().zip(all_val_changes) {
+            let (_sign, bytes) = change.to_bytes_be();
+            let sv = bytes_as_signal_value(&bytes, width);
+            builder.add_change(change_idx.clone(), sv);
+        }
+        let sig = builder.finish(wellen::SignalRef::from_index(0xbeebabe5).unwrap());
+
+        Ok(Signal {
+            signal: Arc::new(sig),
+            all_times: self.time_table.clone(),
+        })
+    }
 }
 
 #[pyclass]
 #[derive(Clone)]
-struct Signal {
+pub struct Signal {
     signal: Arc<wellen::Signal>,
     all_times: TimeTable,
 }
@@ -276,8 +330,8 @@ impl Signal {
             .map(|data_offset| self.signal.get_value_at(&data_offset, 0));
         if let Some(signal) = maybe_signal {
             let output = match signal {
-                SignalValue::Real(inner) => Some(inner.to_object(py)),
-                SignalValue::String(str) => Some(str.to_object(py)),
+                wellen::SignalValue::Real(inner) => Some(inner.to_object(py)),
+                wellen::SignalValue::String(str) => Some(str.to_object(py)),
                 _ => match BigUint::try_from_signal(signal) {
                     // If this signal is 2bits, this function will return an int
                     Some(number) => Some(number.to_object(py)),
@@ -300,9 +354,47 @@ impl Signal {
     }
 }
 
+impl Signal {
+    pub fn to_wellen_signal(self) -> Option<wellen::Signal> {
+        Arc::try_unwrap(self.signal).ok()
+    }
+}
+
+#[pyfunction]
+fn create_derived_signal(pyinterface: Bound<'_, PyAny>) -> PyResult<Signal> {
+    let all_signals: Vec<Signal> = pyinterface
+        .call_method("get_all_signals", (), None)?
+        .extract()?;
+    let all_wellen_sigs = all_signals.iter().map(|sig| sig.signal.as_ref());
+    let all_changes = wellen::all_changes(all_wellen_sigs);
+    let bits: u32 = pyinterface.call_method("width", (), None)?.extract()?;
+    let mut builder = wellen::BitVectorBuilder::new(wellen::States::Two, bits);
+    for change_idx in all_changes {
+        let value: BigUint = pyinterface
+            .call_method("get_value_at_index", (change_idx,), None)?
+            .extract()?;
+        //FIXME: optimize this -- so much copying, needlessly
+        let bytes = value.to_bytes_be();
+        builder.add_change(
+            change_idx,
+            wellen::SignalValue::Binary(bytes.as_slice(), bits),
+        );
+    }
+    let sig = builder.finish(wellen::SignalRef::from_index(0xbeebabe5).unwrap());
+    let all_times = all_signals
+        .first()
+        .expect("No signals provided")
+        .all_times
+        .clone();
+    Ok(Signal {
+        signal: Arc::new(sig),
+        all_times,
+    })
+}
+
 #[pyclass]
 /// Iterates across all changes -- the returned object is a tuple of (Time, Value)
-struct SignalChangeIter {
+pub struct SignalChangeIter {
     signal: Signal,
     offset: usize,
 }

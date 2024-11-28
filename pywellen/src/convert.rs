@@ -12,6 +12,12 @@ pub trait Mappable: Sized {
     }
 }
 
+/// Trait to convert a data type into a `wellen::SignalValue`
+///
+pub trait ToValue: Sized {
+    fn as_signal_value(&self) -> SignalValue;
+}
+
 macro_rules! impl_mappable_basic {
     ($t:ty) => {
         impl Mappable for $t {
@@ -50,6 +56,10 @@ impl Mappable for BigUint {
             _ => None,
         }
     }
+}
+
+pub fn bytes_as_signal_value(bytes: &Vec<u8>, bit_width: u32) -> SignalValue {
+    SignalValue::Binary(bytes.as_slice(), bit_width)
 }
 
 #[cfg(test)]

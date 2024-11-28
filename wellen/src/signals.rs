@@ -254,6 +254,12 @@ impl Signal {
     pub fn iter_changes(&self) -> SignalChangeIterator {
         SignalChangeIterator::new(self)
     }
+    pub fn max_states(&self) -> Option<States> {
+        self.data.max_states()
+    }
+    pub fn width(&self) -> Option<u32> {
+        self.data.width()
+    }
 }
 
 pub struct SignalChangeIterator<'a> {
@@ -292,7 +298,7 @@ pub struct BitVectorBuilder {
 }
 
 impl BitVectorBuilder {
-    fn new(max_states: States, bits: u32) -> Self {
+    pub fn new(max_states: States, bits: u32) -> Self {
         assert!(bits > 0);
         let (len, has_meta) = get_len_and_meta(max_states, bits);
         let bytes_per_entry = get_bytes_per_entry(len, has_meta);
@@ -309,7 +315,7 @@ impl BitVectorBuilder {
         }
     }
 
-    fn add_change(&mut self, time_idx: TimeTableIdx, value: SignalValue) {
+    pub fn add_change(&mut self, time_idx: TimeTableIdx, value: SignalValue) {
         debug_assert_eq!(value.bits().unwrap(), self.bits);
         let local_encoding = value.states().unwrap();
         debug_assert!(local_encoding.bits() >= self.max_states.bits());
@@ -351,7 +357,7 @@ impl BitVectorBuilder {
         }
     }
 
-    fn finish(self, id: SignalRef) -> Signal {
+    pub fn finish(self, id: SignalRef) -> Signal {
         debug_assert_eq!(
             self.data.len(),
             self.time_indices.len() * self.bytes_per_entry
@@ -565,6 +571,26 @@ impl Debug for SignalChangeData {
 }
 
 impl SignalChangeData {
+    fn width(&self) -> Option<u32> {
+        match self {
+            Self::VariableLength(_) => None,
+            Self::FixedLength { width, .. } => Some(width.clone()),
+        }
+    }
+
+    fn max_states(&self) -> Option<States> {
+        match self {
+            Self::VariableLength(_) => None,
+            Self::FixedLength { encoding, .. } => match encoding {
+                FixedWidthEncoding::BitVector {
+                    max_states,
+                    bits: _,
+                    meta_byte: _,
+                } => Some(*max_states),
+                _ => None,
+            },
+        }
+    }
     fn get_value_at(&self, offset: usize) -> SignalValue {
         match &self {
             SignalChangeData::FixedLength {
