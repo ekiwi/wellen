@@ -8,7 +8,7 @@
 use crate::{
     viewers, Hierarchy, LoadOptions, Result, Signal, SignalRef, SignalSource, Time, TimeTable,
 };
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
 
@@ -50,7 +50,7 @@ pub struct Waveform {
     time_table: TimeTable,
     /// Signals are stored in a HashMap since we expect only a small subset of signals to be
     /// loaded at a time.
-    signals: HashMap<SignalRef, Signal>,
+    signals: FxHashMap<SignalRef, Signal>,
 }
 
 impl Debug for Waveform {
@@ -65,7 +65,7 @@ impl Waveform {
             hierarchy,
             source,
             time_table,
-            signals: HashMap::new(),
+            signals: FxHashMap::default(),
         }
     }
 

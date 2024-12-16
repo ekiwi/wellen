@@ -5,7 +5,7 @@
 // Space efficient format for a wavedump hierarchy.
 
 use crate::FileFormat;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::num::{NonZeroI32, NonZeroU16, NonZeroU32};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -623,7 +623,7 @@ pub struct Hierarchy {
     enums: Vec<EnumType>,
     signal_idx_to_var: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
-    slices: HashMap<SignalRef, SignalSlice>,
+    slices: FxHashMap<SignalRef, SignalSlice>,
 }
 
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
@@ -842,7 +842,7 @@ pub struct HierarchyBuilder {
     enums: Vec<EnumType>,
     handle_to_node: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
-    slices: HashMap<SignalRef, SignalSlice>,
+    slices: FxHashMap<SignalRef, SignalSlice>,
 }
 
 const EMPTY_STRING: HierarchyStringId = HierarchyStringId(unsafe { NonZeroU32::new_unchecked(1) });
@@ -865,7 +865,7 @@ impl HierarchyBuilder {
             enums: Vec::default(),
             handle_to_node: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
-            slices: HashMap::default(),
+            slices: FxHashMap::default(),
         }
     }
 }

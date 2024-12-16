@@ -2,7 +2,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@berkeley.edu>
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::io::{BufRead, BufReader};
 use wellen::simple::*;
 use wellen::*;
@@ -115,7 +115,7 @@ fn diff_test_one(vcd_filename: &str, mut our: Waveform, skip_content_comparison:
             return;
         }
     };
-    let mut id_map = HashMap::new();
+    let mut id_map = FxHashMap::default();
     diff_hierarchy(our.hierarchy(), &ref_header, &mut id_map);
     load_all_signals(&mut our);
     if !skip_content_comparison {
@@ -126,7 +126,7 @@ fn diff_test_one(vcd_filename: &str, mut our: Waveform, skip_content_comparison:
 fn diff_hierarchy(
     ours: &Hierarchy,
     ref_header: &::vcd::Header,
-    id_map: &mut HashMap<::vcd::IdCode, SignalRef>,
+    id_map: &mut FxHashMap<::vcd::IdCode, SignalRef>,
 ) {
     diff_meta(ours, ref_header);
 
@@ -221,7 +221,7 @@ fn diff_hierarchy_item(
     ref_item: &::vcd::ScopeItem,
     our_item: HierarchyItem,
     our_hier: &Hierarchy,
-    id_map: &mut HashMap<::vcd::IdCode, SignalRef>,
+    id_map: &mut FxHashMap<::vcd::IdCode, SignalRef>,
 ) {
     match (ref_item, our_item) {
         (::vcd::ScopeItem::Scope(ref_scope), HierarchyItem::Scope(our_scope)) => {
@@ -307,14 +307,14 @@ fn load_all_signals(our: &mut Waveform) {
 fn diff_signals<R: BufRead>(
     ref_reader: &mut ::vcd::Parser<R>,
     our: &mut Waveform,
-    id_map: &HashMap<::vcd::IdCode, SignalRef>,
+    id_map: &FxHashMap<::vcd::IdCode, SignalRef>,
 ) {
     let time_table = our.time_table();
 
     // iterate over reference VCD and compare with signals in our waveform
     let mut time_table_idx = 0;
     let mut current_time: Option<u64> = None;
-    let mut delta_counter = HashMap::new();
+    let mut delta_counter = FxHashMap::default();
     for cmd_res in ref_reader {
         match cmd_res.unwrap() {
             ::vcd::Command::Timestamp(new_time) => {
@@ -422,7 +422,7 @@ fn get_value<'a>(
     our: &'a Waveform,
     signal_ref: SignalRef,
     time_table_idx: usize,
-    delta_counter: &mut HashMap<SignalRef, u16>,
+    delta_counter: &mut FxHashMap<SignalRef, u16>,
 ) -> SignalValue<'a> {
     let our_signal = our.get_signal(signal_ref).unwrap();
     let our_offset = our_signal.get_offset(time_table_idx as u32).unwrap();

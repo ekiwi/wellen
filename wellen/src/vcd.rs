@@ -11,7 +11,7 @@ use crate::{FileFormat, LoadOptions, TimeTable};
 use fst_reader::{FstVhdlDataType, FstVhdlVarType};
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::fmt::Debug;
 use std::io::{BufRead, Read, Seek, SeekFrom};
 use std::sync::atomic::Ordering;
@@ -156,7 +156,7 @@ const FST_SUP_VAR_DATA_TYPE_MASK: u64 = (1 << FST_SUP_VAR_DATA_TYPE_BITS) - 1;
 // VCD attributes are a GTKWave extension which is also used by nvc
 fn parse_attribute(
     tokens: Vec<&[u8]>,
-    path_names: &mut HashMap<u64, HierarchyStringId>,
+    path_names: &mut FxHashMap<u64, HierarchyStringId>,
     h: &mut HierarchyBuilder,
 ) -> Result<Option<Attribute>> {
     match tokens[1] {
@@ -208,7 +208,7 @@ fn parse_attribute(
     }
 }
 
-type IdLookup = Option<HashMap<Vec<u8>, SignalRef>>;
+type IdLookup = Option<FxHashMap<Vec<u8>, SignalRef>>;
 
 fn read_hierarchy(
     input: &mut (impl BufRead + Seek),
@@ -284,9 +284,9 @@ fn read_hierarchy_inner(
     let start = input.stream_position().unwrap();
     let mut h = HierarchyBuilder::new(FileFormat::Vcd);
     let mut attributes = Vec::new();
-    let mut path_names = HashMap::new();
+    let mut path_names = FxHashMap::default();
     // this map is used to translate identifiers to signal references for cases where we detect ids that are too large
-    let mut id_map: HashMap<Vec<u8>, SignalRef> = HashMap::new();
+    let mut id_map: FxHashMap<Vec<u8>, SignalRef> = FxHashMap::default();
     // statistics to decide whether to switch to an ID map
     let mut id_tracker = IdTracker::default();
 

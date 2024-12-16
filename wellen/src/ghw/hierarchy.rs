@@ -13,7 +13,7 @@ use crate::{
     VarType,
 };
 use num_enum::TryFromPrimitive;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::io::{BufRead, Seek, SeekFrom};
 use std::num::NonZeroU32;
 
@@ -206,7 +206,7 @@ fn add_enums_to_wellen_hierarchy(
     tables: &GhwTables,
     hb: &mut HierarchyBuilder,
 ) -> Result<Vec<EnumTypeId>> {
-    let mut string_cache: HashMap<(u16, u16), HierarchyStringId> = HashMap::new();
+    let mut string_cache: FxHashMap<(u16, u16), HierarchyStringId> = FxHashMap::default();
     let mut out = Vec::new();
     for tpe in tables.types.iter() {
         if let VhdlType::Enum(name, lits, enum_id) = tpe {
@@ -718,7 +718,7 @@ fn read_hierarchy_section(
     // println!("expected_num_declared_vars {expected_num_declared_vars}");
 
     let mut num_declared_vars = 0;
-    let mut index_string_cache = IndexCache::new();
+    let mut index_string_cache = IndexCache::default();
     let mut signal_info = GhwSignalTracker::new(max_signal_id);
 
     loop {
@@ -885,7 +885,7 @@ fn read_hierarchy_var(
     )
 }
 
-type IndexCache = HashMap<i64, HierarchyStringId>;
+type IndexCache = FxHashMap<i64, HierarchyStringId>;
 
 fn get_index_string(
     index_string_cache: &mut IndexCache,

@@ -10,7 +10,7 @@ use crate::vcd::parse_name;
 use crate::wavemem::{check_if_changed_and_truncate, check_states, write_n_state, States};
 use crate::{FileFormat, LoadOptions, TimeTable, WellenError};
 use fst_reader::*;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::io::{BufRead, Seek};
 
 pub type Result<T> = std::result::Result<T, WellenError>;
@@ -73,7 +73,7 @@ impl<R: BufRead + Seek + Sync + Send> SignalSourceImplementation for FstWaveData
             .zip(types.iter())
             .map(|(id, tpe)| SignalWriter::new(*id, *tpe))
             .collect::<Vec<_>>();
-        let idx_to_pos: HashMap<usize, usize> = HashMap::from_iter(
+        let idx_to_pos: FxHashMap<usize, usize> = FxHashMap::from_iter(
             ids.iter()
                 .zip(types.iter())
                 .map(|(r, _)| r.index())
@@ -553,8 +553,8 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
     h.set_date(fst_header.date.trim().to_string());
     h.set_timescale(convert_timescale(fst_header.timescale_exponent));
 
-    let mut path_names = HashMap::new();
-    let mut enums = HashMap::new();
+    let mut path_names = FxHashMap::default();
+    let mut enums = FxHashMap::default();
     let mut attributes = Vec::new();
 
     let cb = |entry: FstHierarchyEntry| {
