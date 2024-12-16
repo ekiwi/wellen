@@ -56,6 +56,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: wellen
 
   msrv:
     name: Check Minimum Rust Version
