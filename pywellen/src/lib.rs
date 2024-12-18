@@ -45,7 +45,7 @@ impl Hierarchy {
                 .get_unique_signals_vars()
                 .into_iter()
                 .flatten()
-                .map(|val| Var(val)),
+                .map(Var),
         ))
     }
 
@@ -262,7 +262,11 @@ struct Signal {
 
 #[pymethods]
 impl Signal {
-    pub fn value_at_time(&self, time: wellen::Time, py: Python<'_>) -> Option<Py<PyAny>> {
+    pub fn value_at_time<'a>(
+        &self,
+        time: wellen::Time,
+        py: Python<'a>,
+    ) -> Option<Bound<'a, PyAny>> {
         let val = self
             .all_times
             .0
@@ -272,21 +276,23 @@ impl Signal {
         self.value_at_idx(val as TimeTableIdx, py)
     }
 
-    pub fn value_at_idx(&self, idx: TimeTableIdx, py: Python<'_>) -> Option<Py<PyAny>> {
+    pub fn value_at_idx<'a>(&self, idx: TimeTableIdx, py: Python<'a>) -> Option<Bound<'a, PyAny>> {
         let maybe_signal = self
             .signal
             .get_offset(idx)
             .map(|data_offset| self.signal.get_value_at(&data_offset, 0));
         if let Some(signal) = maybe_signal {
             let output = match signal {
-                SignalValue::Real(inner) => Some(inner.to_object(py)),
-                SignalValue::String(str) => Some(str.to_object(py)),
+                SignalValue::Real(inner) => Some(inner.into_pyobject(py).unwrap().into_any()),
+                SignalValue::String(str) => Some(str.into_pyobject(py).unwrap().into_any()),
                 _ => match BigUint::try_from_signal(signal) {
                     // If this signal is 2bits, this function will return an int
-                    Some(number) => Some(number.to_object(py)),
+                    Some(number) => Some(number.into_pyobject(py).unwrap().into_any()),
                     // if this signal is not 2bits (e.g. it contains z,x, etc) then this function
                     // will return a string
-                    None => signal.to_bit_string().map(|val| val.to_object(py)),
+                    None => signal
+                        .to_bit_string()
+                        .map(|val| val.into_pyobject(py).unwrap().into_any()),
                 },
             };
             output
@@ -315,12 +321,12 @@ impl SignalChangeIter {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
-    fn __next__(
+    fn __next__<'a>(
         mut slf: PyRefMut<'_, Self>,
-        python: Python<'_>,
-    ) -> Option<(wellen::Time, Py<PyAny>)> {
+        python: Python<'a>,
+    ) -> Option<(wellen::Time, Bound<'a, PyAny>)> {
         if let Some(time_idx) = slf.signal.signal.time_indices().get(slf.offset) {
-            let data = slf.signal.value_at_idx(time_idx.clone(), python);
+            let data = slf.signal.value_at_idx(*time_idx, python);
             let time = slf.signal.all_times.0.get(*time_idx as usize).cloned()?;
             slf.offset += 1;
             data.map(|val| (time, val))

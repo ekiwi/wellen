@@ -4,12 +4,6 @@ use wellen::SignalValue;
 /// Trait to easily convert between existing data types
 pub trait Mappable: Sized {
     fn try_from_signal(signal_value: SignalValue<'_>) -> Option<Self>;
-    fn from_signal(signal_value: SignalValue<'_>) -> Self {
-        Self::try_from_signal(signal_value).unwrap()
-    }
-    fn bit_width(&self) -> u32 {
-        (std::mem::size_of::<Self>() * 8) as u32
-    }
 }
 
 macro_rules! impl_mappable_basic {
