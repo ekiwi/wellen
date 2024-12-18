@@ -121,3 +121,17 @@ fn load_github_issue_28() {
     let filename = "inputs/github_issues/issue28.vcd";
     let _waves = read(filename).expect("failed to parse");
 }
+
+/// This invalid VCD file used to crash wellen instead of returning an error.
+/// https://github.com/ekiwi/wellen/issues/18
+#[test]
+fn load_github_issue_18() {
+    let filename = "inputs/github_issues/issue18.vcd";
+    let opts = LoadOptions {
+        multi_thread: false,
+        remove_scopes_with_empty_name: false,
+    };
+    let r = read_with_options(filename, &opts);
+    assert!(r.is_err());
+    assert!(r.err().unwrap().to_string().contains("expected an id"));
+}

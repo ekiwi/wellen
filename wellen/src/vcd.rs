@@ -43,6 +43,8 @@ pub enum VcdParseError {
     VcdUnknownScopeType(String),
     #[error("[vcd] unexpected token in VCD body: {0}")]
     VcdUnexpectedBodyToken(String),
+    #[error("[vcd] expected an id for a value change, but did not find one")]
+    VcdEmptyId,
     /// This is not really an error, but our parser has to terminate and start a new attempt
     /// at interpreting ids. This error should never reach any user.
     #[error("[vcd] non-contiguous ids detected, applying a work around.")]
@@ -1086,27 +1088,35 @@ impl<'a> VcdEncoder<'a> {
 
 impl ParseBodyOutput for VcdEncoder<'_> {
     #[inline]
-    fn time(&mut self, value: u64) {
+    fn time(&mut self, value: u64) -> Result<()> {
         self.found_first_time_step = true;
         self.enc.time_change(value);
+        Ok(())
     }
 
     #[inline]
-    fn value(&mut self, value: &[u8], id: &[u8]) {
+    fn value(&mut self, value: &[u8], id: &[u8]) -> Result<()> {
         // In the first thread, we might encounter a dump values which dumps all initial values
         // without specifying a timestamp
         if self.is_first_part_of_vcd && !self.found_first_time_step {
-            self.time(0);
+            self.time(0)?;
         }
         // if we are not the first part of the VCD, we are skipping value changes until the
         // first timestep is found which serves as a synchronization point
         if self.found_first_time_step {
             let num_id = match self.lookup {
-                None => id_to_int(id).unwrap(),
+                None => match id_to_int(id) {
+                    Some(ii) => ii,
+                    None => {
+                        debug_assert!(id.is_empty());
+                        return Err(VcdParseError::VcdEmptyId);
+                    }
+                },
                 Some(lookup) => lookup[id].index() as u64,
             };
             self.enc.vcd_value_change(num_id, value);
         }
+        Ok(())
     }
 }
 
@@ -1154,8 +1164,8 @@ fn read_single_stream_of_values<R: BufRead + Seek>(
 }
 
 trait ParseBodyOutput {
-    fn time(&mut self, value: u64);
-    fn value(&mut self, value: &[u8], id: &[u8]);
+    fn time(&mut self, value: u64) -> Result<()>;
+    fn value(&mut self, value: &[u8], id: &[u8]) -> Result<()>;
 }
 
 fn parse_body(
@@ -1199,11 +1209,11 @@ fn parse_body(
                                     return Ok(());
                                 }
                                 // record time step if we aren't exiting
-                                out.time(value);
+                                out.time(value)?;
                                 BodyState::ParsingFirstToken
                             }
                             FirstTokenResult::OneBitValue => {
-                                out.value(&first[0..1], &first[1..]);
+                                out.value(&first[0..1], &first[1..])?;
                                 BodyState::ParsingFirstToken
                             }
                             FirstTokenResult::MultiBitValue => BodyState::ParsingIdToken,
@@ -1226,7 +1236,7 @@ fn parse_body(
                     if id.is_empty() {
                         // we are in front of the token => nothing to do
                     } else {
-                        out.value(first.as_slice(), id.as_slice());
+                        out.value(first.as_slice(), id.as_slice())?;
                         first.clear();
                         id.clear();
                         state = BodyState::ParsingFirstToken;
@@ -1258,17 +1268,17 @@ fn parse_body(
             if !first.is_empty() {
                 match parse_first_token(&first)? {
                     FirstTokenResult::Time(value) => {
-                        out.time(value);
+                        out.time(value)?;
                     }
                     FirstTokenResult::OneBitValue => {
-                        out.value(&first[0..1], &first[1..]);
+                        out.value(&first[0..1], &first[1..])?;
                     }
                     _ => {} // nothing to do
                 };
             }
         }
         BodyState::ParsingIdToken => {
-            out.value(first.as_slice(), id.as_slice());
+            out.value(first.as_slice(), id.as_slice())?;
         }
         _ => {} // nothing to do
     }
