@@ -42,7 +42,7 @@ pub fn read_header_from_file<P: AsRef<std::path::Path>>(
         FileFormat::Unknown => Err(WellenError::UnknownFileFormat),
         FileFormat::Vcd => {
             let (hierarchy, body, body_len) = crate::vcd::read_header_from_file(filename, options)?;
-            let body = ReadBodyContinuation(ReadBodyData::Vcd(body));
+            let body = ReadBodyContinuation(ReadBodyData::Vcd(Box::new(body)));
             Ok(HeaderResult {
                 hierarchy,
                 file_format,
@@ -53,7 +53,7 @@ pub fn read_header_from_file<P: AsRef<std::path::Path>>(
         FileFormat::Ghw => {
             let input = std::io::BufReader::new(std::fs::File::open(filename)?);
             let (hierarchy, body, body_len) = crate::ghw::read_header(input, options)?;
-            let body = ReadBodyContinuation(ReadBodyData::Ghw(body));
+            let body = ReadBodyContinuation(ReadBodyData::Ghw(Box::new(body)));
             Ok(HeaderResult {
                 hierarchy,
                 file_format,
@@ -64,7 +64,7 @@ pub fn read_header_from_file<P: AsRef<std::path::Path>>(
         FileFormat::Fst => {
             let input = std::io::BufReader::new(std::fs::File::open(filename)?);
             let (hierarchy, body) = crate::fst::read_header(input, options)?;
-            let body = ReadBodyContinuation(ReadBodyData::Fst(body));
+            let body = ReadBodyContinuation(ReadBodyData::Fst(Box::new(body)));
             Ok(HeaderResult {
                 hierarchy,
                 file_format,
@@ -84,7 +84,7 @@ pub fn read_header<R: BufRead + Seek>(
         FileFormat::Unknown => Err(WellenError::UnknownFileFormat),
         FileFormat::Vcd => {
             let (hierarchy, body, body_len) = crate::vcd::read_header(input, options)?;
-            let body = ReadBodyContinuation(ReadBodyData::Vcd(body));
+            let body = ReadBodyContinuation(ReadBodyData::Vcd(Box::new(body)));
             Ok(HeaderResult {
                 hierarchy,
                 file_format,
@@ -94,7 +94,7 @@ pub fn read_header<R: BufRead + Seek>(
         }
         FileFormat::Ghw => {
             let (hierarchy, body, body_len) = crate::ghw::read_header(input, options)?;
-            let body = ReadBodyContinuation(ReadBodyData::Ghw(body));
+            let body = ReadBodyContinuation(ReadBodyData::Ghw(Box::new(body)));
             Ok(HeaderResult {
                 hierarchy,
                 file_format,
@@ -104,7 +104,7 @@ pub fn read_header<R: BufRead + Seek>(
         }
         FileFormat::Fst => {
             let (hierarchy, body) = crate::fst::read_header(input, options)?;
-            let body = ReadBodyContinuation(ReadBodyData::Fst(body));
+            let body = ReadBodyContinuation(ReadBodyData::Fst(Box::new(body)));
             Ok(HeaderResult {
                 hierarchy,
                 file_format,
@@ -118,9 +118,9 @@ pub fn read_header<R: BufRead + Seek>(
 pub struct ReadBodyContinuation<R: BufRead + Seek>(ReadBodyData<R>);
 
 enum ReadBodyData<R: BufRead + Seek> {
-    Vcd(crate::vcd::ReadBodyContinuation<R>),
-    Fst(crate::fst::ReadBodyContinuation<R>),
-    Ghw(crate::ghw::ReadBodyContinuation<R>),
+    Vcd(Box<crate::vcd::ReadBodyContinuation<R>>),
+    Fst(Box<crate::fst::ReadBodyContinuation<R>>),
+    Ghw(Box<crate::ghw::ReadBodyContinuation<R>>),
 }
 
 pub struct BodyResult {
@@ -137,16 +137,16 @@ pub fn read_body<R: BufRead + Seek + Sync + Send + 'static>(
 ) -> Result<BodyResult> {
     match body.0 {
         ReadBodyData::Vcd(data) => {
-            let (source, time_table) = crate::vcd::read_body(data, hierarchy, progress)?;
+            let (source, time_table) = crate::vcd::read_body(*data, hierarchy, progress)?;
             Ok(BodyResult { source, time_table })
         }
         ReadBodyData::Fst(data) => {
             // fst does not support a progress count since it is not actually reading the body
-            let (source, time_table) = crate::fst::read_body(data)?;
+            let (source, time_table) = crate::fst::read_body(*data)?;
             Ok(BodyResult { source, time_table })
         }
         ReadBodyData::Ghw(data) => {
-            let (source, time_table) = crate::ghw::read_body(data, hierarchy, progress)?;
+            let (source, time_table) = crate::ghw::read_body(*data, hierarchy, progress)?;
             Ok(BodyResult { source, time_table })
         }
     }

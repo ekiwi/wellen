@@ -132,7 +132,6 @@ pub fn read_body<R: BufRead + Seek>(
                 &mut input,
                 end as usize, // end_pos includes the size of the header
                 true,
-                true,
                 hierarchy,
                 &data.lookup,
                 progress,
@@ -988,20 +987,11 @@ fn read_values(
             .par_iter()
             .map(|(start, len)| {
                 let is_first = *start == 0;
-                // check to see if the chunk start on a new line
-                let starts_on_new_line = if is_first {
-                    true
-                } else {
-                    let before = input[*start - 1];
-                    // TODO: deal with \n\r
-                    before == b'\n'
-                };
                 let mut inp = std::io::Cursor::new(&input[*start..]);
                 read_single_stream_of_values(
                     &mut inp,
                     *len - 1,
                     is_first,
-                    starts_on_new_line,
                     hierarchy,
                     lookup,
                     progress.clone(),
@@ -1022,7 +1012,6 @@ fn read_values(
         let encoder = read_single_stream_of_values(
             &mut inp,
             input.len() - 1,
-            true,
             true,
             hierarchy,
             lookup,
@@ -1100,7 +1089,7 @@ impl<'a> VcdEncoder<'a> {
     }
 }
 
-impl<'a> ParseBodyOutput for VcdEncoder<'a> {
+impl ParseBodyOutput for VcdEncoder<'_> {
     #[inline]
     fn time(&mut self, value: u64) {
         self.found_first_time_step = true;
@@ -1160,13 +1149,12 @@ fn read_single_stream_of_values<R: BufRead + Seek>(
     input: &mut R,
     stop_pos: usize,
     is_first: bool,
-    starts_on_new_line: bool,
     hierarchy: &Hierarchy,
     lookup: &IdLookup,
     progress: Option<ProgressCount>,
 ) -> Result<crate::wavemem::Encoder> {
     let mut encoder = VcdEncoder::new(hierarchy, lookup, is_first);
-    parse_body(input, &mut encoder, stop_pos, starts_on_new_line, progress)?;
+    parse_body(input, &mut encoder, stop_pos, progress)?;
     Ok(encoder.into_inner())
 }
 
@@ -1179,16 +1167,11 @@ fn parse_body(
     input: &mut impl BufRead,
     out: &mut impl ParseBodyOutput,
     stop_pos: usize,
-    starts_on_new_line: bool,
     progress: Option<ProgressCount>,
 ) -> Result<()> {
     let mut progress_report = ProgressReporter::new(progress, stop_pos);
 
-    let mut state = if starts_on_new_line {
-        BodyState::SkippingNewLine
-    } else {
-        BodyState::SkippingNewLine
-    };
+    let mut state = BodyState::SkippingNewLine;
 
     let mut first = Vec::with_capacity(32);
     let mut id = Vec::with_capacity(32);
@@ -1332,7 +1315,6 @@ mod tests {
             &mut std::io::Cursor::new(input),
             &mut out,
             input.len(),
-            true,
             None,
         )
         .unwrap();
