@@ -1030,7 +1030,6 @@ enum FirstTokenResult {
 }
 
 fn parse_first_token(token: &[u8]) -> Result<FirstTokenResult> {
-    debug_assert!(token.len() > 1, "1-byte tokens don't make sense!");
     match token[0] {
         b'#' => {
             let value_str = std::str::from_utf8(&token[1..])?;

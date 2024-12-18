@@ -773,8 +773,17 @@ impl SignalEncoder {
                     }
                 };
                 if len.get() == 1 {
+                    let value_char = match value_bits {
+                        // special handling for empty values which we always treat as zero
+                        [] => b'0',
+                        [v] => *v,
+                        _ => unreachable!(
+                            "value bits are too long for 0-bit or 1-bit signal: {}",
+                            String::from_utf8_lossy(value)
+                        ),
+                    };
                     let states =
-                        try_write_1_bit_9_state(time_idx_delta, value_bits[0], &mut self.data)
+                        try_write_1_bit_9_state(time_idx_delta, value_char, &mut self.data)
                             .unwrap_or_else(|| {
                                 panic!(
                                     "Failed to parse four state value: {} for signal of size 1",
