@@ -14,24 +14,24 @@ readme = "Readme.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bytesize = { workspace = true }
-fst-reader = { workspace = true }
-leb128 = { workspace = true }
-lz4_flex = { workspace = true }
-memmap2 = { workspace = true }
-rayon = { workspace = true }
-num_enum = { workspace = true }
-thiserror = { workspace = true }
+fst-reader.workspace = true
+leb128.workspace = true
+lz4_flex.workspace = true
+memmap2.workspace = true
+rayon.workspace = true
+num_enum.workspace = true
+thiserror.workspace = true
 serde = { workspace = true, optional = true }
-rustc-hash = "2.1.0"
+rustc-hash = "2.1"
 
 [dev-dependencies]
-itertools = { workspace = true }
-vcd = { workspace = true }
-clap = { workspace = true }
-criterion = { workspace = true }
-indicatif = { workspace = true }
-proptest = { workspace = true }
+itertools.workspace = true
+vcd.workspace = true
+clap.workspace = true
+criterion.workspace = true
+indicatif.workspace = true
+proptest.workspace = true
+bytesize = "1.3.0"
 
 
 [[bench]]

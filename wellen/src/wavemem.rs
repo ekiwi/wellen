@@ -10,7 +10,6 @@ use crate::signals::{
     FixedWidthEncoding, Real, Signal, SignalSource, SignalSourceImplementation, Time, TimeTableIdx,
 };
 use crate::{SignalEncoding, TimeTable};
-use bytesize::ByteSize;
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
 use std::borrow::Cow;
@@ -44,10 +43,7 @@ impl SignalSourceImplementation for Reader {
     }
 
     fn print_statistics(&self) {
-        println!(
-            "[wavemem] size in memory: {}",
-            ByteSize::b(self.size_in_memory() as u64)
-        );
+        println!("[wavemem] size in memory: {} bytes", self.size_in_memory());
         self.print_statistics();
     }
 }
@@ -91,16 +87,16 @@ impl Reader {
             .map(|b| b.time_table.len() * std::mem::size_of::<Time>())
             .sum::<usize>();
         println!(
-            "[wavemem] data across all blocks takes up {}.",
-            ByteSize::b(total_data_size as u64)
+            "[wavemem] data across all blocks takes up {} bytes.",
+            total_data_size
         );
         println!(
-            "[wavemem] offsets across all blocks take up {}.",
-            ByteSize::b(total_offset_size as u64)
+            "[wavemem] offsets across all blocks take up {} bytes.",
+            total_offset_size
         );
         println!(
-            "[wavemem] time table data across all blocks takes up {}.",
-            ByteSize::b(total_time_table_size as u64)
+            "[wavemem] time table data across all blocks takes up {} bytes.",
+            total_time_table_size
         );
     }
 
