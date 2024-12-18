@@ -107,7 +107,17 @@ fn test_vcd_scope_merging() {
 /// Because of our automatic scope creation from variable names, we aren't able to run a diff test
 /// on this file which is why we opt to just check that we can load it without crashing.
 #[test]
-fn diff_vivado_surfer_test() {
+fn load_vivado_surfer_test() {
     let filename = "inputs/vivado/vivado_surfer_test.vcd";
+    let _waves = read(filename).expect("failed to parse");
+}
+
+/// A user reported problems with parsing a VCD that contains change value entries for a 0-bit signal
+/// https://github.com/ekiwi/wellen/issues/28
+/// The VCD was created by a VHDL simulator, and thus it isn't possible to compare the hierarchy
+/// we create directly.
+#[test]
+fn load_github_issue_28() {
+    let filename = "inputs/github_issues/issue28.vcd";
     let _waves = read(filename).expect("failed to parse");
 }
