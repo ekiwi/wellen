@@ -1300,17 +1300,19 @@ mod tests {
     use super::*;
 
     impl ParseBodyOutput for Vec<String> {
-        fn time(&mut self, value: u64) {
+        fn time(&mut self, value: u64) -> Result<()> {
             self.push(format!("Time({value})"));
+            Ok(())
         }
 
-        fn value(&mut self, value: &[u8], id: &[u8]) {
+        fn value(&mut self, value: &[u8], id: &[u8]) -> Result<()> {
             let desc = format!(
                 "{} = {}",
-                std::str::from_utf8(id).unwrap(),
-                std::str::from_utf8(value).unwrap()
+                std::str::from_utf8(id)?,
+                std::str::from_utf8(value)?
             );
             self.push(desc);
+            Ok(())
         }
     }
 
