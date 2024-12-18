@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use convert::Mappable;
 use num_bigint::BigUint;
-use pyo3::conversion::ToPyObject;
+use pyo3::types::PyInt;
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use wellen::GetItem;
 
@@ -110,7 +110,7 @@ impl Scope {
 }
 
 #[pyclass]
-struct ScopeIter(Box<dyn Iterator<Item = Scope> + Send>);
+struct ScopeIter(Box<dyn Iterator<Item = Scope> + Send + Sync>);
 #[pymethods]
 impl ScopeIter {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -138,7 +138,7 @@ impl Var {
 }
 
 #[pyclass]
-struct VarIter(Box<dyn Iterator<Item = Var> + Send>);
+struct VarIter(Box<dyn Iterator<Item = Var> + Send + Sync>);
 
 #[pymethods]
 impl VarIter {
@@ -166,11 +166,14 @@ fn convert_py_idx(idx: isize, len: usize) -> usize {
 
 #[pymethods]
 impl TimeTable {
-    fn __getitem__(&self, idx: isize, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+    fn __getitem__<'a>(&self, idx: isize, py: Python<'a>) -> PyResult<Option<Bound<'a, PyInt>>> {
         let len = self.0.len();
-
         let idx = convert_py_idx(idx, len);
-        Ok(self.0.get(idx).cloned().map(|val| val.to_object(py)))
+        Ok(self
+            .0
+            .get(idx)
+            .cloned()
+            .map(|val| val.into_pyobject(py).unwrap()))
     }
 }
 
