@@ -215,7 +215,7 @@ impl Signal {
             SignalChangeData::FixedLength { bytes, .. } => bytes.len(),
             SignalChangeData::VariableLength(strings) => strings
                 .iter()
-                .map(|s| s.as_bytes().len() + std::mem::size_of::<String>())
+                .map(|s| s.len() + std::mem::size_of::<String>())
                 .sum::<usize>(),
         };
         base + time + data

@@ -702,11 +702,7 @@ impl Hierarchy {
         let var_size = self.vars.capacity() * std::mem::size_of::<Var>();
         let scope_size = self.scopes.capacity() * std::mem::size_of::<Scope>();
         let string_size = self.strings.capacity() * std::mem::size_of::<String>()
-            + self
-                .strings
-                .iter()
-                .map(|s| s.as_bytes().len())
-                .sum::<usize>();
+            + self.strings.iter().map(|s| s.len()).sum::<usize>();
         let handle_lookup_size = self.signal_idx_to_var.capacity() * std::mem::size_of::<VarRef>();
         var_size + scope_size + string_size + handle_lookup_size + std::mem::size_of::<Hierarchy>()
     }

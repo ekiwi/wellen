@@ -634,13 +634,9 @@ fn id_to_int(id: &[u8]) -> Option<u64> {
             return None;
         }
         let c = ((i - ID_CHAR_MIN) as u64) + 1;
-        result = match result
+        result = result
             .checked_mul(NUM_ID_CHARS)
-            .and_then(|x| x.checked_add(c))
-        {
-            None => return None,
-            Some(value) => value,
-        };
+            .and_then(|x| x.checked_add(c))?;
     }
     Some(result - 1)
 }
