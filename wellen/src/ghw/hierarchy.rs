@@ -393,6 +393,21 @@ fn read_type_section(
                 }
                 VhdlType::from_record(name, fields)
             }
+            GhwRtik::SubtypeRecord => {
+                // a subtype is a constraint version of the original type
+                // like: https://stackoverflow.com/questions/61895716/what-is-the-point-of-a-subtype-when-a-type-can-be-constrained
+                let base = read_type_id(input)?;
+                let base_tpe = lookup_concrete_type(&types, base);
+                if let VhdlType::Record(base_name, base_fields) = base_tpe {
+                    todo!(
+                        "subtype {} of {} {base_fields:?}",
+                        strings[name.0],
+                        strings[base_name.0]
+                    )
+                } else {
+                    panic!("unexpected base type {base_tpe:?}, expected record")
+                }
+            }
             other => todo!("Support: {other:?}"),
         };
         types.push(tpe);

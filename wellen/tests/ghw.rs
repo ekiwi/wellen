@@ -103,3 +103,11 @@ fn test_issue_12_regression() {
         ["uuu", "111", "000", "001", "010", "111", "000", "001"]
     );
 }
+
+/// See: https://github.com/ekiwi/wellen/issues/32
+/// SubtypeRecord was not implemented
+#[test]
+fn test_issue_32_ghw_subtype_record() {
+    let filename = "inputs/ghdl/wellen_issue_32.ghw";
+    let _waves = read(filename).expect("failed to parse");
+}
