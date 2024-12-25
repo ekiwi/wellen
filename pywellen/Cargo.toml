@@ -12,5 +12,5 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 bytemuck = "1.18.0"
 num-bigint = "0.4.6"
-pyo3 = { version = "0.21.1", features = ["num-bigint"] }
+pyo3 = { version = "0.21.1", features = ["num-bigint", "extension-module"] }
 wellen = { workspace = true }
