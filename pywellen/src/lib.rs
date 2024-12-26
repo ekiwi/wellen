@@ -322,13 +322,22 @@ impl Signal {
     ) -> PyResult<Signal> {
         let width = new_width.unwrap_or_else(|| self.signal.width().unwrap());
         let mut builder = wellen::BitVectorBuilder::new(self.signal.max_states().unwrap(), width);
+
         for (idx, val) in self.signal.as_ref().iter_changes() {
             let py_val = wellen_signal_value_to_py(val, py).ok_or(PyRuntimeError::new_err(
                 "Could not convert signal value to python object",
             ))?;
             let result = func.call_method("__call__", (py_val,), None)?;
             let val: BigUint = result.extract()?;
-            let bytes = val.to_bytes_be();
+            let mut bytes = val.to_bytes_be();
+            // Calculate expected number of bytes (rounding up)
+            let expected_bytes = (width as usize + 7) / 8;
+            // Pad with leading zeros for big-endian representation if needed
+            if bytes.len() < expected_bytes {
+                let padding = vec![0; expected_bytes - bytes.len()];
+                // Padding goes first for big-endian (most significant bytes)
+                bytes = [padding, bytes].concat();
+            }
             builder.add_change(idx, wellen::SignalValue::Binary(bytes.as_slice(), width));
         }
 
@@ -356,7 +365,17 @@ impl Signal {
             // Shift right to remove lower bits, then mask off higher bits
             let val = (val >> starting) & ((BigUint::from(1u32) << width) - BigUint::from(1u32));
 
-            let bytes = val.to_bytes_be();
+            let mut bytes = val.to_bytes_be();
+
+            // Calculate expected number of bytes (rounding up)
+            let expected_bytes = (width as usize + 7) / 8;
+            // Pad with leading zeros for big-endian representation if needed
+            if bytes.len() < expected_bytes {
+                let padding = vec![0; expected_bytes - bytes.len()];
+                // Padding goes first for big-endian (most significant bytes)
+                bytes = [padding, bytes].concat();
+            }
+
             builder.add_change(idx, wellen::SignalValue::Binary(bytes.as_slice(), width));
         }
 
