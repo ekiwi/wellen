@@ -341,7 +341,7 @@ impl Signal {
     }
 
     pub fn sliced(&self, starting: u32, ending: u32) -> PyResult<Signal> {
-        let width = ending.checked_sub(starting).ok_or(PyRuntimeError::new_err(
+        let width = 1 + ending.checked_sub(starting).ok_or(PyRuntimeError::new_err(
             "Slicing failed because starting idx was less than ending idx",
         ))?;
         let mut builder = wellen::BitVectorBuilder::new(self.signal.max_states().unwrap(), width);
