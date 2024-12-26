@@ -260,6 +260,10 @@ impl Signal {
     pub fn width(&self) -> Option<u32> {
         self.data.width()
     }
+
+    pub fn signal_ref(&self) -> SignalRef {
+        self.idx
+    }
 }
 
 pub struct SignalChangeIterator<'a> {

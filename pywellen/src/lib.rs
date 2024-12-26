@@ -313,6 +313,61 @@ pub struct Signal {
 
 #[pymethods]
 impl Signal {
+    #[pyo3(signature = (func, new_width = None))]
+    pub fn map(
+        &self,
+        py: Python<'_>,
+        func: Bound<'_, PyAny>,
+        new_width: Option<u32>,
+    ) -> PyResult<Signal> {
+        let width = new_width.unwrap_or_else(|| self.signal.width().unwrap());
+        let mut builder = wellen::BitVectorBuilder::new(self.signal.max_states().unwrap(), width);
+        for (idx, val) in self.signal.as_ref().iter_changes() {
+            let py_val = wellen_signal_value_to_py(val, py).ok_or(PyRuntimeError::new_err(
+                "Could not convert signal value to python object",
+            ))?;
+            let result = func.call_method("__call__", (py_val,), None)?;
+            let val: BigUint = result.extract()?;
+            let bytes = val.to_bytes_be();
+            builder.add_change(idx, wellen::SignalValue::Binary(bytes.as_slice(), width));
+        }
+
+        let new_signal = builder.finish(wellen::SignalRef::from_index(0xbeebabe5).unwrap());
+
+        Ok(Signal {
+            signal: Arc::new(new_signal),
+            all_times: self.all_times.clone(),
+        })
+    }
+
+    pub fn sliced(&self, starting: u32, ending: u32) -> PyResult<Signal> {
+        let width = ending.checked_sub(starting).ok_or(PyRuntimeError::new_err(
+            "Slicing failed because starting idx was less than ending idx",
+        ))?;
+        let mut builder = wellen::BitVectorBuilder::new(self.signal.max_states().unwrap(), width);
+        for (idx, val) in self.signal.as_ref().iter_changes() {
+            let val: BigUint = BigUint::try_from_signal(val).ok_or_else(|| {
+                PyRuntimeError::new_err(format!(
+                    "Could not convert signal value to BigUint, with value {:?}",
+                    val.to_bit_string().unwrap()
+                ))
+            })?;
+
+            // Shift right to remove lower bits, then mask off higher bits
+            let val = (val >> starting) & ((BigUint::from(1u32) << width) - BigUint::from(1u32));
+
+            let bytes = val.to_bytes_be();
+            builder.add_change(idx, wellen::SignalValue::Binary(bytes.as_slice(), width));
+        }
+
+        let new_signal = builder.finish(self.signal.signal_ref());
+
+        Ok(Signal {
+            signal: Arc::new(new_signal),
+            all_times: self.all_times.clone(),
+        })
+    }
+
     pub fn value_at_time(&self, time: wellen::Time, py: Python<'_>) -> Option<Py<PyAny>> {
         let val = self
             .all_times
@@ -351,6 +406,20 @@ impl Signal {
             signal: self.clone(),
             offset: 0,
         }
+    }
+}
+
+fn wellen_signal_value_to_py(signal: wellen::SignalValue, py: Python<'_>) -> Option<Py<PyAny>> {
+    match signal {
+        wellen::SignalValue::Real(inner) => Some(inner.to_object(py)),
+        wellen::SignalValue::String(str) => Some(str.to_object(py)),
+        _ => match BigUint::try_from_signal(signal) {
+            // If this signal is 2bits, this function will return an int
+            Some(number) => Some(number.to_object(py)),
+            // if this signal is not 2bits (e.g. it contains z,x, etc) then this function
+            // will return a string
+            None => signal.to_bit_string().map(|val| val.to_object(py)),
+        },
     }
 }
 
