@@ -109,5 +109,21 @@ fn test_issue_12_regression() {
 #[test]
 fn test_issue_32_ghw_subtype_record() {
     let filename = "inputs/ghdl/wellen_issue_32.ghw";
-    let _waves = read(filename).expect("failed to parse");
+    let wave = read(filename).expect("failed to parse");
+    let h = wave.hierarchy();
+
+    // check that the record has been turned into a scope
+    let scope = ["wellen_32", "spisub_s"];
+    let s = h.get(h.lookup_scope(&scope).unwrap());
+    assert_eq!(s.scope_type(), ScopeType::VhdlRecord);
+
+    // check that all fields have been converted into signals
+    let spi_signals = ["sclk", "mosi", "miso", "cs_n"];
+    for signal in spi_signals {
+        let var_id = h.lookup_var(&scope, &signal).unwrap();
+        assert_eq!(
+            h.get(var_id).full_name(h),
+            format!("wellen_32.spisub_s.{signal}")
+        );
+    }
 }

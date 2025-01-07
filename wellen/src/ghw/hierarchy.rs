@@ -398,12 +398,10 @@ fn read_type_section(
                 // like: https://stackoverflow.com/questions/61895716/what-is-the-point-of-a-subtype-when-a-type-can-be-constrained
                 let base = read_type_id(input)?;
                 let base_tpe = lookup_concrete_type(&types, base);
-                if let VhdlType::Record(base_name, base_fields) = base_tpe {
-                    todo!(
-                        "subtype {} of {} {base_fields:?}",
-                        strings[name.0],
-                        strings[base_name.0]
-                    )
+                if let VhdlType::Record(_base_name, base_fields) = base_tpe {
+                    // TODO: currently we assume that the record this is refering to is bound
+                    //       and thus only an alias (like a Rust "type .... = ...") is created.
+                    VhdlType::Record(name, base_fields.clone())
                 } else {
                     panic!("unexpected base type {base_tpe:?}, expected record")
                 }
