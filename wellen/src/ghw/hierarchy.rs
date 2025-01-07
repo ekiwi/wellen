@@ -793,43 +793,26 @@ fn read_hierarchy_section(
     Ok(decode_info)
 }
 
-fn dummy_read_signal_value(
-    tables: &GhwTables,
+/// used in order to get the value of an iterator variable in a generate for
+fn read_signal_value_to_str(
+    _tables: &GhwTables,
     tpe: &VhdlType,
     input: &mut impl BufRead,
-) -> Result<()> {
-    match tpe {
+) -> Result<String> {
+    let s = match tpe {
         VhdlType::NineValueBit(_) | VhdlType::Bit(_) | VhdlType::Enum(_, _, _) => {
-            let _dummy = read_u8(input)?;
-        }
-        VhdlType::NineValueVec(_, range) | VhdlType::BitVec(_, range) => {
-            for _ in range.range() {
-                let _dummy = read_u8(input)?;
-            }
+            format!("{}", read_u8(input)?)
         }
         VhdlType::I32(_, _) | VhdlType::I64(_, _) => {
-            let _dummy = leb128::read::signed(input)?;
+            format!("{}", leb128::read::signed(input)?)
         }
         VhdlType::F64(_, _) => {
-            let _dummy = read_f64_le(input)?;
-        }
-        VhdlType::Record(_, fields) => {
-            for (_, tpe_id) in fields.iter() {
-                let (f_tpe, _) = tables.get_type_and_name(*tpe_id);
-                dummy_read_signal_value(tables, f_tpe, input)?;
-            }
-        }
-        VhdlType::Array(_, el_tpe_id, maybe_range) => {
-            let (element_tpe, _) = tables.get_type_and_name(*el_tpe_id);
-            if let Some(range) = maybe_range {
-                for _ in range.range() {
-                    dummy_read_signal_value(tables, element_tpe, input)?;
-                }
-            }
+            format!("{}", read_f64_le(input)?)
         }
         VhdlType::TypeAlias(_, _) => unreachable!("type should have been resolved"),
-    }
-    Ok(())
+        other => todo!("add support for {other:?}"),
+    };
+    Ok(s)
 }
 
 fn read_hierarchy_scope(
@@ -839,17 +822,21 @@ fn read_hierarchy_scope(
     h: &mut HierarchyBuilder,
 ) -> Result<()> {
     let name = read_string_id(input)?;
+    let name = tables.get_str(name);
 
-    if kind == GhwHierarchyKind::GenerateFor {
+    let name = if kind == GhwHierarchyKind::GenerateFor {
         let iter_tpe_id = read_type_id(input)?;
         let (iter_tpe, _) = tables.get_type_and_name(iter_tpe_id);
-        dummy_read_signal_value(tables, iter_tpe, input)?;
-        // we currently do not make use of the actual value
-    }
+        let value = read_signal_value_to_str(tables, iter_tpe, input)?;
+        // create a new name based on the value
+        let name = format!("{}({})", h.get_str(name), value);
+        h.add_string(name)
+    } else {
+        name
+    };
 
     h.add_scope(
-        // TODO: this does not take advantage of the string duplication done in GHW
-        tables.get_str(name),
+        name,
         None, // TODO: do we know, e.g., the name of a module if we have an instance?
         convert_scope_type(kind),
         None, // no source info in GHW

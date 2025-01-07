@@ -127,3 +127,16 @@ fn test_issue_32_ghw_subtype_record() {
         );
     }
 }
+
+/// See: https://github.com/ekiwi/wellen/issues/6
+/// signals resulting from a `generate-for` construct used to get aliasing scope names
+#[test]
+fn test_issue_6_generate_for_aliasing() {
+    let filename = "inputs/ghdl/wellen_issue_6.ghw";
+    let wave = read(filename).expect("failed to parse");
+    let h = wave.hierarchy();
+    let root_scope = h.get(h.lookup_scope(&["wellen_6"]).unwrap());
+    let scopes = root_scope.scopes(h).collect::<Vec<_>>();
+    let scope_names = scopes.iter().map(|s| h.get(*s).name(h)).collect::<Vec<_>>();
+    assert_eq!(scope_names, ["gen(0)", "gen(1)", "gen(2)", "gen(3)"]);
+}
