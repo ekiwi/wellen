@@ -140,3 +140,12 @@ fn test_issue_6_generate_for_aliasing() {
     let scope_names = scopes.iter().map(|s| h.get(*s).name(h)).collect::<Vec<_>>();
     assert_eq!(scope_names, ["gen(0)", "gen(1)", "gen(2)", "gen(3)"]);
 }
+
+/// See: https://github.com/ekiwi/wellen/issues/34
+/// Previously we only handled subtype of constrained records
+#[test]
+fn test_issue_34_ghw_unconstrained_subtype_record() {
+    let filename = "inputs/ghdl/wellen_issue_34.ghw";
+    let wave = read(filename).expect("failed to parse");
+    let h = wave.hierarchy();
+}
