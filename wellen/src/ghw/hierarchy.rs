@@ -382,6 +382,10 @@ fn read_type_section(
                 let range = read_range(input)?;
                 VhdlType::from_subtype_array(name, &types, base, range)
             }
+            GhwRtik::SubtypeUnboundedArray => {
+                let base = read_type_id(input)?;
+                VhdlType::from_subtype_unbounded_array(name, &types, base)
+            }
             GhwRtik::TypeRecord => {
                 let num_fields = leb128::read::unsigned(input)?;
                 let mut fields = Vec::with_capacity(num_fields as usize);
@@ -424,16 +428,16 @@ fn read_type_section(
 
 /// Our own custom representation of VHDL Types.
 /// During GHW parsing we convert the GHDL types to our own representation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum VhdlType {
     /// std_logic or std_ulogic
     NineValueBit(StringId),
     /// std_logic_vector or std_ulogic_vector
-    NineValueVec(StringId, IntRange),
+    NineValueVec(StringId, Option<IntRange>),
     /// bit (2-state)
     Bit(StringId),
     /// bit_vector (2-state)
-    BitVec(StringId, IntRange),
+    BitVec(StringId, Option<IntRange>),
     /// Type alias that does not restrict the underlying type in any way.
     TypeAlias(StringId, TypeId),
     /// Integer type with possible upper and lower bounds.
@@ -503,14 +507,25 @@ impl VhdlType {
         // this one wont be an alias!
         let concrete_element_type = &types[element_tpe_id.index()];
         match (concrete_element_type, index_range) {
-            (VhdlType::NineValueBit(_), Some(range)) => VhdlType::NineValueVec(name, range),
-            (VhdlType::Bit(_), Some(range)) => VhdlType::BitVec(name, range),
+            (VhdlType::NineValueBit(_), Some(range)) => VhdlType::NineValueVec(name, Some(range)),
+            (VhdlType::Bit(_), Some(range)) => VhdlType::BitVec(name, Some(range)),
             _ => VhdlType::Array(name, element_tpe_id, index_range),
         }
     }
 
     fn from_record(name: StringId, fields: Vec<(StringId, TypeId)>) -> Self {
         VhdlType::Record(name, fields)
+    }
+
+    fn from_subtype_unbounded_array(name: StringId, types: &[VhdlType], base: TypeId) -> Self {
+        // removes the range of the base array
+        let base_tpe = lookup_concrete_type(&types, base);
+        match base_tpe {
+            VhdlType::Array(_, element_tpe, _) => VhdlType::Array(name, *element_tpe, None),
+            VhdlType::NineValueVec(_, _) => VhdlType::NineValueVec(name, None),
+            VhdlType::BitVec(_, _) => VhdlType::BitVec(name, None),
+            _ => panic!("unexpected base type {base_tpe:?}, expected array"),
+        }
     }
 
     fn from_subtype_array(name: StringId, types: &[VhdlType], base: TypeId, range: Range) -> Self {
@@ -529,19 +544,19 @@ impl VhdlType {
                     Some(int_range),
                 )
             }
-            (VhdlType::NineValueVec(base_name, base_range), Range::Int(int_range)) => {
+            (VhdlType::NineValueVec(base_name, Some(base_range)), Range::Int(int_range)) => {
                 debug_assert!(
                     int_range.is_subset_of(base_range),
                     "{int_range:?} {base_range:?}"
                 );
-                VhdlType::NineValueVec(pick_best_name(name, *base_name), int_range)
+                VhdlType::NineValueVec(pick_best_name(name, *base_name), Some(int_range))
             }
-            (VhdlType::BitVec(base_name, base_range), Range::Int(int_range)) => {
+            (VhdlType::BitVec(base_name, Some(base_range)), Range::Int(int_range)) => {
                 debug_assert!(
                     int_range.is_subset_of(base_range),
                     "{int_range:?} {base_range:?}"
                 );
-                VhdlType::BitVec(pick_best_name(name, *base_name), int_range)
+                VhdlType::BitVec(pick_best_name(name, *base_name), Some(int_range))
             }
             other => todo!("Currently unsupported combination: {other:?}"),
         }
@@ -611,6 +626,9 @@ impl VhdlType {
             VhdlType::I32(_, range) => *range,
             VhdlType::I64(_, range) => *range,
             VhdlType::Enum(_, lits, _) => Some(IntRange(RangeDir::To, 0, lits.len() as i64)),
+            VhdlType::NineValueVec(_, range) => *range,
+            VhdlType::BitVec(_, range) => *range,
+            VhdlType::Array(_, _, range) => *range,
             _ => None,
         }
     }
@@ -1183,7 +1201,7 @@ fn add_var(
                 Some(tpe_name),
             );
         }
-        VhdlType::NineValueVec(_, range) | VhdlType::BitVec(_, range) => {
+        VhdlType::NineValueVec(_, Some(range)) | VhdlType::BitVec(_, Some(range)) => {
             let num_bits = range.len().unsigned_abs() as u32;
             if num_bits == 0 {
                 // TODO: how should we correctly deal with an empty vector?
