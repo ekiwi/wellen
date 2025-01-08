@@ -148,4 +148,33 @@ fn test_issue_34_ghw_unconstrained_subtype_record() {
     let filename = "inputs/ghdl/wellen_issue_34.ghw";
     let wave = read(filename).expect("failed to parse");
     let h = wave.hierarchy();
+
+    // find record scope
+    let root_scope = h.get(h.lookup_scope(&["wellen_34"]).unwrap());
+    let constrained_s = h.get(root_scope.scopes(h).next().unwrap());
+    assert_eq!(constrained_s.full_name(h), "wellen_34.constrained_s");
+    assert_eq!(constrained_s.scope_type(), ScopeType::VhdlRecord);
+
+    // check record fields
+    let p = ["wellen_34", "constrained_s"];
+
+    let datavalid = h.get(h.lookup_var(&p, &"datavalid").unwrap());
+    assert!(datavalid.is_1bit());
+    assert!(datavalid.is_bit_vector());
+    assert_eq!(datavalid.var_type(), VarType::StdLogic);
+    assert_eq!(datavalid.vhdl_type_name(h), Some("std_logic"));
+
+    let data = h.get(h.lookup_var(&p, &"data").unwrap());
+    assert_eq!(data.length().unwrap(), 33);
+    assert_eq!(data.index().unwrap().lsb(), 0);
+    assert_eq!(data.index().unwrap().msb(), 32);
+    assert_eq!(data.var_type(), VarType::StdLogicVector);
+    assert_eq!(data.vhdl_type_name(h), Some("std_logic_vector"));
+
+    let address = h.get(h.lookup_var(&p, &"address").unwrap());
+    assert_eq!(address.length().unwrap(), 8);
+    assert_eq!(address.index().unwrap().lsb(), 0);
+    assert_eq!(address.index().unwrap().msb(), 7);
+    assert_eq!(address.var_type(), VarType::StdLogicVector);
+    assert_eq!(address.vhdl_type_name(h), Some("std_logic_vector"));
 }

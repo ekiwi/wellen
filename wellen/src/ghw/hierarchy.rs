@@ -340,10 +340,10 @@ fn read_type_section(
     check_header_zeros("type", &h)?;
 
     let type_num = header.read_u32(&mut &h[4..8])?;
-    let mut types = Vec::with_capacity(type_num as usize);
+    let mut types = vec![VhdlType::Missing; type_num as usize];
     let mut enum_count = 0;
 
-    for _ in 0..type_num {
+    for new_tpe_id in 0..type_num {
         let t = read_u8(input)?;
         let kind = GhwRtik::try_from_primitive(t)?;
         let name = read_string_id(input)?;
@@ -401,19 +401,55 @@ fn read_type_section(
                 // a subtype is a constraint version of the original type
                 // like: https://stackoverflow.com/questions/61895716/what-is-the-point-of-a-subtype-when-a-type-can-be-constrained
                 let base = read_type_id(input)?;
-                let base_tpe = lookup_concrete_type(&types, base);
+                let base_tpe = lookup_concrete_type(&types, base).clone();
                 if let VhdlType::Record(_base_name, base_fields) = base_tpe {
-                    // TODO: currently we assume that the record this is refering to is bound
-                    //       and thus only an alias (like a Rust "type .... = ...") is created.
-                    VhdlType::Record(name, base_fields.clone())
+                    // check to see if any of the base record fields need are missing a range
+                    let mut is_alias = true;
+                    let mut fields = Vec::with_capacity(base_fields.len());
+                    for (name, tpe_id) in base_fields {
+                        let tpe_id = match lookup_concrete_type(&types, tpe_id) {
+                            VhdlType::Array(_, _, None)
+                            | VhdlType::BitVec(_, None)
+                            | VhdlType::NineValueVec(_, None) => {
+                                // the subtype is not an alias since it includes additional constraints
+                                is_alias = false;
+
+                                // we get a `GhwRtik::SubtypeArray` entry
+                                let sub_name = StringId::none();
+                                let sub_base = tpe_id;
+                                let sub_range = read_range(input)?;
+                                let sub = VhdlType::from_subtype_array(
+                                    sub_name, &types, sub_base, sub_range,
+                                );
+                                // add a new type which did not exist in the original GHW
+                                types.push(sub);
+                                TypeId::from_index(types.len() - 1)
+                            }
+                            // TODO: handle unbounded record
+                            _ => tpe_id,
+                        };
+                        fields.push((name, tpe_id));
+                    }
+
+                    if is_alias {
+                        VhdlType::TypeAlias(name, base)
+                    } else {
+                        VhdlType::Record(name, fields)
+                    }
                 } else {
                     panic!("unexpected base type {base_tpe:?}, expected record")
                 }
             }
             other => todo!("Support: {other:?}"),
         };
-        types.push(tpe);
+        debug_assert!(matches!(types[new_tpe_id as usize], VhdlType::Missing));
+        types[new_tpe_id as usize] = tpe;
     }
+
+    debug_assert!(
+        types.iter().all(|t| !matches!(t, VhdlType::Missing)),
+        "internal error: missing type!"
+    );
 
     // the type section should end in zero
     if read_u8(input)? != 0 {
@@ -452,6 +488,8 @@ enum VhdlType {
     Enum(StringId, Vec<StringId>, u16),
     /// Array
     Array(StringId, TypeId, Option<IntRange>),
+    /// A type that has not been read in yet. Should never be encountered.
+    Missing,
 }
 
 /// resolves 1 layer of type aliases
@@ -544,18 +582,22 @@ impl VhdlType {
                     Some(int_range),
                 )
             }
-            (VhdlType::NineValueVec(base_name, Some(base_range)), Range::Int(int_range)) => {
-                debug_assert!(
-                    int_range.is_subset_of(base_range),
-                    "{int_range:?} {base_range:?}"
-                );
+            (VhdlType::NineValueVec(base_name, maybe_base_range), Range::Int(int_range)) => {
+                if let Some(base_range) = maybe_base_range {
+                    debug_assert!(
+                        int_range.is_subset_of(base_range),
+                        "{int_range:?} {base_range:?}"
+                    );
+                }
                 VhdlType::NineValueVec(pick_best_name(name, *base_name), Some(int_range))
             }
-            (VhdlType::BitVec(base_name, Some(base_range)), Range::Int(int_range)) => {
-                debug_assert!(
-                    int_range.is_subset_of(base_range),
-                    "{int_range:?} {base_range:?}"
-                );
+            (VhdlType::BitVec(base_name, maybe_base_range), Range::Int(int_range)) => {
+                if let Some(base_range) = maybe_base_range {
+                    debug_assert!(
+                        int_range.is_subset_of(base_range),
+                        "{int_range:?} {base_range:?}"
+                    );
+                }
                 VhdlType::BitVec(pick_best_name(name, *base_name), Some(int_range))
             }
             other => todo!("Currently unsupported combination: {other:?}"),
@@ -617,6 +659,7 @@ impl VhdlType {
             VhdlType::Record(name, _) => *name,
             VhdlType::Enum(name, _, _) => *name,
             VhdlType::Array(name, _, _) => *name,
+            VhdlType::Missing => panic!("missing type, no name"),
         }
     }
 
@@ -1317,6 +1360,13 @@ fn convert_kind_to_dir(kind: GhwHierarchyKind) -> VarDirection {
 /// Pointer into the GHW string table.
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct StringId(usize);
+
+impl StringId {
+    fn none() -> Self {
+        Self(0)
+    }
+}
+
 /// Pointer into the GHW type table. Always positive!
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct TypeId(NonZeroU32);
@@ -1324,6 +1374,9 @@ struct TypeId(NonZeroU32);
 impl TypeId {
     fn index(&self) -> usize {
         (self.0.get() - 1) as usize
+    }
+    fn from_index(index: usize) -> Self {
+        Self(NonZeroU32::new(index as u32 + 1).unwrap())
     }
 }
 
