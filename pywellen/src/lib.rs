@@ -353,6 +353,9 @@ impl Signal {
         let width = 1 + ending.checked_sub(starting).ok_or(PyRuntimeError::new_err(
             "Slicing failed because starting idx was less than ending idx",
         ))?;
+        println!("sliced width is {:?}", width);
+        println!("max states is {:?}", self.signal.max_states());
+
         let mut builder = wellen::BitVectorBuilder::new(self.signal.max_states().unwrap(), width);
         for (idx, val) in self.signal.as_ref().iter_changes() {
             let val: BigUint = BigUint::try_from_signal(val).ok_or_else(|| {
