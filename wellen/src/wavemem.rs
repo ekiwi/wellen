@@ -11,6 +11,7 @@ use crate::hierarchy::{Hierarchy, SignalRef};
 use crate::signals::{
     FixedWidthEncoding, Real, Signal, SignalSource, SignalSourceImplementation, Time, TimeTableIdx,
 };
+use crate::vcd::{decode_vcd_bit_vec_change, VcdBitVecChange};
 use crate::{SignalEncoding, SignalValue, TimeTable};
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
@@ -502,7 +503,7 @@ impl Encoder {
 
     /// Call with an unaltered VCD value.
     pub fn vcd_value_change(&mut self, id: u64, value: &[u8]) {
-        assert!(
+        debug_assert!(
             !self.time_table.is_empty(),
             "We need a call to time_change first!"
         );
@@ -515,7 +516,7 @@ impl Encoder {
 
     /// Call with a value that is already encoded in our internal format.
     pub fn raw_value_change(&mut self, id: SignalRef, value: &[u8], states: States) {
-        assert!(
+        debug_assert!(
             !self.time_table.is_empty(),
             "We need a call to time_change first!"
         );
@@ -805,66 +806,20 @@ impl SignalEncoder {
         let time_idx_delta = time_index - self.prev_time_idx;
         match self.tpe {
             SignalEncoding::BitVector(len) => {
-                if len.get() == 1 {
-                    // Simplify parsing of non-compliant output by checking last character
-                    let value_char = match value.last() {
-                        // special handling for empty values which we always treat as zero
-                        None => b'0',
-                        // special handling for zero-length vector
-                        Some(b'b') => b'0',
-                        Some(v) => *v,
-                    };
-                    let states =
-                        try_write_1_bit_9_state(time_idx_delta, value_char, &mut self.data)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "Failed to parse nine-state value: {} for signal of size 1",
-                                    String::from_utf8_lossy(value)
-                                )
-                            });
-                    self.max_states = States::join(self.max_states, states);
-                } else {
-                    let value_bits: &[u8] = match value[0] {
-                        b'b' | b'B' => &value[1..],
-                        _ => value,
-                    };
-                    // special detection for pymtl3 which adds an extra `0b` for all bit vectors
-                    let value_bits: &[u8] = if value_bits.len() <= 2 {
-                        value_bits
-                    } else {
-                        match &value_bits[0..2] {
-                            b"0b" => &value_bits[2..],
-                            _ => value_bits,
-                        }
-                    };
-                    let states = check_states(value_bits).unwrap_or_else(|| {
-                        panic!(
-                            "Bit-vector contains invalid character. Only 2-, 4-, and 9-state signals are supported: {}",
-                            String::from_utf8_lossy(value)
-                        )
-                    });
-                    self.max_states = States::join(self.max_states, states);
+                let (data, states) = decode_vcd_bit_vec_change(len, value);
+                self.max_states = States::join(self.max_states, states);
 
-                    // write time delta + num-states meta-data
-                    let time_and_meta = (time_idx_delta as u64) << 2 | (states as u64);
-                    leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
-                    // write actual data
-                    let bits = len.get() as usize;
-                    let data_to_write = if value_bits.len() == bits {
-                        Cow::Borrowed(value_bits)
-                    } else {
-                        let expanded = expand_special_vector_cases(value_bits, bits)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "Failed to parse four-state value: {} for signal of size {}",
-                                    String::from_utf8_lossy(value),
-                                    bits
-                                )
-                            });
-                        assert_eq!(expanded.len(), bits);
-                        Cow::Owned(expanded)
-                    };
-                    write_n_state(states, &data_to_write, &mut self.data, None);
+                match data {
+                    VcdBitVecChange::SingleBit(bit_value) => {
+                        let write_value = ((time_idx_delta as u64) << 4) + bit_value as u64;
+                        leb128::write::unsigned(&mut self.data, write_value).unwrap();
+                    }
+                    VcdBitVecChange::MultiBit(data_to_write) => {
+                        // write time delta + num-states meta-data
+                        let time_and_meta = (time_idx_delta as u64) << 2 | (states as u64);
+                        leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
+                        write_n_state(states, &data_to_write, &mut self.data, None);
+                    }
                 }
             }
             SignalEncoding::String => {
@@ -953,31 +908,6 @@ pub(crate) fn compress_signal(signal: &Signal) -> Option<(Vec<u8>, SignalEncodin
     enc.finish()
 }
 
-#[inline]
-fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
-    // if the value is actually longer than expected, there is nothing we can do
-    if value.len() >= len {
-        return None;
-    }
-
-    // zero, x or z extend
-    match value[0] {
-        b'1' | b'0' => {
-            let mut extended = Vec::with_capacity(len);
-            extended.resize(len - value.len(), b'0');
-            extended.extend_from_slice(value);
-            Some(extended)
-        }
-        b'x' | b'X' | b'z' | b'Z' => {
-            let mut extended = Vec::with_capacity(len);
-            extended.resize(len - value.len(), value[0]);
-            extended.extend_from_slice(value);
-            Some(extended)
-        }
-        _ => None, // failed
-    }
-}
-
 #[repr(u8)]
 #[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
@@ -990,7 +920,7 @@ pub enum States {
 }
 
 impl States {
-    fn from_value(value: u8) -> Self {
+    pub fn from_value(value: u8) -> Self {
         if value <= 1 {
             States::Two
         } else if value <= 3 {
@@ -1139,22 +1069,6 @@ pub fn bit_char_to_num(value: u8) -> Option<u8> {
         b'l' | b'L' => Some(7), // weak 1
         b'-' => Some(8),        // don't care
         _ => None,
-    }
-}
-
-#[inline]
-fn try_write_1_bit_9_state(
-    time_index_delta: TimeTableIdx,
-    value: u8,
-    data: &mut Vec<u8>,
-) -> Option<States> {
-    if let Some(bit_value) = bit_char_to_num(value) {
-        let write_value = ((time_index_delta as u64) << 4) + bit_value as u64;
-        leb128::write::unsigned(data, write_value).unwrap();
-        let states = States::from_value(bit_value);
-        Some(states)
-    } else {
-        None
     }
 }
 
