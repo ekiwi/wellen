@@ -1,6 +1,7 @@
 // Copyright 2023-2024 The Regents of the University of California
+// Copyright 2024-2025 Cornell University
 // released under BSD 3-Clause License
-// author: Kevin Laeufer <laeufer@berkeley.edu>
+// author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::hierarchy::SignalRef;

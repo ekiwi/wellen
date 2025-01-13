@@ -1,6 +1,7 @@
 // Copyright 2023-2024 The Regents of the University of California
+// Copyright 2024-2025 Cornell University
 // released under BSD 3-Clause License
-// author: Kevin Laeufer <laeufer@berkeley.edu>
+// author: Kevin Laeufer <laeufer@cornell.edu>
 //
 // A simpler interface to load waves. Use this instead of `wellen::viewers` if you are building
 // a batch processing instead of a GUI app.
