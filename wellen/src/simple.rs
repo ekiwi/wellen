@@ -2,9 +2,10 @@
 // Copyright 2024-2025 Cornell University
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
-//
-// A simpler interface to load waves. Use this instead of `wellen::viewers` if you are building
-// a batch processing instead of a GUI app.
+
+//! # Simple Waveform Interface
+//! A simpler interface to load waves. Use this instead of `wellen::viewers` if you are building
+//! a batch processing instead of a GUI app.
 
 use crate::{
     Hierarchy, LoadOptions, Result, Signal, SignalRef, SignalSource, Time, TimeTable, viewers,
@@ -56,7 +57,7 @@ pub struct Waveform {
 
 impl Debug for Waveform {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Waveform(...)")
+        write!(f, "simple::Waveform(...)")
     }
 }
 

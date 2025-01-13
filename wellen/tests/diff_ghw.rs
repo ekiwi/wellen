@@ -5,6 +5,8 @@
 //
 // here we are comparing fst and ghw files, both loaded with wellen
 
+mod utils;
+use utils::{diff_signals, load_all_signals};
 use wellen::simple::*;
 use wellen::*;
 
@@ -113,121 +115,6 @@ fn as_fs(timescale: Timescale) -> u64 {
         TimescaleUnit::Unknown => unreachable!("should not get here!"),
     };
     timescale.factor as u64 * factor
-}
-
-fn get_all_signals(w: &Waveform) -> Vec<SignalRef> {
-    w.hierarchy()
-        .get_unique_signals_vars()
-        .iter()
-        .flatten()
-        .map(|v| v.signal_ref())
-        .collect()
-}
-
-fn load_all_signals(our: &mut Waveform) {
-    let all_signals = get_all_signals(our);
-    our.load_signals(&all_signals);
-}
-
-fn diff_signals(ghw: &mut Waveform, fst: &mut Waveform, time_factor: u64) {
-    // with the same time tables, comparisons become much easier!
-    assert_eq!(time_factor, 1);
-    assert_eq!(ghw.time_table(), fst.time_table());
-
-    let time_table = Vec::from_iter(ghw.time_table().iter().cloned());
-
-    let all_signals_ghw = get_all_signals(ghw);
-    let all_signals_fst = get_all_signals(fst);
-    assert_eq!(all_signals_ghw, all_signals_fst);
-
-    let ghw_signal_vars: Vec<_> = ghw
-        .hierarchy()
-        .get_unique_signals_vars()
-        .iter()
-        .flatten()
-        .cloned()
-        .collect();
-
-    for g_signal_var in ghw_signal_vars.iter() {
-        let signal = g_signal_var.signal_ref();
-        let g = ghw.get_signal(signal).unwrap();
-        let f = fst.get_signal(signal).unwrap();
-
-        for (idx, time) in time_table.iter().enumerate() {
-            let offset_g = g.get_offset(idx as TimeTableIdx);
-            let offset_f = f.get_offset(idx as TimeTableIdx);
-            match (offset_g.clone(), offset_f.clone()) {
-                (Some(og), Some(of)) => {
-                    assert_eq!(og.elements, of.elements, "{signal:?} @ {time}");
-                    let g_value = g.get_value_at(&og, 0);
-                    ensure_minimal_format(g_value);
-                    let f_value = f.get_value_at(&of, 0);
-                    ensure_minimal_format(f_value);
-                    match (g_value, f_value) {
-                        (SignalValue::String(gs), SignalValue::String(fs)) => {
-                            assert_eq!(gs, fs, "{signal:?} @ {time}");
-                        }
-                        (g_value, SignalValue::String(fs)) => {
-                            if let Some((_, mapping)) = g_signal_var.enum_type(ghw.hierarchy()) {
-                                // find enum value
-                                let g_value_str = g_value.to_bit_string().unwrap();
-                                let mut found = false;
-                                for (bits, name) in mapping.iter() {
-                                    if **bits == g_value_str {
-                                        assert_eq!(*name, fs);
-                                        found = true;
-                                    }
-                                }
-                                assert!(
-                                    found,
-                                    "Could not find mapping for {g_value_str}\n{mapping:?}"
-                                );
-                            } else {
-                                println!(
-                                    "Ignoring: {signal:?} @ {time} = {:?} vs {}",
-                                    g_value.to_bit_string(),
-                                    fs
-                                );
-                            }
-                        }
-                        (g_value, f_value) => {
-                            assert_eq!(
-                                g_value.to_bit_string(),
-                                f_value.to_bit_string(),
-                                "{signal:?} @ {time}"
-                            );
-                        }
-                    }
-                }
-                _ => assert_eq!(offset_g, offset_f),
-            }
-        }
-    }
-}
-
-/// Checks to make sure that 4 and 9 state signals are only used when they are required.
-fn ensure_minimal_format(signal_value: SignalValue) {
-    match signal_value {
-        SignalValue::FourValue(_, _) => {
-            let value_str = signal_value.to_bit_string().unwrap();
-            assert!(
-                value_str.contains('x') || value_str.contains('z'),
-                "{value_str} does not need to be represented as a 4-state signal"
-            )
-        }
-        SignalValue::NineValue(_, _) => {
-            let value_str = signal_value.to_bit_string().unwrap();
-            assert!(
-                value_str.contains('h')
-                    || value_str.contains('u')
-                    || value_str.contains('w')
-                    || value_str.contains('l')
-                    || value_str.contains('-'),
-                "{value_str} does not need to be represented as a 9-state signal"
-            )
-        }
-        _ => {} // no check
-    }
 }
 
 #[test]
