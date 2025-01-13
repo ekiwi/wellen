@@ -9,6 +9,7 @@ mod ghw;
 mod hierarchy;
 mod signals;
 pub mod simple;
+pub mod stream;
 mod vcd;
 pub mod viewers;
 mod wavemem;
