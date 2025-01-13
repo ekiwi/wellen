@@ -6,9 +6,10 @@
 use crate::fst::{parse_scope_attributes, parse_var_attributes, Attribute};
 use crate::hierarchy::*;
 use crate::signals::SignalSource;
+use crate::stream::Filter;
 use crate::viewers::ProgressCount;
 use crate::wavemem::Encoder;
-use crate::{FileFormat, LoadOptions, TimeTable};
+use crate::{FileFormat, LoadOptions, SignalValue, Time, TimeTable};
 use fst_reader::{FstVhdlDataType, FstVhdlVarType};
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
@@ -150,6 +151,14 @@ pub fn read_body<R: BufRead + Seek>(
         )?,
     };
     Ok((source, time_table))
+}
+
+pub fn read_body_stream<'a, R: BufRead + Seek>(
+    data: &'a ReadBodyContinuation<R>,
+    hierarchy: &'a Hierarchy,
+    filter: &Filter,
+) -> Result<impl Iterator<Item = (Time, SignalRef, SignalValue<'a>)> + 'a> {
+    todo!("stream from VCD")
 }
 
 const FST_SUP_VAR_DATA_TYPE_BITS: u32 = 10;
@@ -1294,6 +1303,18 @@ enum BodyState {
     ParsingFirstToken,
     ParsingIdToken,
     LookingForEndToken,
+}
+
+//-------------- VCD Streaming ------------
+
+struct StreamIter {}
+
+impl Iterator for StreamIter {
+    type Item = ();
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
