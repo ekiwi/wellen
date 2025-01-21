@@ -282,7 +282,7 @@ impl Signal {
         SignalChangeIterator::new(self)
     }
 
-    pub(crate) fn idx(&self) -> SignalRef {
+    pub fn signal_ref(&self) -> SignalRef {
         self.idx
     }
 

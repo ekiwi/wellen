@@ -883,7 +883,7 @@ impl SignalEncoder {
 
 /// Compress a Signal by replaying all changes on our SignalEncoder.
 pub(crate) fn compress_signal(signal: &Signal) -> Option<(Vec<u8>, SignalEncodingMetaData)> {
-    let mut enc = SignalEncoder::new(signal.signal_encoding(), signal.idx().index());
+    let mut enc = SignalEncoder::new(signal.signal_encoding(), signal.signal_ref().index());
     for (time, value) in signal.iter_changes() {
         match value {
             SignalValue::Binary(value, _) => enc.add_n_bit_change(time, value, States::Two),

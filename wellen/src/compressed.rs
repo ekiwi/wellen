@@ -33,7 +33,7 @@ impl CompressedSignal {
     pub fn compress(signal: &Signal) -> Self {
         if let Some((data, meta)) = compress_signal(signal) {
             CompressedSignal {
-                idx: signal.idx(),
+                idx: signal.signal_ref(),
                 tpe: signal.signal_encoding(),
                 data,
                 encoding: meta,
@@ -41,7 +41,7 @@ impl CompressedSignal {
         } else {
             // empty
             CompressedSignal {
-                idx: signal.idx(),
+                idx: signal.signal_ref(),
                 tpe: signal.signal_encoding(),
                 data: vec![],
                 encoding: SignalEncodingMetaData {

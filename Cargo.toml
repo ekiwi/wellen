@@ -9,7 +9,7 @@ members = ["wellen", "pywellen"]
 default-members = ["wellen"]
 
 [workspace.package]
-version = "0.13.10"
+version = "0.13.11"
 edition = "2021"
 # we require the `div_ceil` method on integers
 rust-version = "1.73.0"
