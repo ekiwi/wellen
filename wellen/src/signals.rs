@@ -154,9 +154,19 @@ pub enum FixedWidthEncoding {
     Real,
 }
 
+impl FixedWidthEncoding {
+    pub fn signal_encoding(&self) -> SignalEncoding {
+        match self {
+            FixedWidthEncoding::BitVector { bits, .. } => {
+                SignalEncoding::BitVector(NonZeroU32::new(*bits).unwrap())
+            }
+            FixedWidthEncoding::Real => SignalEncoding::Real,
+        }
+    }
+}
+
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Signal {
-    #[allow(unused)]
     idx: SignalRef,
     time_indices: Vec<TimeTableIdx>,
     data: SignalChangeData,
@@ -254,6 +264,14 @@ impl Signal {
 
     pub fn iter_changes(&self) -> SignalChangeIterator {
         SignalChangeIterator::new(self)
+    }
+
+    pub(crate) fn idx(&self) -> SignalRef {
+        self.idx
+    }
+
+    pub(crate) fn signal_encoding(&self) -> SignalEncoding {
+        self.data.signal_encoding()
     }
 }
 
@@ -544,6 +562,15 @@ enum SignalChangeData {
         bytes: Vec<u8>,
     },
     VariableLength(Vec<String>),
+}
+
+impl SignalChangeData {
+    fn signal_encoding(&self) -> SignalEncoding {
+        match self {
+            SignalChangeData::FixedLength { encoding, .. } => encoding.signal_encoding(),
+            SignalChangeData::VariableLength(_) => SignalEncoding::String,
+        }
+    }
 }
 
 impl Debug for SignalChangeData {

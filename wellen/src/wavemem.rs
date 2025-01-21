@@ -10,9 +10,10 @@ use crate::hierarchy::{Hierarchy, SignalRef};
 use crate::signals::{
     FixedWidthEncoding, Real, Signal, SignalSource, SignalSourceImplementation, Time, TimeTableIdx,
 };
-use crate::{SignalEncoding, TimeTable};
+use crate::{SignalEncoding, SignalValue, TimeTable};
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
+use std::any::Any;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::io::Read;
@@ -876,6 +877,21 @@ impl SignalEncoder {
             ))
         }
     }
+}
+
+/// Compress a Signal by replaying all changes on our SignalEncoder.
+pub(crate) fn compress_signal(signal: &Signal) -> Option<(Vec<u8>, SignalEncodingMetaData)> {
+    let mut enc = SignalEncoder::new(signal.signal_encoding(), signal.idx().index());
+    for (time, value) in signal.iter_changes() {
+        match value {
+            SignalValue::Binary(data, bits) => enc.add_n_bit_change(time as u16, data, States::Two),
+            SignalValue::FourValue(data, bits) => {}
+            SignalValue::NineValue(data, bits) => {}
+            SignalValue::String(_) => {}
+            SignalValue::Real(_) => {}
+        }
+    }
+    enc.finish()
 }
 
 #[inline]
