@@ -27,7 +27,8 @@ rayon.workspace = true
 num_enum.workspace = true
 thiserror.workspace = true
 serde = { workspace = true, optional = true }
-rustc-hash = "2.1"
+rustc-hash.workspace = true
+miniz_oxide.workspace = true
 
 [dev-dependencies]
 itertools.workspace = true
