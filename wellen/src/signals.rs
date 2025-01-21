@@ -43,6 +43,16 @@ impl Display for SignalValue<'_> {
     }
 }
 
+impl PartialEq for SignalValue<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (SignalValue::String(a), SignalValue::String(b)) => a == b,
+            (SignalValue::Real(a), SignalValue::Real(b)) => a == b,
+            _ => self.to_bit_string().unwrap() == other.to_bit_string().unwrap(),
+        }
+    }
+}
+
 impl SignalValue<'_> {
     pub fn to_bit_string(&self) -> Option<String> {
         match &self {
@@ -187,10 +197,22 @@ impl Debug for Signal {
 impl PartialEq for Signal {
     fn eq(&self, other: &Self) -> bool {
         if self.idx == other.idx {
-            if self.time_indices.is_empty() && self.data.is_empty() {
-                other.time_indices.is_empty() && other.data.is_empty()
-            } else {
-                self.time_indices == self.time_indices && self.data == other.data
+            let mut our_iter = self.iter_changes();
+            let mut other_iter = other.iter_changes();
+            loop {
+                if let Some((our_time, our_value)) = our_iter.next() {
+                    if let Some((other_time, other_value)) = other_iter.next() {
+                        if our_time != other_time || our_value != other_value {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                } else if other_iter.next().is_some() {
+                    return false;
+                } else {
+                    return true;
+                }
             }
         } else {
             false
@@ -589,6 +611,7 @@ impl SignalChangeData {
         }
     }
 
+    #[allow(dead_code)]
     fn is_empty(&self) -> bool {
         match self {
             SignalChangeData::FixedLength { bytes, .. } => bytes.is_empty(),
