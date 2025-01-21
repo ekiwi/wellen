@@ -3,17 +3,22 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 //! Compression for individual signals.
+//! Makes the `[crate::wavemem]` signal compression available for individual signals.
 
-use crate::{Signal, SignalRef, SignalValue, TimeTableIdx};
+use crate::wavemem::{
+    compress_signal, load_compressed_signal, SignalEncodingMetaData, SignalMetaData,
+};
+use crate::{Signal, SignalEncoding, SignalRef};
 
 /// A compressed version of a Signal. Uses a compression scheme very similar to what [crate::wavemem] uses.
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct CompressedSignal {
     idx: SignalRef,
+    tpe: SignalEncoding,
     /// variable length encoded signal data
     data: Vec<u8>,
-    /// additional compression performed on the data
-    compression: Compression,
+    /// information on how the signal is compressed
+    encoding: SignalEncodingMetaData,
 }
 
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
@@ -23,47 +28,37 @@ pub enum Compression {
     Lz4(usize),
 }
 
-impl CompressedSignal {
-    fn new(idx: SignalRef) -> Self {
-        Self {
-            idx,
-            data: vec![],
-            compression: Compression::None,
-        }
-    }
-
-    fn add_value_change(&mut self, time: TimeTableIdx, change: SignalValue) {
-        debug_assert_eq!(
-            self.compression,
-            Compression::None,
-            "signal is already compressed!"
-        );
-        todo!()
-    }
-
-    fn compress_lz4(&mut self) {
-        assert_eq!(
-            self.compression,
-            Compression::None,
-            "signal is already compressed"
-        );
-        todo!()
-    }
-}
-
 impl From<&Signal> for CompressedSignal {
-    fn from(value: &Signal) -> Self {
-        let mut out = CompressedSignal::new(value.idx());
-        for (time, change) in value.iter_changes() {
-            out.add_value_change(time, change);
+    fn from(signal: &Signal) -> Self {
+        if let Some((data, meta)) = compress_signal(signal) {
+            CompressedSignal {
+                idx: signal.idx(),
+                tpe: signal.signal_encoding(),
+                data,
+                encoding: meta,
+            }
+        } else {
+            // empty
+            CompressedSignal {
+                idx: signal.idx(),
+                tpe: signal.signal_encoding(),
+                data: vec![],
+                encoding: SignalEncodingMetaData {
+                    compression: Compression::None,
+                    max_states: Default::default(),
+                },
+            }
         }
-        out.compress_lz4();
-        out
     }
 }
 
 impl From<&CompressedSignal> for Signal {
-    fn from(value: &CompressedSignal) -> Self {
-        todo!()
+    fn from(signal: &CompressedSignal) -> Self {
+        let block = (0, signal.data.as_ref(), signal.encoding.clone());
+        let meta = SignalMetaData {
+            max_states: signal.encoding.max_states,
+            blocks: vec![block],
+        };
+        load_compressed_signal(meta, signal.idx, signal.tpe)
     }
 }

@@ -5,6 +5,7 @@
 //
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
+use crate::compressed::Compression;
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::hierarchy::{Hierarchy, SignalRef};
 use crate::signals::{
@@ -13,7 +14,6 @@ use crate::signals::{
 use crate::{SignalEncoding, SignalValue, TimeTable};
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
-use std::any::Any;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::io::Read;
@@ -127,84 +127,92 @@ impl Reader {
 
     fn load_signal(&self, id: SignalRef, tpe: SignalEncoding) -> Signal {
         let meta = self.collect_signal_meta_data(id);
-        let mut time_indices: Vec<TimeTableIdx> = Vec::new();
-        let mut data_bytes: Vec<u8> = Vec::new();
-        let mut strings: Vec<String> = Vec::new();
-        for (time_idx_offset, data_block, meta_data) in meta.blocks.into_iter() {
-            let data = match meta_data.compression {
-                SignalCompression::Compressed(uncompressed_len) => {
-                    let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
-                    Cow::Owned(data)
-                }
-                SignalCompression::Uncompressed => Cow::Borrowed(data_block),
-            };
+        load_compressed_signal(meta, id, tpe)
+    }
+}
 
-            match tpe {
-                SignalEncoding::String => {
-                    load_signal_strings(
-                        &mut data.as_ref(),
-                        time_idx_offset,
-                        &mut time_indices,
-                        &mut strings,
-                    );
-                }
-                SignalEncoding::BitVector(signal_len) => {
-                    load_fixed_len_signal(
-                        &mut data.as_ref(),
-                        time_idx_offset,
-                        signal_len.get(),
-                        meta.max_states,
-                        &mut time_indices,
-                        &mut data_bytes,
-                        id,
-                    );
-                }
-                SignalEncoding::Real => {
-                    load_reals(
-                        &mut data.as_ref(),
-                        time_idx_offset,
-                        &mut time_indices,
-                        &mut data_bytes,
-                    );
-                }
+pub(crate) fn load_compressed_signal(
+    meta: SignalMetaData,
+    id: SignalRef,
+    tpe: SignalEncoding,
+) -> Signal {
+    let mut time_indices: Vec<TimeTableIdx> = Vec::new();
+    let mut data_bytes: Vec<u8> = Vec::new();
+    let mut strings: Vec<String> = Vec::new();
+    for (time_idx_offset, data_block, meta_data) in meta.blocks.into_iter() {
+        let data = match meta_data.compression {
+            Compression::Lz4(uncompressed_len) => {
+                let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
+                Cow::Owned(data)
             }
-        }
+            Compression::None => Cow::Borrowed(data_block),
+        };
 
         match tpe {
             SignalEncoding::String => {
-                debug_assert!(data_bytes.is_empty());
-                Signal::new_var_len(id, time_indices, strings)
+                load_signal_strings(
+                    &mut data.as_ref(),
+                    time_idx_offset,
+                    &mut time_indices,
+                    &mut strings,
+                );
             }
-            SignalEncoding::BitVector(len) => {
-                debug_assert!(strings.is_empty());
-                let (bytes, meta_byte) = get_len_and_meta(meta.max_states, len.get());
-                let encoding = FixedWidthEncoding::BitVector {
-                    max_states: meta.max_states,
-                    bits: len.get(),
-                    meta_byte,
-                };
-                Signal::new_fixed_len(
+            SignalEncoding::BitVector(signal_len) => {
+                load_fixed_len_signal(
+                    &mut data.as_ref(),
+                    time_idx_offset,
+                    signal_len.get(),
+                    meta.max_states,
+                    &mut time_indices,
+                    &mut data_bytes,
                     id,
-                    time_indices,
-                    encoding,
-                    get_bytes_per_entry(bytes, meta_byte) as u32,
-                    data_bytes,
-                )
+                );
             }
             SignalEncoding::Real => {
-                assert!(strings.is_empty());
-                Signal::new_fixed_len(id, time_indices, FixedWidthEncoding::Real, 8, data_bytes)
+                load_reals(
+                    &mut data.as_ref(),
+                    time_idx_offset,
+                    &mut time_indices,
+                    &mut data_bytes,
+                );
             }
+        }
+    }
+
+    match tpe {
+        SignalEncoding::String => {
+            debug_assert!(data_bytes.is_empty());
+            Signal::new_var_len(id, time_indices, strings)
+        }
+        SignalEncoding::BitVector(len) => {
+            debug_assert!(strings.is_empty());
+            let (bytes, meta_byte) = get_len_and_meta(meta.max_states, len.get());
+            let encoding = FixedWidthEncoding::BitVector {
+                max_states: meta.max_states,
+                bits: len.get(),
+                meta_byte,
+            };
+            Signal::new_fixed_len(
+                id,
+                time_indices,
+                encoding,
+                get_bytes_per_entry(bytes, meta_byte) as u32,
+                data_bytes,
+            )
+        }
+        SignalEncoding::Real => {
+            assert!(strings.is_empty());
+            Signal::new_fixed_len(id, time_indices, FixedWidthEncoding::Real, 8, data_bytes)
         }
     }
 }
 
 /// Data about a single signal inside a Reader.
 /// Only used internally by `collect_signal_meta_data`
-struct SignalMetaData<'a> {
-    max_states: States,
+pub(crate) struct SignalMetaData<'a> {
+    pub(crate) max_states: States,
     /// For every block that contains the signal: time_idx_offset, data and meta-data
-    blocks: Vec<(u32, &'a [u8], SignalEncodingMetaData)>,
+    pub(crate) blocks: Vec<(u32, &'a [u8], SignalEncodingMetaData)>,
 }
 
 #[inline]
@@ -484,7 +492,7 @@ impl Encoder {
             "We need a call to time_change first!"
         );
         if !self.skipping_time_step {
-            let time_idx = (self.time_table.len() - 1) as u16;
+            let time_idx = (self.time_table.len() - 1) as TimeTableIdx;
             self.signals[id as usize].add_vcd_change(time_idx, value);
             self.has_new_data = true;
         }
@@ -497,7 +505,7 @@ impl Encoder {
             "We need a call to time_change first!"
         );
         if !self.skipping_time_step {
-            let time_idx = (self.time_table.len() - 1) as u16;
+            let time_idx = (self.time_table.len() - 1) as TimeTableIdx;
             self.signals[id.index()].add_n_bit_change(time_idx, value, states);
             self.has_new_data = true;
         }
@@ -509,7 +517,7 @@ impl Encoder {
             "We need a call to time_change first!"
         );
         if !self.skipping_time_step {
-            let time_idx = (self.time_table.len() - 1) as u16;
+            let time_idx = (self.time_table.len() - 1) as TimeTableIdx;
             self.signals[id.index()].add_real_change(time_idx, value);
             self.has_new_data = true;
         }
@@ -594,16 +602,10 @@ impl Encoder {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum SignalCompression {
-    /// signal is compressed and the output is at max `inner` bytes long
-    Compressed(usize),
-    Uncompressed,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct SignalEncodingMetaData {
-    compression: SignalCompression,
-    max_states: States,
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
+pub(crate) struct SignalEncodingMetaData {
+    pub(crate) compression: Compression,
+    pub(crate) max_states: States,
 }
 
 /// We divide the decompressed size by this number and round up.
@@ -613,7 +615,7 @@ const SIGNAL_DECOMPRESSED_LEN_DIV: u32 = 32;
 impl SignalEncodingMetaData {
     fn uncompressed(max_states: States) -> Self {
         SignalEncodingMetaData {
-            compression: SignalCompression::Uncompressed,
+            compression: Compression::None,
             max_states,
         }
     }
@@ -624,7 +626,7 @@ impl SignalEncodingMetaData {
             .div_ceil(SIGNAL_DECOMPRESSED_LEN_DIV)
             * SIGNAL_DECOMPRESSED_LEN_DIV;
         SignalEncodingMetaData {
-            compression: SignalCompression::Compressed(uncompressed_len_approx as usize),
+            compression: Compression::Lz4(uncompressed_len_approx as usize),
             max_states,
         }
     }
@@ -635,9 +637,9 @@ impl SignalEncodingMetaData {
         let compression = if is_compressed {
             let decompressed_len_bits = ((data >> 3) & u32::MAX as u64) as u32;
             let decompressed_len = decompressed_len_bits * SIGNAL_DECOMPRESSED_LEN_DIV;
-            SignalCompression::Compressed(decompressed_len as usize)
+            Compression::Lz4(decompressed_len as usize)
         } else {
-            SignalCompression::Uncompressed
+            Compression::None
         };
         SignalEncodingMetaData {
             compression,
@@ -646,13 +648,13 @@ impl SignalEncodingMetaData {
     }
     fn encode(&self) -> u64 {
         match &self.compression {
-            SignalCompression::Compressed(decompressed_len) => {
+            Compression::Lz4(decompressed_len) => {
                 let decompressed_len_bits =
                     ((*decompressed_len) as u32).div_ceil(SIGNAL_DECOMPRESSED_LEN_DIV);
 
                 ((decompressed_len_bits as u64) << 3) | (1 << 2) | (self.max_states as u64)
             }
-            SignalCompression::Uncompressed => self.max_states as u64,
+            Compression::None => self.max_states as u64,
         }
     }
 }
@@ -662,7 +664,7 @@ impl SignalEncodingMetaData {
 struct SignalEncoder {
     data: Vec<u8>,
     tpe: SignalEncoding,
-    prev_time_idx: u16,
+    prev_time_idx: TimeTableIdx,
     max_states: States,
     /// Same as the index of this encoder in a Vec<_>. Used for debugging purposes.
     #[allow(unused)]
@@ -688,7 +690,7 @@ const SKIP_COMPRESSION: bool = false;
 
 impl SignalEncoder {
     /// Adds a 2, 4 or 9-value change that has already been converted into our internal format.
-    fn add_n_bit_change(&mut self, time_index: u16, value: &[u8], states: States) {
+    fn add_n_bit_change(&mut self, time_index: TimeTableIdx, value: &[u8], states: States) {
         let time_idx_delta = time_index - self.prev_time_idx;
         self.max_states = States::join(self.max_states, states);
         match self.tpe {
@@ -741,7 +743,7 @@ impl SignalEncoder {
         self.prev_time_idx = time_index;
     }
 
-    fn add_real_change(&mut self, time_index: u16, value: f64) {
+    fn add_real_change(&mut self, time_index: TimeTableIdx, value: f64) {
         let time_idx_delta = time_index - self.prev_time_idx;
 
         // write var-length time index + fixed little endian float bytes
@@ -753,7 +755,7 @@ impl SignalEncoder {
     }
 
     /// Adds a change from a VCD string.
-    fn add_vcd_change(&mut self, time_index: u16, value: &[u8]) {
+    fn add_vcd_change(&mut self, time_index: TimeTableIdx, value: &[u8]) {
         let time_idx_delta = time_index - self.prev_time_idx;
         match self.tpe {
             SignalEncoding::BitVector(len) => {
@@ -884,11 +886,11 @@ pub(crate) fn compress_signal(signal: &Signal) -> Option<(Vec<u8>, SignalEncodin
     let mut enc = SignalEncoder::new(signal.signal_encoding(), signal.idx().index());
     for (time, value) in signal.iter_changes() {
         match value {
-            SignalValue::Binary(data, bits) => enc.add_n_bit_change(time as u16, data, States::Two),
-            SignalValue::FourValue(data, bits) => {}
-            SignalValue::NineValue(data, bits) => {}
-            SignalValue::String(_) => {}
-            SignalValue::Real(_) => {}
+            SignalValue::Binary(value, _) => enc.add_n_bit_change(time, value, States::Two),
+            SignalValue::FourValue(value, _) => enc.add_n_bit_change(time, value, States::Four),
+            SignalValue::NineValue(value, _) => enc.add_n_bit_change(time, value, States::Nine),
+            SignalValue::String(value) => todo!("deal with variable length data: {value}"),
+            SignalValue::Real(value) => enc.add_real_change(time, value),
         }
     }
     enc.finish()
@@ -920,7 +922,7 @@ fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
 }
 
 #[repr(u8)]
-#[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq)]
+#[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
 pub enum States {
@@ -1060,7 +1062,11 @@ pub fn bit_char_to_num(value: u8) -> Option<u8> {
 }
 
 #[inline]
-fn try_write_1_bit_9_state(time_index_delta: u16, value: u8, data: &mut Vec<u8>) -> Option<States> {
+fn try_write_1_bit_9_state(
+    time_index_delta: TimeTableIdx,
+    value: u8,
+    data: &mut Vec<u8>,
+) -> Option<States> {
     if let Some(bit_value) = bit_char_to_num(value) {
         let write_value = ((time_index_delta as u64) << 4) + bit_value as u64;
         leb128::write::unsigned(data, write_value).unwrap();

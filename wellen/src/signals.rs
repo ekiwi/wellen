@@ -139,7 +139,7 @@ fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
 }
 
 /// Specifies the encoding of a signal.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub enum FixedWidthEncoding {
     /// Bitvector of length N (u32) with 2, 4 or 9 states.
@@ -183,6 +183,22 @@ impl Debug for Signal {
         )
     }
 }
+
+impl PartialEq for Signal {
+    fn eq(&self, other: &Self) -> bool {
+        if self.idx == other.idx {
+            if self.time_indices.is_empty() && self.data.is_empty() {
+                other.time_indices.is_empty() && other.data.is_empty()
+            } else {
+                self.time_indices == self.time_indices && self.data == other.data
+            }
+        } else {
+            false
+        }
+    }
+}
+
+impl Eq for Signal {}
 
 impl Signal {
     pub fn new_fixed_len(
@@ -554,6 +570,7 @@ pub struct DataOffset {
     pub next_index: Option<NonZeroTimeTableIdx>,
 }
 
+#[derive(Eq, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 enum SignalChangeData {
     FixedLength {
@@ -569,6 +586,13 @@ impl SignalChangeData {
         match self {
             SignalChangeData::FixedLength { encoding, .. } => encoding.signal_encoding(),
             SignalChangeData::VariableLength(_) => SignalEncoding::String,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            SignalChangeData::FixedLength { bytes, .. } => bytes.is_empty(),
+            SignalChangeData::VariableLength(data) => data.is_empty(),
         }
     }
 }
