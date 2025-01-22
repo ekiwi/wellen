@@ -83,12 +83,16 @@ impl SignalValue<'_> {
         }
     }
 
-    /// Returns a reference to the raw data. Returns None if the value is a real or string.
-    fn data(&self) -> Option<&[u8]> {
+    /// Returns a reference to the raw data and a mask. Returns None if the value is a real or string.
+    pub(crate) fn data_and_mask(&self) -> Option<(&[u8], u8)> {
         match self {
-            SignalValue::Binary(data, _) => Some(*data),
-            SignalValue::FourValue(data, _) => Some(*data),
-            SignalValue::NineValue(data, _) => Some(*data),
+            SignalValue::Binary(data, bits) => Some((*data, States::Two.first_byte_mask(*bits))),
+            SignalValue::FourValue(data, bits) => {
+                Some((*data, States::Four.first_byte_mask(*bits)))
+            }
+            SignalValue::NineValue(data, bits) => {
+                Some((*data, States::Nine.first_byte_mask(*bits)))
+            }
             _ => None,
         }
     }
@@ -371,12 +375,13 @@ impl BitVectorBuilder {
         let local_encoding = value.states().unwrap();
         debug_assert!(local_encoding.bits() >= self.max_states.bits());
         if self.bits == 1 {
-            let value = value.data().unwrap()[0] & 0xf;
+            let (value, mask) = value.data_and_mask().unwrap();
+            let value = value[0] & mask;
             let meta_data = (local_encoding as u8) << 6;
             self.data.push(value | meta_data);
         } else {
             let num_bytes = (self.bits as usize).div_ceil(local_encoding.bits_in_a_byte());
-            let data = value.data().unwrap();
+            let (data, mask) = value.data_and_mask().unwrap();
             assert_eq!(data.len(), num_bytes);
             let (local_len, local_has_meta) = get_len_and_meta(local_encoding, self.bits);
 
@@ -386,11 +391,11 @@ impl BitVectorBuilder {
                 // same meta-data location and length as the maximum
                 if self.has_meta {
                     self.data.push(meta_data);
-                    self.data.extend_from_slice(data);
+                    self.data.push(data[0] & mask);
                 } else {
-                    self.data.push(meta_data | data[0]);
-                    self.data.extend_from_slice(&data[1..]);
+                    self.data.push(meta_data | (data[0] & mask));
                 }
+                self.data.extend_from_slice(&data[1..]);
             } else {
                 // smaller encoding than the maximum
                 self.data.push(meta_data);
@@ -399,7 +404,8 @@ impl BitVectorBuilder {
                 } else {
                     push_zeros(&mut self.data, self.len - local_len - 1);
                 }
-                self.data.extend_from_slice(data);
+                self.data.push(data[0] & mask);
+                self.data.extend_from_slice(&data[1..]);
             }
         }
         // see if there actually was a change and revert if there was not

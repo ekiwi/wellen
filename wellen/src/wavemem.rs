@@ -698,8 +698,9 @@ impl SignalEncoder {
                 let bits = len.get();
                 if bits == 1 {
                     debug_assert_eq!(value.len(), 1);
-                    debug_assert!(value[0] <= 0xf);
-                    let write_value = ((time_idx_delta as u64) << 4) + value[0] as u64;
+                    let value = value[0];
+                    debug_assert_eq!(value & 0xf, value, "leading bits are not zero: {value:x}");
+                    let write_value = ((time_idx_delta as u64) << 4) + value as u64;
                     leb128::write::unsigned(&mut self.data, write_value).unwrap();
                 } else {
                     // sometimes we might include some leading zeros that are not necessary
@@ -723,12 +724,7 @@ impl SignalEncoder {
                     // make sure the leading bits are 0
                     if cfg!(debug_assertions) {
                         let first_byte = self.data[data_start_index];
-                        let bits_in_first_byte = (bits * min_states.bits() as u32) % 8;
-                        let first_byte_mask = if bits_in_first_byte > 0 {
-                            (1u8 << bits_in_first_byte) - 1
-                        } else {
-                            0xff
-                        };
+                        let first_byte_mask = min_states.first_byte_mask(bits);
                         debug_assert_eq!(
                             first_byte & first_byte_mask,
                             first_byte,
@@ -749,6 +745,18 @@ impl SignalEncoder {
         // write var-length time index + fixed little endian float bytes
         leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
         self.data.extend_from_slice(&value.to_le_bytes());
+
+        // update time index to calculate next delta
+        self.prev_time_idx = time_index;
+    }
+
+    fn add_str_change(&mut self, time_index: TimeTableIdx, value: &str) {
+        let time_idx_delta = time_index - self.prev_time_idx;
+
+        // string: var-length time index + var-len length + content
+        leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
+        leb128::write::unsigned(&mut self.data, value.len() as u64).unwrap();
+        self.data.extend_from_slice(value.as_bytes());
 
         // update time index to calculate next delta
         self.prev_time_idx = time_index;
@@ -884,13 +892,25 @@ impl SignalEncoder {
 /// Compress a Signal by replaying all changes on our SignalEncoder.
 pub(crate) fn compress_signal(signal: &Signal) -> Option<(Vec<u8>, SignalEncodingMetaData)> {
     let mut enc = SignalEncoder::new(signal.signal_encoding(), signal.signal_ref().index());
+    let mut scratch = vec![];
     for (time, value) in signal.iter_changes() {
-        match value {
-            SignalValue::Binary(value, _) => enc.add_n_bit_change(time, value, States::Two),
-            SignalValue::FourValue(value, _) => enc.add_n_bit_change(time, value, States::Four),
-            SignalValue::NineValue(value, _) => enc.add_n_bit_change(time, value, States::Nine),
-            SignalValue::String(value) => todo!("deal with variable length data: {value}"),
-            SignalValue::Real(value) => enc.add_real_change(time, value),
+        if let Some((data, mask)) = value.data_and_mask() {
+            let states = value.states().unwrap();
+            if mask == u8::MAX {
+                enc.add_n_bit_change(time, data, states);
+            } else {
+                // make a copy to allow us to mask out bits
+                scratch.extend_from_slice(data);
+                scratch[0] = scratch[0] & mask;
+                enc.add_n_bit_change(time, &scratch, states);
+                scratch.clear();
+            }
+        } else if let SignalValue::Real(data) = value {
+            enc.add_real_change(time, data);
+        } else if let SignalValue::String(data) = value {
+            enc.add_str_change(time, data);
+        } else {
+            unreachable!()
         }
     }
     enc.finish()
@@ -969,6 +989,23 @@ impl States {
     #[inline]
     pub fn bits_in_a_byte(&self) -> usize {
         8 / self.bits()
+    }
+
+    /// Returns how many bits the first byte would contain.
+    #[inline]
+    fn bits_in_first_byte(&self, bits: u32) -> u32 {
+        (bits * self.bits() as u32) % u8::BITS
+    }
+
+    /// Creates a mask that will only leave the relevant bits in the first byte.
+    #[inline]
+    pub(crate) fn first_byte_mask(&self, bits: u32) -> u8 {
+        let n = self.bits_in_first_byte(bits);
+        if n > 0 {
+            (1u8 << n) - 1
+        } else {
+            u8::MAX
+        }
     }
 }
 
