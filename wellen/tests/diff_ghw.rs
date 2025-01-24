@@ -32,15 +32,15 @@ fn diff_hierarchy(ghw: &Hierarchy, fst: &Hierarchy) -> u64 {
     // compare actual hierarchy entries
     // note: we only focus on the fst top scope, since ghw tends to include empty scopes like "standard"
     let fst_top = fst.first_scope().unwrap();
-    let ghw_top = ghw.get(
-        ghw.scopes()
-            .find(|s| ghw.get(*s).name(ghw) == fst_top.name(fst))
-            .unwrap(),
-    );
+    let ghw_top_ref = ghw
+        .scopes()
+        .find(|s| ghw[*s].name(ghw) == fst_top.name(fst))
+        .unwrap();
+    let ghw_top = &ghw[ghw_top_ref];
     diff_hierarchy_item(
-        HierarchyItem::Scope(ghw_top),
+        ScopeOrVar::Scope(ghw_top),
         ghw,
-        HierarchyItem::Scope(fst_top),
+        ScopeOrVar::Scope(fst_top),
         fst,
     );
 
@@ -48,22 +48,22 @@ fn diff_hierarchy(ghw: &Hierarchy, fst: &Hierarchy) -> u64 {
 }
 
 fn diff_hierarchy_item(
-    ghw_item: HierarchyItem,
+    ghw_item: ScopeOrVar,
     ghw: &Hierarchy,
-    fst_item: HierarchyItem,
+    fst_item: ScopeOrVar,
     fst: &Hierarchy,
 ) {
     match (ghw_item, fst_item) {
-        (HierarchyItem::Scope(g), HierarchyItem::Scope(f)) => {
+        (ScopeOrVar::Scope(g), ScopeOrVar::Scope(f)) => {
             assert_eq!(g.name(ghw), f.name(fst));
             assert_eq!(g.component(ghw), f.component(fst));
             assert_eq!(g.scope_type(), f.scope_type());
             // ghw has no way to provide source locs, so we aren't comparing here
             for (ghw_item, fst_item) in g.items(ghw).zip(f.items(fst)) {
-                diff_hierarchy_item(ghw_item, ghw, fst_item, fst);
+                diff_hierarchy_item(ghw_item.deref(ghw), ghw, fst_item.deref(fst), fst);
             }
         }
-        (HierarchyItem::Var(g), HierarchyItem::Var(f)) => {
+        (ScopeOrVar::Var(g), ScopeOrVar::Var(f)) => {
             assert_eq!(g.name(ghw), f.name(fst));
             // in the fst all enums are encoded as strings
             if g.enum_type(ghw).is_some() {

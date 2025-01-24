@@ -32,21 +32,13 @@ fn test_ghw_enum_encoding() {
     let filename = "inputs/ghdl/oscar/test2.ghw";
     let mut waves = read(filename).expect("failed to parse");
     let h = waves.hierarchy();
-    let top = h.scopes().find(|s| h.get(*s).name(h) == "test2").unwrap();
-    let bbb = h
-        .get(top)
-        .vars(h)
-        .find(|v| h.get(*v).name(h) == "bbb")
-        .unwrap();
-    let ee = h
-        .get(top)
-        .vars(h)
-        .find(|v| h.get(*v).name(h) == "ee")
-        .unwrap();
+    let top = h.scopes().find(|s| h[*s].name(h) == "test2").unwrap();
+    let bbb = h[top].vars(h).find(|v| h[*v].name(h) == "bbb").unwrap();
+    let ee = h[top].vars(h).find(|v| h[*v].name(h) == "ee").unwrap();
 
     // signal bbb: boolean
     {
-        let (enum_name, enum_lits) = h.get(bbb).enum_type(h).unwrap();
+        let (enum_name, enum_lits) = h[bbb].enum_type(h).unwrap();
         assert_eq!(enum_name, "boolean");
         assert_eq!(enum_lits, [("0", "false"), ("1", "true")]);
     }
@@ -54,15 +46,15 @@ fn test_ghw_enum_encoding() {
     // type e is(foo, bar, tada);
     // signal ee: e
     {
-        let (enum_name, enum_lits) = h.get(ee).enum_type(h).unwrap();
+        let (enum_name, enum_lits) = h[ee].enum_type(h).unwrap();
         assert_eq!(enum_name, "e");
-        assert_eq!(h.get(ee).length().unwrap(), 2);
+        assert_eq!(h[ee].length().unwrap(), 2);
         // 2 bits are used for the encoding and thus everything is padded to a width of 2
         assert_eq!(enum_lits, [("00", "foo"), ("01", "bar"), ("10", "tada")]);
     }
 
     // make sure that all enum values are binary
-    let ee_signal_ref = h.get(ee).signal_ref();
+    let ee_signal_ref = h[ee].signal_ref();
     waves.load_signals(&[ee_signal_ref]);
     let ee_signal = waves.get_signal(ee_signal_ref).unwrap();
     for id in 0..waves.time_table().len() {
@@ -90,7 +82,7 @@ fn test_issue_12_regression() {
         .hierarchy()
         .lookup_var(&["test_rom_tb", "soc_inst", "core_inst"], &"state")
         .unwrap();
-    let signal_ref = wave.hierarchy().get(var_id).signal_ref();
+    let signal_ref = wave.hierarchy()[var_id].signal_ref();
     wave.load_signals(&[signal_ref]);
 
     let signal = wave.get_signal(signal_ref).unwrap();
@@ -115,7 +107,7 @@ fn test_issue_32_ghw_subtype_record() {
 
     // check that the record has been turned into a scope
     let scope = ["wellen_32", "spisub_s"];
-    let s = h.get(h.lookup_scope(&scope).unwrap());
+    let s = &h[h.lookup_scope(&scope).unwrap()];
     assert_eq!(s.scope_type(), ScopeType::VhdlRecord);
 
     // check that all fields have been converted into signals
@@ -123,7 +115,7 @@ fn test_issue_32_ghw_subtype_record() {
     for signal in spi_signals {
         let var_id = h.lookup_var(&scope, &signal).unwrap();
         assert_eq!(
-            h.get(var_id).full_name(h),
+            h[var_id].full_name(h),
             format!("wellen_32.spisub_s.{signal}")
         );
     }
@@ -136,9 +128,9 @@ fn test_issue_6_generate_for_aliasing() {
     let filename = "inputs/ghdl/wellen_issue_6.ghw";
     let wave = read(filename).expect("failed to parse");
     let h = wave.hierarchy();
-    let root_scope = h.get(h.lookup_scope(&["wellen_6"]).unwrap());
+    let root_scope = &h[h.lookup_scope(&["wellen_6"]).unwrap()];
     let scopes = root_scope.scopes(h).collect::<Vec<_>>();
-    let scope_names = scopes.iter().map(|s| h.get(*s).name(h)).collect::<Vec<_>>();
+    let scope_names = scopes.iter().map(|s| h[*s].name(h)).collect::<Vec<_>>();
     assert_eq!(scope_names, ["gen(0)", "gen(1)", "gen(2)", "gen(3)"]);
 }
 
@@ -151,28 +143,28 @@ fn test_issue_34_ghw_unconstrained_subtype_record() {
     let h = wave.hierarchy();
 
     // find record scope
-    let root_scope = h.get(h.lookup_scope(&["wellen_34"]).unwrap());
-    let constrained_s = h.get(root_scope.scopes(h).next().unwrap());
+    let root_scope = &h[h.lookup_scope(&["wellen_34"]).unwrap()];
+    let constrained_s = &h[root_scope.scopes(h).next().unwrap()];
     assert_eq!(constrained_s.full_name(h), "wellen_34.constrained_s");
     assert_eq!(constrained_s.scope_type(), ScopeType::VhdlRecord);
 
     // check record fields
     let p = ["wellen_34", "constrained_s"];
 
-    let datavalid = h.get(h.lookup_var(&p, &"datavalid").unwrap());
+    let datavalid = &h[h.lookup_var(&p, &"datavalid").unwrap()];
     assert!(datavalid.is_1bit());
     assert!(datavalid.is_bit_vector());
     assert_eq!(datavalid.var_type(), VarType::StdLogic);
     assert_eq!(datavalid.vhdl_type_name(h), Some("std_logic"));
 
-    let data = h.get(h.lookup_var(&p, &"data").unwrap());
+    let data = &h[h.lookup_var(&p, &"data").unwrap()];
     assert_eq!(data.length().unwrap(), 33);
     assert_eq!(data.index().unwrap().lsb(), 0);
     assert_eq!(data.index().unwrap().msb(), 32);
     assert_eq!(data.var_type(), VarType::StdLogicVector);
     assert_eq!(data.vhdl_type_name(h), Some("std_logic_vector"));
 
-    let address = h.get(h.lookup_var(&p, &"address").unwrap());
+    let address = &h[h.lookup_var(&p, &"address").unwrap()];
     assert_eq!(address.length().unwrap(), 8);
     assert_eq!(address.index().unwrap().lsb(), 0);
     assert_eq!(address.index().unwrap().msb(), 7);

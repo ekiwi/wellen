@@ -18,7 +18,7 @@ fn load_gtkwave_des() -> (Waveform, ScopeRef) {
     assert_eq!(Some(("des.v", 18)), top.source_loc(h));
     assert_eq!(Some(("des.v", 18)), top.instantiation_source_loc(h));
     let des_id = top.scopes(h).next().unwrap();
-    let des = h.get(des_id);
+    let des = &h[des_id];
     assert_eq!("des", des.name(h));
     (waves, des_id)
 }
@@ -29,10 +29,10 @@ fn load_gtkwave_des() -> (Waveform, ScopeRef) {
 fn test_source_locators() {
     let (waves, des_id) = load_gtkwave_des();
     let h = waves.hierarchy();
-    let des = h.get(des_id);
+    let des = &h[des_id];
 
     let mut round_instance_lines = HashSet::new();
-    for scope in des.scopes(h).map(|i| h.get(i)) {
+    for scope in des.scopes(h).map(|i| &h[i]) {
         let name = scope.name(h);
         let (loc_path, loc_line) = scope.source_loc(h).expect("should have source loc");
         let (inst_path, inst_line) = scope
@@ -58,8 +58,8 @@ fn test_source_locators() {
 fn test_component_names() {
     let (waves, des_id) = load_gtkwave_des();
     let h = waves.hierarchy();
-    let des = h.get(des_id);
-    for scope in des.scopes(h).map(|i| h.get(i)) {
+    let des = &h[des_id];
+    for scope in des.scopes(h).map(|i| &h[i]) {
         let name = scope.name(h);
 
         // all rounds are instances of the same round_func
@@ -67,11 +67,8 @@ fn test_component_names() {
             assert_eq!(scope.component(h).unwrap(), "roundfunc");
         }
     }
-    let key_shed_id = des
-        .scopes(h)
-        .find(|s| h.get(*s).name(h) == "keysched")
-        .unwrap();
-    for scope in h.get(key_shed_id).scopes(h).map(|i| h.get(i)) {
+    let key_shed_id = des.scopes(h).find(|s| h[*s].name(h) == "keysched").unwrap();
+    for scope in h[key_shed_id].scopes(h).map(|i| &h[i]) {
         let name = scope.name(h);
         let comp = scope.component(h);
         if name == "pc1" {
@@ -91,10 +88,10 @@ fn load_verilator_many_sv_datatypes() -> (Waveform, ScopeRef) {
     let h = waves.hierarchy();
     let top = h.first_scope().unwrap();
     assert_eq!("TOP", top.name(h));
-    let wrapper = h.get(top.scopes(h).next().unwrap());
+    let wrapper = &h[top.scopes(h).next().unwrap()];
     assert_eq!("SVDataTypeWrapper", wrapper.name(h));
     let bb_id = wrapper.scopes(h).next().unwrap();
-    let bb = h.get(bb_id);
+    let bb = &h[bb_id];
     assert_eq!("bb", bb.name(h));
     (waves, bb_id)
 }
@@ -104,10 +101,10 @@ fn load_verilator_many_sv_datatypes() -> (Waveform, ScopeRef) {
 fn test_enum_signals() {
     let (waves, bb_id) = load_verilator_many_sv_datatypes();
     let h = waves.hierarchy();
-    let bb = h.get(bb_id);
+    let bb = &h[bb_id];
     let abc_r = bb
         .vars(h)
-        .map(|i| h.get(i))
+        .map(|i| &h[i])
         .find(|v| v.name(h) == "abc_r")
         .expect("failed to find abc_r");
     let mut enum_type = abc_r.enum_type(h).expect("abc_r should have an enum type!");
@@ -124,10 +121,10 @@ fn test_enum_signals() {
 fn test_var_directions() {
     let (waves, bb_id) = load_verilator_many_sv_datatypes();
     let h = waves.hierarchy();
-    let bb = h.get(bb_id);
+    let bb = &h[bb_id];
 
     for var_ref in bb.vars(h) {
-        let var = h.get(var_ref);
+        let var = &h[var_ref];
         let dt = (var.direction(), var.var_type());
         match var.name(h) {
             "abc_r" => assert_eq!(dt, (VarDirection::Implicit, VarType::Logic)),
@@ -152,19 +149,19 @@ fn test_scope_merging() {
     assert_eq!(h.vars().count(), 0);
     let toplevel = h.first_scope().unwrap();
     assert_eq!(toplevel.name(h), "TOP");
-    let top_scopes: Vec<_> = toplevel.scopes(h).map(|i| h.get(i).name(h)).collect();
+    let top_scopes: Vec<_> = toplevel.scopes(h).map(|i| h[i].name(h)).collect();
     assert_eq!(top_scopes, ["top", "svfloat::ffunc"]);
-    let top_vars: Vec<_> = toplevel.vars(h).map(|i| h.get(i).name(h)).collect();
+    let top_vars: Vec<_> = toplevel.vars(h).map(|i| h[i].name(h)).collect();
     assert_eq!(top_vars, ["clk"]);
 
-    let top_top = h.get(toplevel.scopes(h).next().unwrap());
+    let top_top = &h[toplevel.scopes(h).next().unwrap()];
     assert_eq!(top_top.full_name(h), "TOP.top");
-    let top_top_scopes: Vec<_> = top_top.scopes(h).map(|i| h.get(i).name(h)).collect();
+    let top_top_scopes: Vec<_> = top_top.scopes(h).map(|i| h[i].name(h)).collect();
     assert_eq!(top_top_scopes, ["vga_gen", "pix_port", "vga_port"]);
 
-    let vga_gen = h.get(top_top.scopes(h).next().unwrap());
+    let vga_gen = &h[top_top.scopes(h).next().unwrap()];
     assert_eq!(vga_gen.full_name(h), "TOP.top.vga_gen");
-    let vga_gen_scopes: Vec<_> = vga_gen.scopes(h).map(|i| h.get(i).name(h)).collect();
+    let vga_gen_scopes: Vec<_> = vga_gen.scopes(h).map(|i| h[i].name(h)).collect();
     assert_eq!(
         vga_gen_scopes,
         [
@@ -207,7 +204,7 @@ fn test_nvc_vhdl_test_bool_issue_16() {
     // check signal values
     let h = waves.hierarchy();
     let toplevel = h.first_scope().unwrap();
-    let var = h.get(toplevel.vars(h).next().unwrap());
+    let var = &h[toplevel.vars(h).next().unwrap()];
     assert_eq!(var.full_name(h), "test_bool.bool");
     let time_and_values = waves
         .get_signal(var.signal_ref())

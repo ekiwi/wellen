@@ -19,12 +19,12 @@ fn test_vcd_not_starting_at_zero() {
 
         let top = h.first_scope().unwrap();
         assert_eq!("gameroy", top.name(h));
-        let cpu = h.get(top.scopes(h).next().unwrap());
+        let cpu = &h[top.scopes(h).next().unwrap()];
         assert_eq!("cpu", cpu.name(h));
 
-        let pc = h.get(cpu.vars(h).find(|r| h.get(*r).name(h) == "pc").unwrap());
+        let pc = &h[cpu.vars(h).find(|r| h[*r].name(h) == "pc").unwrap()];
         assert_eq!("gameroy.cpu.pc", pc.full_name(h));
-        let sp = h.get(cpu.vars(h).find(|r| h.get(*r).name(h) == "sp").unwrap());
+        let sp = &h[cpu.vars(h).find(|r| h[*r].name(h) == "sp").unwrap()];
         assert_eq!("gameroy.cpu.sp", sp.full_name(h));
         (pc.clone(), sp.clone())
     };
@@ -62,7 +62,7 @@ fn check_no_fake_changes(mut waves: Waveform) {
     let data = {
         let h = waves.hierarchy();
         let logic = h.first_scope().unwrap();
-        h.get(logic.vars(h).next().unwrap()).clone()
+        h[logic.vars(h).next().unwrap()].clone()
     };
     assert_eq!(data.full_name(waves.hierarchy()), "logic.data");
 
@@ -96,10 +96,7 @@ fn test_vcd_scope_merging() {
     let filename = "inputs/icarus/surfer_issue_256.vcd";
     let waves = read(filename).expect("failed to parse");
     let h = waves.hierarchy();
-    let top_scopes = h
-        .scopes()
-        .map(|s| h.get(s).full_name(h))
-        .collect::<Vec<_>>();
+    let top_scopes = h.scopes().map(|s| h[s].full_name(h)).collect::<Vec<_>>();
     assert_eq!(top_scopes, ["tb"]);
 }
 

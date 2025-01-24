@@ -5,7 +5,6 @@ use convert::Mappable;
 use num_bigint::BigUint;
 use pyo3::types::PyInt;
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
-use wellen::GetItem;
 
 use wellen::{
     viewers::{self},
@@ -53,7 +52,7 @@ impl Hierarchy {
         ScopeIter(Box::new({
             let hier = self.0.clone();
             hier.scopes()
-                .map(|val| Scope(hier.get(val).clone()))
+                .map(|val| Scope(hier[val].clone()))
                 .collect::<Vec<_>>()
                 .into_iter()
         }))
@@ -84,7 +83,7 @@ impl Scope {
             let hier = locahier.clone();
             scope
                 .vars(&hier.0)
-                .map(|val| Var(hier.0.get(val).clone()))
+                .map(|val| Var(hier.0[val].clone()))
                 .collect::<Vec<_>>()
                 .into_iter()
         }))
@@ -102,7 +101,7 @@ impl Scope {
             let hier = locahier.clone();
             scope
                 .scopes(&hier.0)
-                .map(|val| Scope(hier.0.get(val).clone()))
+                .map(|val| Scope(hier.0[val].clone()))
                 .collect::<Vec<_>>()
                 .into_iter()
         }))
@@ -248,7 +247,7 @@ impl Waveform {
                 .ok_or(PyRuntimeError::new_err(format!(
                     "No var at path {abs_hierarchy_path}"
                 )))?;
-        let var = self.hierarchy.0.get(maybe_var);
+        let var = &self.hierarchy.0[maybe_var];
         self.get_signal(&Var(var.clone()), py)
     }
 }

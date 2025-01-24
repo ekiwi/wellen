@@ -138,7 +138,7 @@ fn diff_hierarchy(
             .filter(|i| !matches!(i, ::vcd::ScopeItem::Comment(_))),
         ours.items(),
     ) {
-        diff_hierarchy_item(ref_child, our_child, ours, id_map);
+        diff_hierarchy_item(ref_child, our_child.deref(ours), ours, id_map);
     }
 }
 
@@ -220,12 +220,12 @@ fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
 
 fn diff_hierarchy_item(
     ref_item: &::vcd::ScopeItem,
-    our_item: HierarchyItem,
+    our_item: ScopeOrVar,
     our_hier: &Hierarchy,
     id_map: &mut FxHashMap<::vcd::IdCode, SignalRef>,
 ) {
     match (ref_item, our_item) {
-        (::vcd::ScopeItem::Scope(ref_scope), HierarchyItem::Scope(our_scope)) => {
+        (::vcd::ScopeItem::Scope(ref_scope), ScopeOrVar::Scope(our_scope)) => {
             assert_eq!(ref_scope.identifier, our_scope.name(our_hier));
             assert_eq!(
                 ref_scope.scope_type.to_string(),
@@ -238,10 +238,10 @@ fn diff_hierarchy_item(
                     .filter(|i| !matches!(i, ::vcd::ScopeItem::Comment(_))),
                 our_scope.items(our_hier),
             ) {
-                diff_hierarchy_item(ref_child, our_child, our_hier, id_map)
+                diff_hierarchy_item(ref_child, our_child.deref(our_hier), our_hier, id_map)
             }
         }
-        (::vcd::ScopeItem::Var(ref_var), HierarchyItem::Var(our_var)) => {
+        (::vcd::ScopeItem::Var(ref_var), ScopeOrVar::Var(our_var)) => {
             id_map.insert(ref_var.code, our_var.signal_ref());
             // this happens because simulators like GHDL forget the space before the index
             let ref_name_contains_index =

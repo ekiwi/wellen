@@ -13,7 +13,7 @@ fn test_vhdl_ghdl_fst() {
     let filename = "inputs/ghdl/oscar/ghdl.fst";
     let waves = read(filename).expect("failed to parse");
     let h = waves.hierarchy();
-    let ee = h.get(h.vars().next().unwrap());
+    let ee = &h[h.vars().next().unwrap()];
     assert_eq!("ee", ee.name(h));
     assert_eq!(Some("e"), ee.vhdl_type_name(h)); // lol: VHDL is case insensitive!
 }
@@ -25,17 +25,17 @@ fn test_vhdl_3(waves: Waveform) {
     assert_eq!("test", top.name(h));
     assert_eq!(top.scope_type(), ScopeType::VhdlArchitecture);
 
-    let ee = h.get(top.vars(h).next().unwrap());
+    let ee = &h[top.vars(h).next().unwrap()];
     assert_eq!("ee", ee.name(h));
     assert_eq!(Some("E"), ee.vhdl_type_name(h));
 
-    let rr = h.get(top.scopes(h).next().unwrap());
+    let rr = &h[top.scopes(h).next().unwrap()];
     assert_eq!("rr", rr.name(h));
     assert_eq!(rr.source_loc(h), None);
     assert_eq!(rr.instantiation_source_loc(h), None);
     assert_eq!(rr.scope_type(), ScopeType::VhdlRecord);
 
-    for var in rr.vars(h).map(|v| h.get(v)) {
+    for var in rr.vars(h).map(|v| &h[v]) {
         match var.name(h) {
             "a" => {
                 assert_eq!(var.vhdl_type_name(h), Some("STD_LOGIC"));
