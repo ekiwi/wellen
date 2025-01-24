@@ -57,8 +57,8 @@ pub type Result<T> = std::result::Result<T, WellenError>;
 
 pub use compressed::{CompressedSignal, CompressedTimeTable, Compression};
 pub use hierarchy::{
-    Hierarchy, Scope, ScopeOrVar, ScopeRef, ScopeType, SignalEncoding, SignalRef, Timescale,
-    TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
+    Hierarchy, Scope, ScopeOrVar, ScopeOrVarRef, ScopeRef, ScopeType, SignalEncoding, SignalRef,
+    Timescale, TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
 };
 pub use signals::{Real, Signal, SignalSource, SignalValue, Time, TimeTableIdx};
 

@@ -901,7 +901,7 @@ pub(crate) fn compress_signal(signal: &Signal) -> Option<(Vec<u8>, SignalEncodin
             } else {
                 // make a copy to allow us to mask out bits
                 scratch.extend_from_slice(data);
-                scratch[0] = scratch[0] & mask;
+                scratch[0] &= mask;
                 enc.add_n_bit_change(time, &scratch, states);
                 scratch.clear();
             }

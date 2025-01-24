@@ -212,10 +212,8 @@ impl PartialEq for Signal {
                     } else {
                         return false;
                     }
-                } else if other_iter.next().is_some() {
-                    return false;
                 } else {
-                    return true;
+                    return other_iter.next().is_none();
                 }
             }
         } else {

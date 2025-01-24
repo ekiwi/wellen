@@ -554,7 +554,7 @@ impl VhdlType {
 
     fn from_subtype_unbounded_array(name: StringId, types: &[VhdlType], base: TypeId) -> Self {
         // removes the range of the base array
-        let base_tpe = lookup_concrete_type(&types, base);
+        let base_tpe = lookup_concrete_type(types, base);
         match base_tpe {
             VhdlType::Array(_, element_tpe, _) => VhdlType::Array(name, *element_tpe, None),
             VhdlType::NineValueVec(_, _) => VhdlType::NineValueVec(name, None),
