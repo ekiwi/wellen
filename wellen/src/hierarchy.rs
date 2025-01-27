@@ -5,6 +5,7 @@
 
 use crate::FileFormat;
 use rustc_hash::FxHashMap;
+use std::env::var;
 use std::num::{NonZeroI32, NonZeroU16, NonZeroU32};
 use std::ops::Index;
 
@@ -284,6 +285,7 @@ impl SignalEncoding {
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Var {
     name: HierarchyStringId,
+    id: VarRef,
     var_tpe: VarType,
     direction: VarDirection,
     signal_encoding: SignalEncoding,
@@ -402,6 +404,7 @@ pub enum ScopeOrVar<'a> {
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Scope {
     name: HierarchyStringId,
+    id: ScopeRef,
     /// Some wave formats supply the name of the component, e.g., of the module that was instantiated.
     component: Option<HierarchyStringId>,
     tpe: ScopeType,
@@ -1014,7 +1017,9 @@ impl HierarchyBuilder {
             let component = component.filter(|&name| name != EMPTY_STRING);
 
             // now we can build the node data structure and store it
+            let id = ScopeRef::from_index(node_id).unwrap();
             let node = Scope {
+                id,
                 parent,
                 child: None,
                 next: None,
@@ -1068,6 +1073,7 @@ impl HierarchyBuilder {
         let node = Var {
             parent,
             name,
+            id: var_id,
             var_tpe: tpe,
             index,
             direction,
