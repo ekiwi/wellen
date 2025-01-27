@@ -526,7 +526,7 @@ fn slice_n_states(
 }
 
 /// Finds the index that is the same or less than the needle and returns the position of it.
-/// Note that `indices` needs to sorted from smallest to largest.
+/// Note that `indices` needs to be sorted from smallest to largest.
 /// Essentially implements a binary search!
 fn find_offset_from_time_table_idx(indices: &[TimeTableIdx], needle: TimeTableIdx) -> DataOffset {
     debug_assert!(!indices.is_empty(), "empty time table");
