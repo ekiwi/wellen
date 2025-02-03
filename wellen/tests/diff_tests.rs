@@ -3,8 +3,10 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
+mod utils;
 use rustc_hash::FxHashMap;
 use std::io::{BufRead, BufReader};
+use utils::load_all_signals;
 use wellen::simple::*;
 use wellen::*;
 
@@ -292,17 +294,6 @@ fn diff_hierarchy_item(
             other_ref, our
         ),
     }
-}
-
-fn load_all_signals(our: &mut Waveform) {
-    let all_signals: Vec<_> = our
-        .hierarchy()
-        .get_unique_signals_vars()
-        .iter()
-        .flatten()
-        .map(|v| v.signal_ref())
-        .collect();
-    our.load_signals(&all_signals);
 }
 
 fn diff_signals<R: BufRead>(
