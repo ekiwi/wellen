@@ -8,14 +8,16 @@ use crate::hierarchy::*;
 use crate::signals::SignalSource;
 use crate::stream::Filter;
 use crate::viewers::ProgressCount;
-use crate::wavemem::Encoder;
+use crate::wavemem::{bit_char_to_num, check_states, Encoder, States, StreamEncoder};
 use crate::{FileFormat, LoadOptions, SignalValue, Time, TimeTable};
 use fst_reader::{FstVhdlDataType, FstVhdlVarType};
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::io::{BufRead, Read, Seek, SeekFrom};
+use std::num::NonZeroU32;
 use std::sync::atomic::Ordering;
 
 #[derive(Debug, thiserror::Error)]
@@ -125,16 +127,13 @@ pub fn read_body<R: BufRead + Seek>(
 ) -> Result<(SignalSource, TimeTable)> {
     let (source, time_table) = match data.input {
         Input::Reader(mut input) => {
-            // determine binput length
-            let start = input.stream_position()?;
-            input.seek(SeekFrom::End(0))?;
-            let end = input.stream_position()?;
-            input.seek(SeekFrom::Start(start))?;
+            // determine input length
+            let end_pos = determine_len(&mut input)? as usize;
 
             // encode signals
             let encoder = read_single_stream_of_values(
                 &mut input,
-                end as usize, // end_pos includes the size of the header
+                end_pos, // end_pos includes the size of the header
                 true,
                 hierarchy,
                 &data.lookup,
@@ -153,12 +152,12 @@ pub fn read_body<R: BufRead + Seek>(
     Ok((source, time_table))
 }
 
-pub fn read_body_stream<'a, R: BufRead + Seek>(
-    data: &'a ReadBodyContinuation<R>,
-    hierarchy: &'a Hierarchy,
-    filter: &Filter,
-) -> Result<impl Iterator<Item = (Time, SignalRef, SignalValue<'a>)> + 'a> {
-    todo!("stream from VCD")
+fn determine_len(input: &mut impl Seek) -> Result<u64> {
+    let start = input.stream_position()?;
+    input.seek(SeekFrom::End(0))?;
+    let end = input.stream_position()?;
+    input.seek(SeekFrom::Start(start))?;
+    Ok(end)
 }
 
 const FST_SUP_VAR_DATA_TYPE_BITS: u32 = 10;
@@ -1307,13 +1306,162 @@ enum BodyState {
 
 //-------------- VCD Streaming ------------
 
-struct StreamIter {}
+pub fn stream_body<R: BufRead + Seek>(
+    data: &mut ReadBodyContinuation<R>,
+    _hierarchy: &Hierarchy,
+    filter: &Filter,
+    callback: impl FnMut(Time, SignalRef, SignalValue<'_>),
+) -> Result<()> {
+    let mut disp = VcdStreamDispatcher {
+        enc: StreamEncoder::new(filter, callback),
+        lookup: &data.lookup,
+    };
 
-impl Iterator for StreamIter {
-    type Item = ();
+    match &mut data.input {
+        Input::Reader(input) => {
+            let start = input.stream_position()?;
+            let stop_pos = determine_len(input)? as usize;
+            parse_body(input, &mut disp, stop_pos, None)?;
+            // reset stream so that we can read data again
+            input.seek(SeekFrom::Start(start))?;
+            Ok(())
+        }
+        Input::Mmap(mmap) => {
+            let data = &mmap[data.header_len..];
+            let mut input = std::io::Cursor::new(data);
+            let stop_pos = data.len() - 1;
+            parse_body(&mut input, &mut disp, stop_pos, None)?;
+            Ok(())
+        }
+    }
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+struct VcdStreamDispatcher<'a, C>
+where
+    C: FnMut(Time, SignalRef, SignalValue<'_>),
+{
+    enc: StreamEncoder<C>,
+    lookup: &'a IdLookup,
+}
+
+impl<C> ParseBodyOutput for VcdStreamDispatcher<'_, C>
+where
+    C: FnMut(Time, SignalRef, SignalValue<'_>),
+{
+    #[inline]
+    fn time(&mut self, value: u64) -> Result<()> {
+        self.enc.time_change(value);
+        Ok(())
+    }
+
+    #[inline]
+    fn value(&mut self, value: &[u8], id: &[u8]) -> Result<()> {
+        // In the first thread, we might encounter a dump values which dumps all initial values
+        // without specifying a timestamp
+        if self.enc.time_is_none() {
+            self.time(0)?;
+        }
+
+        let num_id = match self.lookup {
+            None => match id_to_int(id) {
+                Some(ii) => ii,
+                None => {
+                    debug_assert!(id.is_empty());
+                    return Err(VcdParseError::VcdEmptyId);
+                }
+            },
+            Some(lookup) => lookup[id].index() as u64,
+        };
+        self.enc.vcd_value_change(num_id, value);
+        Ok(())
+    }
+}
+
+pub enum VcdBitVecChange<'a> {
+    SingleBit(u8),
+    MultiBit(Cow<'a, [u8]>),
+}
+
+pub fn decode_vcd_bit_vec_change(len: NonZeroU32, value: &[u8]) -> (VcdBitVecChange, States) {
+    let value_bits: &[u8] = match value[0] {
+        b'b' | b'B' => &value[1..],
+        _ => value,
+    };
+    // special detection for pymtl3 which adds an extra `0b` for all bit vectors
+    let value_bits: &[u8] = if value_bits.len() <= 2 {
+        value_bits
+    } else {
+        match &value_bits[0..2] {
+            b"0b" => &value_bits[2..],
+            _ => value_bits,
+        }
+    };
+    if len.get() == 1 {
+        let value_char = match value_bits {
+            // special handling for empty values which we always treat as zero
+            [] => b'0',
+            [v] => *v,
+            _ => unreachable!(
+                "value bits are too long for 0-bit or 1-bit signal: {}",
+                String::from_utf8_lossy(value)
+            ),
+        };
+        let bit_value = bit_char_to_num(value_char).unwrap_or_else(|| {
+            panic!(
+                "Failed to parse four state value: {} for signal of size 1",
+                String::from_utf8_lossy(value)
+            )
+        });
+        let states = States::from_value(bit_value);
+        (VcdBitVecChange::SingleBit(bit_value), states)
+    } else {
+        let states = check_states(value_bits).unwrap_or_else(|| {
+            panic!(
+                "Bit-vector contains invalid character. Only 2, 4 and 9-state signals are supported: {}",
+                String::from_utf8_lossy(value)
+            )
+        });
+        // write actual data
+        let bits = len.get() as usize;
+        let data_to_write = if value_bits.len() == bits {
+            Cow::Borrowed(value_bits)
+        } else {
+            let expanded = expand_special_vector_cases(value_bits, bits).unwrap_or_else(|| {
+                panic!(
+                    "Failed to parse four state value: {} for signal of size {}",
+                    String::from_utf8_lossy(value),
+                    bits
+                )
+            });
+            assert_eq!(expanded.len(), bits);
+            Cow::Owned(expanded)
+        };
+        (VcdBitVecChange::MultiBit(data_to_write), states)
+    }
+}
+
+#[inline]
+fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
+    // if the value is actually longer than expected, there is nothing we can do
+    if value.len() >= len {
+        return None;
+    }
+
+    // zero, x or z extend
+    match value[0] {
+        b'1' | b'0' => {
+            let mut extended = Vec::with_capacity(len);
+            extended.resize(len - value.len(), b'0');
+            extended.extend_from_slice(value);
+            Some(extended)
+        }
+        b'x' | b'X' | b'z' | b'Z' => {
+            let mut extended = Vec::with_capacity(len);
+            extended.resize(len - value.len(), value[0]);
+            extended.extend_from_slice(value);
+            Some(extended)
+        }
+        _ => None, // failed
     }
 }
 

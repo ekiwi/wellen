@@ -20,7 +20,8 @@ pub fn read_from_file<P: AsRef<std::path::Path>>(
     match file_format {
         FileFormat::Unknown => Err(WellenError::UnknownFileFormat),
         FileFormat::Vcd => {
-            let (hierarchy, body, body_len) = crate::vcd::read_header_from_file(filename, options)?;
+            let (hierarchy, body, _body_len) =
+                crate::vcd::read_header_from_file(filename, options)?;
             Ok(StreamingWaveform {
                 hierarchy,
                 body: StreamBody::Vcd(body),
@@ -96,10 +97,13 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
     pub fn stream(
         &mut self,
         filter: &Filter,
-    ) -> Result<impl Iterator<Item = (Time, SignalRef, SignalValue<'_>)> + '_> {
-        let iter = match &self.body {
-            StreamBody::Vcd(data) => crate::vcd::read_body_stream(data, &self.hierarchy, filter)?,
-        };
-        Ok(iter)
+        callback: impl FnMut(Time, SignalRef, SignalValue<'_>),
+    ) -> Result<()> {
+        match &mut self.body {
+            StreamBody::Vcd(data) => {
+                crate::vcd::stream_body(data, &self.hierarchy, filter, callback)?
+            }
+        }
+        Ok(())
     }
 }

@@ -3,7 +3,7 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use wellen::stream::*;
-use wellen::{GetItem, LoadOptions};
+use wellen::LoadOptions;
 
 #[test]
 fn test_stream_vcd() {
@@ -13,10 +13,12 @@ fn test_stream_vcd() {
         .hierarchy()
         .lookup_var(&["tbtop", "hash_cond", "comparador"], &"nonce_1")
         .unwrap();
-    let signal = waves.hierarchy().get(nounce_1).signal_ref();
-    let filter = Filter::new(0, u64::MAX, &[signal]);
-    for (time, sig, value) in waves.stream(&filter) {
-        assert_eq!(signal, sig);
-        println!("nounce_1@{time}: {}", value.to_string());
-    }
+    let signals = [waves.hierarchy()[nounce_1].signal_ref()];
+    let filter = Filter::new(0, u64::MAX, &signals);
+    waves
+        .stream(&filter, |time, sig, value| {
+            assert_eq!(signals[0], sig);
+            println!("nounce_1@{time}: {}", value.to_string());
+        })
+        .unwrap();
 }
