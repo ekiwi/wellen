@@ -832,6 +832,9 @@ impl SignalEncoder {
                         leb128::write::unsigned(&mut self.data, write_value).unwrap();
                     }
                     VcdBitVecChange::MultiBit(data_to_write) => {
+                        // write time delta + num-states meta-data
+                        let time_and_meta = (time_idx_delta as u64) << 2 | (states as u64);
+                        leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
                         write_n_state(states, &data_to_write, &mut self.data, None);
                     }
                 }
