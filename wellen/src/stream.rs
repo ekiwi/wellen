@@ -5,8 +5,11 @@
 //! This interface is useful when you want to batch process waveform data instead
 //! of displaying it in a waveform viewer.
 
+use crate::vcd::{decode_vcd_bit_vec_change, VcdBitVecChange};
+use crate::wavemem::{write_n_state, States};
 use crate::{
-    viewers, FileFormat, Hierarchy, LoadOptions, Result, SignalRef, SignalValue, Time, WellenError,
+    viewers, FileFormat, Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef,
+    SignalValue, Time, WellenError,
 };
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
@@ -105,5 +108,148 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
             }
         }
         Ok(())
+    }
+}
+
+/// Takes on the role of the [Encoder] when streaming instead of encoding to
+/// a wavemem.
+pub(crate) struct StreamEncoder<C>
+where
+    C: FnMut(Time, SignalRef, SignalValue<'_>),
+{
+    callback: C,
+    time: Option<Time>,
+    skipping_time_step: bool,
+    /// contains encoding for all _included_ signals (depending on the [Filter] provided)
+    encoding: Vec<Option<SignalEncoding>>,
+    buf: Vec<u8>,
+}
+
+impl<C> StreamEncoder<C>
+where
+    C: FnMut(Time, SignalRef, SignalValue<'_>),
+{
+    pub(crate) fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> Self {
+        // remember encoding information for all included signals
+        let encoding = match filter.signals {
+            None => {
+                // all signals
+                hierarchy
+                    .get_unique_signals_vars()
+                    .into_iter()
+                    .map(|var| {
+                        Some(match var {
+                            None => SignalEncoding::String, // we do not know!
+                            Some(var) => var.signal_encoding(),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            }
+            Some([]) => {
+                // nothing
+                vec![]
+            }
+            Some(signals) => {
+                let max_index = signals.iter().map(|r| r.index()).max().unwrap();
+                let mut enc = vec![None; max_index + 1];
+                for &signal in signals.iter() {
+                    enc[signal.index()] = hierarchy.get_signal_tpe(signal);
+                }
+                enc
+            }
+        };
+
+        Self {
+            callback,
+            time: Default::default(),
+            skipping_time_step: false,
+            encoding,
+            buf: Vec::with_capacity(128),
+        }
+    }
+
+    pub(crate) fn vcd_value_change(&mut self, id: u64, value: &[u8]) {
+        if self.skipping_time_step {
+            return;
+        }
+        // check to see if the signal should be included
+        let maybe_tpe = self.encoding.get(id as usize).and_then(|a| a.as_ref());
+        if let Some(tpe) = maybe_tpe {
+            let signal_ref = SignalRef::from_index(id as usize).unwrap();
+            let time = self.time.unwrap();
+            self.buf.clear();
+            let signal_value = match tpe {
+                &SignalEncoding::BitVector(len) => {
+                    let (data, states) = decode_vcd_bit_vec_change(len, value);
+
+                    // put data into buffer
+                    match data {
+                        VcdBitVecChange::SingleBit(bit_value) => {
+                            self.buf.push(bit_value);
+                        }
+                        VcdBitVecChange::MultiBit(data_to_write) => {
+                            write_n_state(states, &data_to_write, &mut self.buf, None);
+                        }
+                    }
+
+                    // construct signal data based on number of states
+                    match states {
+                        States::Two => SignalValue::Binary(&self.buf, len.get()),
+                        States::Four => SignalValue::FourValue(&self.buf, len.get()),
+                        States::Nine => SignalValue::NineValue(&self.buf, len.get()),
+                    }
+                }
+                SignalEncoding::String => {
+                    assert!(
+                        matches!(value[0], b's' | b'S'),
+                        "expected a string, not {}",
+                        String::from_utf8_lossy(value)
+                    );
+                    let characters = &value[1..];
+                    SignalValue::String(std::str::from_utf8(characters).unwrap())
+                }
+                SignalEncoding::Real => {
+                    assert!(
+                        matches!(value[0], b'r' | b'R'),
+                        "expected a real, not {}",
+                        String::from_utf8_lossy(value)
+                    );
+                    // parse float
+                    let float_value: Real = std::str::from_utf8(&value[1..])
+                        .unwrap()
+                        .parse::<Real>()
+                        .unwrap();
+                    SignalValue::Real(float_value)
+                }
+            };
+
+            (self.callback)(time, signal_ref, signal_value);
+        }
+    }
+
+    pub(crate) fn time_change(&mut self, time: u64) {
+        // sanity check to make sure that time is increasing
+        if let Some(prev_time) = self.time {
+            match prev_time.cmp(&time) {
+                std::cmp::Ordering::Equal => {
+                    return; // ignore calls to time_change that do not actually change anything
+                }
+                std::cmp::Ordering::Greater => {
+                    println!("WARN: time decreased from {prev_time} to {time}. Skipping!");
+                    self.skipping_time_step = true;
+                    return;
+                }
+                std::cmp::Ordering::Less => {
+                    // this is the normal situation where we actually increment the time
+                }
+            }
+        }
+        // TODO: check filter to see if we are done or what!
+        self.time = Some(time);
+        self.skipping_time_step = false;
+    }
+
+    pub(crate) fn time_is_none(&self) -> bool {
+        self.time.is_none()
     }
 }

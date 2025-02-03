@@ -6,9 +6,9 @@
 use crate::fst::{parse_scope_attributes, parse_var_attributes, Attribute};
 use crate::hierarchy::*;
 use crate::signals::SignalSource;
-use crate::stream::Filter;
+use crate::stream::{Filter, StreamEncoder};
 use crate::viewers::ProgressCount;
-use crate::wavemem::{bit_char_to_num, check_states, Encoder, States, StreamEncoder};
+use crate::wavemem::{bit_char_to_num, check_states, Encoder, States};
 use crate::{FileFormat, LoadOptions, SignalValue, Time, TimeTable};
 use fst_reader::{FstVhdlDataType, FstVhdlVarType};
 use num_enum::TryFromPrimitive;
@@ -1308,12 +1308,12 @@ enum BodyState {
 
 pub fn stream_body<R: BufRead + Seek>(
     data: &mut ReadBodyContinuation<R>,
-    _hierarchy: &Hierarchy,
+    hierarchy: &Hierarchy,
     filter: &Filter,
     callback: impl FnMut(Time, SignalRef, SignalValue<'_>),
 ) -> Result<()> {
     let mut disp = VcdStreamDispatcher {
-        enc: StreamEncoder::new(filter, callback),
+        enc: StreamEncoder::new(hierarchy, filter, callback),
         lookup: &data.lookup,
     };
 

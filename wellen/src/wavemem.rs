@@ -602,61 +602,6 @@ impl Encoder {
     }
 }
 
-/// Takes on the role of the [Encoder] when streaming instead of encoding to
-/// a wavemem.
-pub struct StreamEncoder<C>
-where
-    C: FnMut(Time, SignalRef, SignalValue<'_>),
-{
-    callback: C,
-    time: Option<Time>,
-    skipping_time_step: bool,
-}
-
-impl<C> StreamEncoder<C>
-where
-    C: FnMut(Time, SignalRef, SignalValue<'_>),
-{
-    pub fn new(filter: &crate::stream::Filter, callback: C) -> Self {
-        Self {
-            callback,
-            time: Default::default(),
-            skipping_time_step: false,
-        }
-    }
-
-    pub fn vcd_value_change(&mut self, id: u64, value: &[u8]) {
-        debug_assert!(self.time.is_some(), "We need a call to time_change first!");
-        if !self.skipping_time_step {}
-    }
-
-    pub fn time_change(&mut self, time: u64) {
-        // sanity check to make sure that time is increasing
-        if let Some(prev_time) = self.time {
-            match prev_time.cmp(&time) {
-                Ordering::Equal => {
-                    return; // ignore calls to time_change that do not actually change anything
-                }
-                Ordering::Greater => {
-                    println!("WARN: time decreased from {prev_time} to {time}. Skipping!");
-                    self.skipping_time_step = true;
-                    return;
-                }
-                Ordering::Less => {
-                    // this is the normal situation where we actually increment the time
-                }
-            }
-        }
-        // TODO: check filter to see if we are done or what!
-        self.time = Some(time);
-        self.skipping_time_step = false;
-    }
-
-    pub fn time_is_none(&self) -> bool {
-        self.time.is_none()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct SignalEncodingMetaData {
