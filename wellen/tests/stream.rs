@@ -25,18 +25,16 @@ fn diff_stream(filename: &str) {
             .map(|(ii, &t)| (t, ii as TimeTableIdx)),
     );
 
+    let mut delta_counter = FxHashMap::default();
+
     let filter = Filter::all();
     streamed
         .stream(&filter, |time, sig, a_value| {
             // find corresponding signal value in memory
-            let b_sig = batch
-                .get_signal(sig)
-                .expect("failed to find signal in memory");
             let idx = *time_to_idx
                 .get(&time)
-                .expect("failed to find time in time table");
-            let b_offset = b_sig.get_offset(idx).unwrap();
-            let b_value = b_sig.get_value_at(&b_offset, 0);
+                .expect("failed to find time in time table") as usize;
+            let b_value = get_value(&batch, sig, idx, &mut delta_counter);
             diff_signal_value(time, sig, a_value, b_value, None, batch.hierarchy());
         })
         .unwrap();

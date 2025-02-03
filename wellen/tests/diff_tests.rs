@@ -4,6 +4,7 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 mod utils;
+use crate::utils::get_value;
 use rustc_hash::FxHashMap;
 use std::io::{BufRead, BufReader};
 use utils::load_all_signals;
@@ -407,35 +408,6 @@ fn diff_signals<R: BufRead>(
             ::vcd::Command::Comment(_) => {} // ignore
             other => panic!("Unhandled command: {:?}", other),
         }
-    }
-}
-
-fn get_value<'a>(
-    our: &'a Waveform,
-    signal_ref: SignalRef,
-    time_table_idx: usize,
-    delta_counter: &mut FxHashMap<SignalRef, u16>,
-) -> SignalValue<'a> {
-    let our_signal = our.get_signal(signal_ref).unwrap();
-    let our_offset = our_signal.get_offset(time_table_idx as u32).unwrap();
-    // deal with delta cycles
-    if our_offset.elements > 1 {
-        if our_offset.time_match {
-            let element = delta_counter.get(&signal_ref).map(|v| *v + 1).unwrap_or(0);
-            if element == our_offset.elements - 1 {
-                // last element
-                delta_counter.remove(&signal_ref);
-            } else {
-                delta_counter.insert(signal_ref, element);
-            }
-            our_signal.get_value_at(&our_offset, element)
-        } else {
-            // if we are looking at a past offset, we always want to get the last element
-            our_signal.get_value_at(&our_offset, our_offset.elements - 1)
-        }
-    } else {
-        // no delta cycle -> just get the element and be happy!
-        our_signal.get_value_at(&our_offset, 0)
     }
 }
 
