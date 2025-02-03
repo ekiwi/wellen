@@ -5,6 +5,7 @@
 
 mod compressed;
 mod fst;
+mod ftr;
 mod ghw;
 mod hierarchy;
 mod signals;
@@ -22,6 +23,7 @@ pub enum FileFormat {
     Vcd,
     Fst,
     Ghw,
+    Ftr,
     Unknown,
 }
 #[derive(Debug, Copy, Clone)]

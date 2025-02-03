@@ -29,6 +29,7 @@ thiserror.workspace = true
 serde = { workspace = true, optional = true }
 rustc-hash.workspace = true
 miniz_oxide.workspace = true
+ftr_parser = "0.1.2"
 
 [dev-dependencies]
 itertools.workspace = true

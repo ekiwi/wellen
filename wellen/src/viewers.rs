@@ -73,6 +73,9 @@ pub fn read_header_from_file<P: AsRef<std::path::Path>>(
                 body,
             })
         }
+        FileFormat::Ftr => {
+            todo!("add support for FTR!")
+        }
     }
 }
 
@@ -112,6 +115,9 @@ pub fn read_header<R: BufRead + Seek>(
                 body_len: 0, // fst never reads the full body (unless all signals are displayed)
                 body,
             })
+        }
+        FileFormat::Ftr => {
+            todo!("add support for FTR!")
         }
     }
 }

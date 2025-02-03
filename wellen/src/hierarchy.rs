@@ -142,6 +142,8 @@ pub enum ScopeType {
     // from GHW
     GhwGeneric,
     VhdlArray,
+    // for FTR
+    Stream,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
