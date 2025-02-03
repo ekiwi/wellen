@@ -134,6 +134,9 @@ pub fn diff_signal_value(
                 }
             }
         }
+        (SignalValue::Real(a_real), SignalValue::Real(b_real)) => {
+            assert_eq!(a_real, b_real, "{signal:?} @ {time}");
+        }
         (g_value, f_value) => {
             assert_eq!(
                 g_value.to_bit_string(),
