@@ -207,3 +207,11 @@ fn test_physical_type_parsing() {
         ]
     )
 }
+
+/// See: https://github.com/ekiwi/wellen/issues/35
+#[test]
+fn test_issue_35_ghw_failed_to_parse_rtik() {
+    let filename = "inputs/ghdl/wellen_issue_35.ghw";
+    let wave = read(filename).expect("failed to parse");
+    let h = wave.hierarchy();
+}
