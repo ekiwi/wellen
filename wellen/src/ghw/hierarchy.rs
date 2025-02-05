@@ -327,6 +327,17 @@ fn read_range(input: &mut impl BufRead) -> Result<Range> {
     Ok(range)
 }
 
+fn read_unit_vec(input: &mut impl BufRead) -> Result<Vec<(StringId, i64)>> {
+    let num_units = leb128::read::unsigned(input)?;
+    let mut units = Vec::with_capacity(num_units as usize);
+    for _ in 0..num_units {
+        let name = read_string_id(input)?;
+        let val = leb128::read::signed(input)?; // Read an lsleb, not sure relation to sleb
+        units.push((name, val));
+    }
+    Ok(units)
+}
+
 fn read_type_section(
     header: &HeaderData,
     strings: &[String],
@@ -356,6 +367,13 @@ fn read_type_section(
             GhwRtik::TypeI32 => VhdlType::I32(name, None),
             GhwRtik::TypeI64 => VhdlType::I64(name, None),
             GhwRtik::TypeF64 => VhdlType::F64(name, None),
+            GhwRtik::TypeP64 => {
+                let units = match header.version {
+                    0 => vec![],
+                    _ => read_unit_vec(input)?,
+                };
+                VhdlType::P64(name, None, units)
+            }
             GhwRtik::SubtypeScalar => {
                 let base = read_type_id(input)?;
                 let range = read_range(input)?;
@@ -479,6 +497,8 @@ enum VhdlType {
     I64(StringId, Option<IntRange>),
     /// Float type with possible upper and lower bounds.
     F64(StringId, Option<FloatRange>),
+    /// Physical unit type, with upper and lower bounds.
+    P64(StringId, Option<IntRange>, Vec<(StringId, i64)>),
     /// Record with fields.
     Record(StringId, Vec<(StringId, TypeId)>),
     /// An enum that was not detected to be a 9-value bit. The last entry is a unique ID, starting at 0.
@@ -606,10 +626,10 @@ impl VhdlType {
         match (base_tpe, range) {
             (VhdlType::Enum(_, lits, _), Range::Int(int_range)) => {
                 let range = int_range.range();
-                debug_assert!(range.start >= 0 && range.start <= lits.len() as i64);
-                debug_assert!(range.end >= 0 && range.end <= lits.len() as i64);
+                debug_assert!(*range.start() >= 0 && *range.start() < lits.len() as i64);
+                debug_assert!(*range.end() >= 0 && *range.end() < lits.len() as i64);
                 // check to see if this is just an alias or if we need to create a new enum
-                if range.start == 0 && range.end == lits.len() as i64 {
+                if *range.start() == 0 && *range.end() == (lits.len() - 1) as i64 {
                     VhdlType::TypeAlias(name, base)
                 } else {
                     todo!("actual sub enum!")
@@ -617,11 +637,19 @@ impl VhdlType {
             }
             (VhdlType::NineValueBit(_), Range::Int(int_range)) => {
                 let range = int_range.range();
-                if range.start == 0 && range.end == 9 {
+                if *range.start() == 0 && *range.end() == 8 {
                     VhdlType::TypeAlias(name, base)
                 } else {
                     todo!("actual sub enum!")
                 }
+            }
+            (VhdlType::P64(_, maybe_base_range, units), Range::Int(int_range)) => {
+                let base_range = IntRange::from_i64_option(*maybe_base_range);
+                debug_assert!(
+                    int_range.is_subset_of(&base_range),
+                    "{int_range:?} {base_range:?}"
+                );
+                VhdlType::P64(name, Some(int_range), units.clone())
             }
             (VhdlType::I32(_, maybe_base_range), Range::Int(int_range)) => {
                 let base_range = IntRange::from_i32_option(*maybe_base_range);
@@ -653,6 +681,7 @@ impl VhdlType {
             VhdlType::I32(name, _) => *name,
             VhdlType::I64(name, _) => *name,
             VhdlType::F64(name, _) => *name,
+            VhdlType::P64(name, _, _) => *name,
             VhdlType::Record(name, _) => *name,
             VhdlType::Enum(name, _, _) => *name,
             VhdlType::Array(name, _, _) => *name,
@@ -665,6 +694,7 @@ impl VhdlType {
             VhdlType::NineValueBit(_) => Some(IntRange(RangeDir::To, 0, 8)),
             VhdlType::I32(_, range) => *range,
             VhdlType::I64(_, range) => *range,
+            VhdlType::P64(_, range, _) => *range,
             VhdlType::Enum(_, lits, _) => Some(IntRange(RangeDir::To, 0, lits.len() as i64)),
             VhdlType::NineValueVec(_, range) => *range,
             VhdlType::BitVec(_, range) => *range,
@@ -1224,6 +1254,24 @@ fn add_var(
                 Some(tpe_name),
             );
         }
+        VhdlType::P64(_, maybe_range, _) => {
+            // Tentatively treat them as normal integers
+            let _range = IntRange::from_i64_option(*maybe_range);
+            let bits = 64;
+            let index = read_signal_id(input, signals.max_signal_id())?;
+            let signal_ref = signals.register_scalar(index, SignalType::Leb128Signed);
+            let var_type = VarType::Integer;
+            h.add_var(
+                name,
+                var_type,
+                crate::hierarchy::SignalEncoding::bit_vec_of_len(bits),
+                dir,
+                None,
+                signal_ref,
+                None,
+                Some(tpe_name),
+            );
+        }
         VhdlType::F64(_, maybe_range) => {
             // TODO: we could use the range to deduce indices and tighter widths
             let _range = FloatRange::from_f64_option(*maybe_range);
@@ -1394,10 +1442,10 @@ enum RangeDir {
 struct IntRange(RangeDir, i64, i64);
 
 impl IntRange {
-    fn range(&self) -> std::ops::Range<i64> {
+    fn range(&self) -> std::ops::RangeInclusive<i64> {
         match self.0 {
-            RangeDir::To => self.1..(self.2 + 1),
-            RangeDir::Downto => self.2..(self.1 + 1),
+            RangeDir::To => self.1..=self.2,
+            RangeDir::Downto => self.2..=self.1,
         }
     }
 
@@ -1412,6 +1460,10 @@ impl IntRange {
         VarIndex::new(self.1, self.2)
     }
 
+    fn from_i64_option(opt: Option<Self>) -> Self {
+        opt.unwrap_or(Self(RangeDir::To, i64::MIN, i64::MAX))
+    }
+
     fn from_i32_option(opt: Option<Self>) -> Self {
         opt.unwrap_or(Self(RangeDir::To, i32::MIN as i64, i32::MAX as i64))
     }
@@ -1419,7 +1471,7 @@ impl IntRange {
     fn is_subset_of(&self, other: &Self) -> bool {
         let self_range = self.range();
         let other_range = other.range();
-        self_range.start >= other_range.start && self_range.end <= other_range.end
+        self_range.start() >= other_range.start() && self_range.end() <= other_range.end()
     }
 }
 
