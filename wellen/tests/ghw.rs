@@ -171,3 +171,39 @@ fn test_issue_34_ghw_unconstrained_subtype_record() {
     assert_eq!(address.var_type(), VarType::StdLogicVector);
     assert_eq!(address.vhdl_type_name(h), Some("std_logic_vector"));
 }
+
+/// Check that we encode physical types properly as integers
+#[test]
+fn test_physical_type_parsing() {
+    let filename = "inputs/ghdl/time_test.ghw";
+    let mut wave = read(filename).expect("failed to parse");
+
+    let var_names = wave
+        .hierarchy()
+        .iter_vars()
+        .map(|v| v.name(wave.hierarchy()).to_string())
+        .collect::<Vec<_>>();
+    let signal_refs = wave
+        .hierarchy()
+        .iter_vars()
+        .map(|v| v.signal_ref())
+        .collect::<Vec<_>>();
+    wave.load_signals(&signal_refs);
+    let var_values: Vec<String> = signal_refs
+        .iter()
+        .filter_map(|s| wave.get_signal(*s))
+        .flat_map(|s| s.iter_changes())
+        .flat_map(|(_, sv)| sv.to_bit_string())
+        .collect();
+
+    assert_eq!(var_names, ["t1", "t2", "t3"]);
+    assert_eq!(
+        var_values,
+        [
+            "0000000000000000000000000000000000011101110011010110010100000000",
+            "0000000000000111000110101111110101001001100011010000000000000000",
+            "1000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000111000110101111110101100111010110100110010100000000"
+        ]
+    )
+}
