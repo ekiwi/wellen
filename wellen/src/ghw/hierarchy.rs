@@ -1261,7 +1261,6 @@ fn add_var(
             let index = read_signal_id(input, signals.max_signal_id())?;
             let signal_ref = signals.register_scalar(index, SignalType::Leb128Signed);
             let var_type = VarType::Integer;
-            println!("registering signal {:?}", signal_ref);
             h.add_var(
                 name,
                 var_type,
