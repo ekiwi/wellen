@@ -324,6 +324,8 @@ fn read_range(input: &mut impl BufRead) -> Result<Range> {
         }
     };
 
+    println!("{range:?}");
+
     Ok(range)
 }
 
@@ -396,17 +398,8 @@ fn read_type_section(
             GhwRtik::SubtypeArray => {
                 let base = read_type_id(input)?;
                 debug_assert!(types[base.index()].is_array());
-                let range = read_range(input)?;
-
-
-                println!("TEST: {}", VhdlType::is_finite(base, &types));
-
-                if let Some(constrained) = read_subtype_bounds(input, &mut types, base)? {
-                    todo!();
-                }
-
-                println!("subtype array: base={base:?} range={range:?}");
-                VhdlType::from_subtype_array(name, &types, base, range)
+                // construct a finite version of the base type by recursively reading bounds
+                read_subtype_bounds(input, &mut types, base)?.to_type(name)
             }
             GhwRtik::SubtypeUnboundedArray => {
                 let base = read_type_id(input)?;
@@ -427,30 +420,9 @@ fn read_type_section(
                 // a subtype is a constraint version of the original type
                 // like: https://stackoverflow.com/questions/61895716/what-is-the-point-of-a-subtype-when-a-type-can-be-constrained
                 let base = read_type_id(input)?;
-                let base_tpe = lookup_concrete_type(&types, base).clone();
-                debug_assert!(base_tpe.is_record());
-                if let VhdlType::Record(_base_name, base_fields) = base_tpe {
-                    // check to see if any of the base record fields need are missing a range
-                    let mut is_alias = true;
-                    let mut fields = Vec::with_capacity(base_fields.len());
-                    for (name, tpe_id) in base_fields {
-                        if let Some(constrained) = read_subtype_bounds(input, &mut types, tpe_id)? {
-                            // the subtype is not an alias since it includes additional constraints
-                            is_alias = false;
-                            fields.push((name, constrained));
-                        } else {
-                            fields.push((name, tpe_id));
-                        }
-                    }
-
-                    if is_alias {
-                        VhdlType::TypeAlias(name, base)
-                    } else {
-                        VhdlType::Record(name, fields)
-                    }
-                } else {
-                    panic!("unexpected base type {base_tpe:?}, expected record")
-                }
+                debug_assert!(types[base.index()].is_record());
+                // construct a finite version of the base type by recursively reading bounds
+                read_subtype_bounds(input, &mut types, base)?.to_type(name)
             }
             other => todo!("Support: {other:?}"),
         };
@@ -475,63 +447,101 @@ fn read_type_section(
     }
 }
 
-/// Reads subtype bounds and creates a new type with these bounds iff the subtype was unconstrained.
-fn read_subtype_bounds(input: &mut impl BufRead, types: &mut Vec<VhdlType>, tpe_id: TypeId) -> Result<Option<TypeId>> {
-    println!("CONCRETE: {tpe_id:?} {:?}", lookup_concrete_type(types.as_slice(), tpe_id));
-    match lookup_concrete_type(types.as_slice(), tpe_id) {
-            VhdlType::BitVec(_, None)
-            | VhdlType::NineValueVec(_, None) => {
+#[derive(Debug)]
+enum TypeOrId {
+    T(VhdlType),
+    I(TypeId),
+}
 
-                // we get a `GhwRtik::SubtypeArray` entry
-                let sub_name = StringId::none();
-                let sub_base = tpe_id;
-                println!("BLA");
-                let sub_range = read_range(input)?;
+impl TypeOrId {
+    fn is_type(&self) -> bool {
+        matches!(self, TypeOrId::T(_))
+    }
 
-                println!("RANGE = {sub_range:?}");
-
-                // we know that the element type is finite since it is either 2 or 9 state bit
-                let sub = VhdlType::from_subtype_array(
-                    sub_name, &types, sub_base, sub_range,
-                );
-                // add a new type which did not exist in the original GHW
-                types.push(sub);
-                Ok(Some(TypeId::from_index(types.len() - 1)))
+    /// commits type to global type list
+    fn to_type_id(self, types: &mut Vec<VhdlType>) -> TypeId {
+        match self {
+            TypeOrId::T(t) => {
+                types.push(t);
+                TypeId::from_index(types.len() - 1)
             }
-        &VhdlType::Array(base_name, el, range) => {
+            TypeOrId::I(id) => id,
+        }
+    }
+
+    fn to_type(self, name: StringId) -> VhdlType {
+        match self {
+            TypeOrId::T(mut tpe) => {
+                tpe.rename(name);
+                tpe
+            }
+            TypeOrId::I(id) => VhdlType::TypeAlias(name, id),
+        }
+    }
+}
+
+/// Used to parse subtype array or subtype record entries which restrict an infinite subtype.
+/// Returns a type_id if the type was already finite, a new type if the type had to be bound.
+fn read_subtype_bounds(
+    input: &mut impl BufRead,
+    types: &mut Vec<VhdlType>,
+    base: TypeId,
+) -> Result<TypeOrId> {
+    match lookup_concrete_type(types.as_slice(), base).clone() {
+        VhdlType::BitVec(_, None) | VhdlType::NineValueVec(_, None) => {
+            // restrict array size along dimension zero
+            let range = read_range(input)?;
+            // create new type with restricted range
+            let sub = VhdlType::from_subtype_array(StringId::none(), &types, base, range);
+            Ok(TypeOrId::T(sub))
+        }
+        VhdlType::BitVec(_, Some(_)) | VhdlType::NineValueVec(_, Some(_)) => {
+            // type is already bound, nothing to do
+            Ok(TypeOrId::I(base))
+        }
+        VhdlType::Array(base_name, el, old_range) => {
             // there are two reasons why the array might be infinite:
             // 1) the range is none
             // 2) the element type is infinite
-            if range.is_none() || !VhdlType::is_finite(el, types) {
-                // we get a `GhwRtik::SubtypeArray` entry
-                let sub_name = StringId::none();
-                let sub_base = tpe_id;
-                let sub_range = *read_range(input)?.get_int_range().expect("expected integer range for array!");
+            if old_range.is_none() || !VhdlType::is_finite(el, types) {
+                // restrict array size along dimension zero (we only support 1D arrays at the moment)
+                let range = *read_range(input)?
+                    .get_int_range()
+                    .expect("expected integer range for array!");
                 // read in bounds iff the element type is unbound (otherwise it will just return None)
-                let sub_element_tpe = read_subtype_bounds(input, types, el)?.unwrap_or(el);
+                let sub_element_tpe = read_subtype_bounds(input, types, el)?.to_type_id(types);
 
-                if let Some(base_range) = range.as_ref() {
-                    debug_assert!(
-                        sub_range.is_subset_of(base_range),
-                        "{sub_range:?} {base_range:?}"
-                    );
+                if let Some(base_range) = old_range.as_ref() {
+                    debug_assert!(range.is_subset_of(base_range), "{range:?} {base_range:?}");
                 }
-                let sub = VhdlType::Array(
-                    pick_best_name(sub_name, base_name),
-                    sub_element_tpe,
-                    Some(sub_range),
-                );
-                // add a new type which did not exist in the original GHW
-                types.push(sub);
-                Ok(Some(TypeId::from_index(types.len() - 1)))
+                let sub = VhdlType::Array(base_name, sub_element_tpe, Some(range));
+                Ok(TypeOrId::T(sub))
             } else {
                 // array was already finite
-                Ok(None)
+                Ok(TypeOrId::I(base))
             }
         }
-            // TODO: handle unbounded record
-            _ => Ok(None),
+        VhdlType::Record(base_name, base_fields) => {
+            // check to see if any of the base record fields need are missing a range
+            let mut is_finite = true;
+            let mut fields = Vec::with_capacity(base_fields.len());
+            for (name, tpe_id) in base_fields {
+                let constrained = read_subtype_bounds(input, types, tpe_id)?;
+                if constrained.is_type() {
+                    // the subtype is not an alias since it includes additional constraints
+                    is_finite = false;
+                }
+                fields.push((name, constrained.to_type_id(types)));
+            }
+
+            if is_finite {
+                Ok(TypeOrId::I(base))
+            } else {
+                Ok(TypeOrId::T(VhdlType::Record(base_name, fields)))
+            }
         }
+        other => todo!("other!"),
+    }
 }
 
 /// Our own custom representation of VHDL Types.
@@ -762,12 +772,11 @@ impl VhdlType {
     }
 
     fn is_array(&self) -> bool {
-        matches!(self,
+        matches!(
+            self,
             // while we make a distinction between regular and "special" arrays, GHDL
             // treats all three types as just arrays
-            Self::NineValueVec(_,_) |
-            Self::BitVec(_,_) |
-            Self::Array(_,_,_)
+            Self::NineValueVec(_, _) | Self::BitVec(_, _) | Self::Array(_, _, _)
         )
     }
 
@@ -784,22 +793,38 @@ impl VhdlType {
             VhdlType::Bit(_) => true,
             VhdlType::BitVec(_, None) => false,
             VhdlType::BitVec(_, Some(_)) => true,
-            &VhdlType::TypeAlias(_, underlying) => {
-                Self::is_finite(underlying, types)
-            }
+            &VhdlType::TypeAlias(_, underlying) => Self::is_finite(underlying, types),
             VhdlType::I32(_, None) => false,
             VhdlType::I32(_, Some(_)) => true,
             VhdlType::I64(_, None) => false,
             VhdlType::I64(_, Some(_)) => true,
             VhdlType::F64(_, None) => false,
             VhdlType::F64(_, Some(_)) => true,
-            VhdlType::Record(_, fields) => fields
-                .iter()
-                .all(|&(_, f)| Self::is_finite(f, types)),
+            VhdlType::P64(_, None, _) => false,
+            VhdlType::P64(_, Some(_), _) => true,
+            VhdlType::Record(_, fields) => fields.iter().all(|&(_, f)| Self::is_finite(f, types)),
             VhdlType::Enum(_, _, _) => true,
             VhdlType::Array(_, _, None) => false,
             &VhdlType::Array(_, et, Some(_)) => Self::is_finite(et, types),
             VhdlType::Missing => unreachable!(""),
+        }
+    }
+
+    fn rename(&mut self, new_name: StringId) {
+        match self {
+            VhdlType::NineValueBit(name) => *name = new_name,
+            VhdlType::NineValueVec(name, _) => *name = new_name,
+            VhdlType::Bit(name) => *name = new_name,
+            VhdlType::BitVec(name, _) => *name = new_name,
+            VhdlType::TypeAlias(name, _) => *name = new_name,
+            VhdlType::I32(name, _) => *name = new_name,
+            VhdlType::I64(name, _) => *name = new_name,
+            VhdlType::F64(name, _) => *name = new_name,
+            VhdlType::P64(name, _, _) => *name = new_name,
+            VhdlType::Record(name, _) => *name = new_name,
+            VhdlType::Enum(name, _, _) => *name = new_name,
+            VhdlType::Array(name, _, _) => *name = new_name,
+            VhdlType::Missing => panic!("missing type, no name"),
         }
     }
 }
