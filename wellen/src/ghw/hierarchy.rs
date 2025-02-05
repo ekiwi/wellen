@@ -626,10 +626,10 @@ impl VhdlType {
         match (base_tpe, range) {
             (VhdlType::Enum(_, lits, _), Range::Int(int_range)) => {
                 let range = int_range.range();
-                debug_assert!(*range.start() >= 0 && *range.start() <= lits.len() as i64);
-                debug_assert!(*range.end() >= 0 && *range.end() <= lits.len() as i64);
+                debug_assert!(*range.start() >= 0 && *range.start() < lits.len() as i64);
+                debug_assert!(*range.end() >= 0 && *range.end() < lits.len() as i64);
                 // check to see if this is just an alias or if we need to create a new enum
-                if *range.start() == 0 && *range.end() == lits.len() as i64 {
+                if *range.start() == 0 && *range.end() == (lits.len() - 1) as i64 {
                     VhdlType::TypeAlias(name, base)
                 } else {
                     todo!("actual sub enum!")
@@ -637,7 +637,7 @@ impl VhdlType {
             }
             (VhdlType::NineValueBit(_), Range::Int(int_range)) => {
                 let range = int_range.range();
-                if *range.start() == 0 && *range.end() == 9 {
+                if *range.start() == 0 && *range.end() == 8 {
                     VhdlType::TypeAlias(name, base)
                 } else {
                     todo!("actual sub enum!")
