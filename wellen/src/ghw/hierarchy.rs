@@ -468,7 +468,9 @@ impl TypeOrId {
     fn to_type(self, name: StringId) -> VhdlType {
         match self {
             TypeOrId::T(mut tpe) => {
-                tpe.rename(name);
+                if name.0 > 0 {
+                    tpe.rename(name);
+                }
                 tpe
             }
             TypeOrId::I(id) => VhdlType::TypeAlias(name, id),

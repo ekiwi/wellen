@@ -75,7 +75,7 @@ fn diff_hierarchy_item(
                         g.var_type() == VarType::StdULogic || g.var_type() == VarType::StdLogic
                     );
                 } else {
-                    assert_eq!(g.var_type(), f.var_type());
+                    assert_eq!(g.var_type(), f.var_type(), "{}", g.full_name(ghw));
                 }
                 assert_eq!(g.length(), f.length());
             }
