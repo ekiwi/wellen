@@ -237,6 +237,15 @@ impl VarIndex {
     pub fn lsb(&self) -> i64 {
         self.lsb
     }
+
+    #[inline]
+    pub fn length(&self) -> u32 {
+        if self.width == DEFAULT_ZERO_REPLACEMENT {
+            1
+        } else {
+            self.width.get().abs() as u32 + 1
+        }
+    }
 }
 
 /// Signal identifier in the waveform (VCD, FST, etc.) file.

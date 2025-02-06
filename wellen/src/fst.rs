@@ -588,7 +588,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                 ..
             } => {
                 // the fst name often contains the variable name + the index
-                let (var_name, index, scopes) = parse_name(name.as_bytes()).unwrap();
+                let (var_name, index, scopes) = parse_name(name.as_bytes(), length).unwrap();
                 let (type_name, var_type, enum_type) =
                     parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name).unwrap();
                 let name_id = h.add_string(var_name);

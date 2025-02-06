@@ -133,3 +133,18 @@ fn load_github_issue_18() {
     assert!(r.is_err());
     assert!(r.err().unwrap().to_string().contains("expected an id"));
 }
+
+/// https://github.com/ekiwi/wellen/issues/36
+/// The problem was that wellen was interpreting an array index as a bit index.
+/// We are working around this now by checking bit index against the width.
+#[test]
+fn amaranth_array_support_issue_36() {
+    let filename = "inputs/amaranth/array-names_wellen_issue_36.vcd";
+    let waves = read(filename).expect("failed to parse");
+    let h = waves.hierarchy();
+    let o_md_0_0 = &h[h
+        .lookup_var(&["bench", "top", "\\o_md", "[0]"], &"[0]")
+        .expect("failed to find bench.top.o_md.[0].[0]")];
+    assert!(o_md_0_0.index().is_none());
+    assert_eq!(o_md_0_0.length(), Some(32));
+}
