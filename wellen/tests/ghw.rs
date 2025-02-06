@@ -209,6 +209,8 @@ fn test_physical_type_parsing() {
 }
 
 /// See: https://github.com/ekiwi/wellen/issues/35
+/// The underlying problem was that we needed to parse type bound if the element type
+/// of the array that is pointed to by a subtype array is infinite.
 #[test]
 fn test_issue_35_ghw_failed_to_parse_rtik() {
     let filename = "inputs/ghdl/wellen_issue_35.ghw";
