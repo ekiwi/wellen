@@ -26,6 +26,8 @@ pub enum VcdParseError {
     VcdVarNameParsing(String),
     #[error("[vcd] expected command to start with `$`, not `{0}`")]
     VcdStartChar(String),
+    #[error("[vcd] unknown or invalid command: `{0}`, valid are: {list:?}", list=get_vcd_command_str())]
+    VcdInvalidCommand(String),
     #[error("[vcd] unexpected number of tokens for command {0}: {1}")]
     VcdUnexpectedNumberOfTokens(String, String),
     #[error("[vcd] encountered a attribute with an unsupported type: {0}")]
@@ -812,19 +814,6 @@ impl VcdCmd {
             _ => None,
         }
     }
-
-    fn from_bytes_or_panic(name: &[u8]) -> Self {
-        match Self::from_bytes(name) {
-            None => {
-                panic!(
-                    "Unexpected VCD command {}. Supported commands are: {:?}",
-                    String::from_utf8_lossy(name),
-                    get_vcd_command_str()
-                );
-            }
-            Some(cmd) => cmd,
-        }
-    }
 }
 
 /// Tries to guess whether this input could be a VCD by looking at the first token.
@@ -861,7 +850,9 @@ fn read_command<'a>(input: &mut impl BufRead, buf: &'a mut Vec<u8>) -> Result<(V
     read_token(input, buf)?;
 
     // check to see if this is a valid command
-    let cmd = VcdCmd::from_bytes_or_panic(buf);
+    let cmd = VcdCmd::from_bytes(buf).ok_or_else(|| {
+        VcdParseError::VcdInvalidCommand(String::from_utf8_lossy(buf).to_string())
+    })?;
     buf.clear();
 
     // read until we find the end token

@@ -1,0 +1,15 @@
+$date
+        Fri Feb  7 16:00:22 2025
+$end
+$crash
+$version
+        Icarus Verilog
+$end
+$timescale
+        1ps
+$end
+$scope module proj::pipeline_ready_valid::ready_valid_pipeline $end
+$var wire 1 ! \#s1_enable $end
+$upscope $end
+$enddefinitions $end
+$dumpall
