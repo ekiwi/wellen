@@ -33,7 +33,7 @@ rustc-hash = "2.1"
 miniz_oxide = "0.8.3"
 
 # dev dependencies
-itertools = "0.13.0"
+itertools = "0.14.0"
 vcd = "0.7.0"
 clap = { version = "4.4.6", features = ["derive"] }
 criterion = "0.5"
