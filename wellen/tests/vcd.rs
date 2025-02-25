@@ -149,6 +149,13 @@ fn amaranth_array_support_issue_36() {
     assert_eq!(o_md_0_0.length(), Some(32));
 }
 
+#[test]
+fn load_github_issue_42() {
+    let filename = "inputs/github_issues/issue42.vcd";
+    let _waves = read(filename).expect("failed to parse");
+}
+
+
 /// https://github.com/ekiwi/wellen/issues/40
 /// Invalid commands in the VCD file should lead to an error being returned, not a panic.
 #[test]

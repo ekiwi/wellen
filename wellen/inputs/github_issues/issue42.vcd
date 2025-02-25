@@ -1,0 +1,100 @@
+$date
+	Sun Feb 23 12:44:08 2025
+
+$end
+$version
+	nvc 1.13-devel
+$end
+$timescale
+	1fs
+$end
+$attrbegin misc 03 /home/oscar/array/fulladder_tb.vhdl 1 $end
+$attrbegin misc 04 1 12 $end
+$scope vhdl_architecture delay_tb $end
+$attrbegin misc 02 STD_LOGIC 1030 $end
+$var logic 1 ! clk $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 2 " input[1:0] $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 2 # output[1:0] $end
+$attrbegin misc 04 1 14 $end
+$scope vhdl_architecture dut $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 2 " a[1:0] $end
+$attrbegin misc 02 STD_LOGIC 1030 $end
+$var logic 1 ! clk $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 2 # b[1:0] $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 2 $ delays[0][1:0] $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 2 % delays[1][1:0] $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 2 & delays[2][1:0] $end
+$attrend $end
+$upscope $end
+$upscope $end
+$attrbegin misc 03 /home/oscar/venv/vunit/lib/python3.12/site-packages/vunit/vhdl/run/src/run_api.vhd 2 $end
+$attrbegin misc 04 2 19 $end
+$scope vhdl_package vunit_lib.run_pkg $end
+$attrbegin misc 02 RUNNER_SYNC_T 1029 $end
+$var logic 21 ' runner[0:20] $end
+$upscope $end
+$attrbegin misc 03 /home/oscar/venv/vunit/lib/python3.12/site-packages/vunit/vhdl/check/src/check_api.vhd 3 $end
+$attrbegin misc 04 3 25 $end
+$scope vhdl_package vunit_lib.check_pkg $end
+$attrbegin misc 02 STD_LOGIC 1030 $end
+$var logic 1 ( check_enabled $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+1(
+bZZ010ZZ011ZZ000ZZ100Z '
+bUU &
+bUU %
+b00 $
+bUU #
+b00 "
+1!
+$end
+#50000000
+b01 "
+b01 $
+#100000000
+0!
+#200000000
+1!
+b01 %
+#250000000
+b11 $
+b11 "
+#300000000
+0!
+#400000000
+1!
+b11 %
+b01 #
+b01 &
+#450000000
+b00 "
+b00 $
+#500000000
+0!
+#600000000
+1!
+b11 &
+b11 #
+b00 %
+#700000000
+0!
+#800000000
+1!
+b00 #
+b00 &
+#900000000
+0!
+#1000000000
+1!
+#1050000000
+bZZ010ZZ011ZZ000ZZ1001 '

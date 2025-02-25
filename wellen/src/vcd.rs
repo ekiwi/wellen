@@ -30,7 +30,7 @@ pub enum VcdParseError {
     VcdInvalidCommand(String),
     #[error("[vcd] unexpected number of tokens for command {0}: {1}")]
     VcdUnexpectedNumberOfTokens(String, String),
-    #[error("[vcd] encountered a attribute with an unsupported type: {0}")]
+    #[error("[vcd] encountered an attribute with an unsupported type: {0}")]
     VcdUnsupportedAttributeType(String),
     #[error("[vcd] failed to parse VHDL var type from attribute.")]
     VcdFailedToParseVhdlVarType(
@@ -744,6 +744,10 @@ fn read_vcd_header(
                     }
                 }
             }
+            VcdCmd::AttributeEnd => {
+                // Empty command directly folloed by $end
+                continue;
+            }
         };
         callback(parsed)?;
     }
@@ -759,7 +763,9 @@ const VCD_VERSION: &[u8] = b"version";
 const VCD_END_DEFINITIONS: &[u8] = b"enddefinitions";
 /// This might be an unofficial extension used by VHDL simulators.
 const VCD_ATTRIBUTE_BEGIN: &[u8] = b"attrbegin";
-const VCD_COMMANDS: [&[u8]; 9] = [
+/// Empty command that is generated in fst2vcd by e.g. NVCs VCD-generation
+const VCD_ATTRIBUTE_END: &[u8] = b"attrend";
+const VCD_COMMANDS: [&[u8]; 10] = [
     VCD_DATE,
     VCD_TIMESCALE,
     VCD_VAR,
@@ -769,6 +775,7 @@ const VCD_COMMANDS: [&[u8]; 9] = [
     VCD_VERSION,
     VCD_END_DEFINITIONS,
     VCD_ATTRIBUTE_BEGIN,
+    VCD_ATTRIBUTE_END,
 ];
 
 /// Used to show all commands when printing an error message.
@@ -797,6 +804,7 @@ enum VcdCmd {
     Version,
     EndDefinitions,
     Attribute,
+    AttributeEnd,
 }
 
 impl VcdCmd {
@@ -811,6 +819,7 @@ impl VcdCmd {
             VCD_VERSION => Some(VcdCmd::Version),
             VCD_END_DEFINITIONS => Some(VcdCmd::EndDefinitions),
             VCD_ATTRIBUTE_BEGIN => Some(VcdCmd::Attribute),
+            VCD_ATTRIBUTE_END => Some(VcdCmd::AttributeEnd),
             _ => None,
         }
     }
