@@ -161,7 +161,7 @@ pub fn open_and_detect_file_format<P: AsRef<std::path::Path>>(filename: P) -> Fi
 }
 
 /// Tries to guess the file format used by the input.
-fn detect_file_format(input: &mut (impl BufRead + Seek)) -> FileFormat {
+pub fn detect_file_format(input: &mut (impl BufRead + Seek)) -> FileFormat {
     if crate::vcd::is_vcd(input) {
         FileFormat::Vcd
     } else if fst_reader::is_fst_file(input) {
