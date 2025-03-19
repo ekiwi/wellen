@@ -9,7 +9,7 @@ members = ["wellen", "pywellen"]
 default-members = ["wellen"]
 
 [workspace.package]
-version = "0.14.3"
+version = "0.14.4"
 edition = "2021"
 # we require the `div_ceil` method on integers
 rust-version = "1.73.0"
@@ -21,7 +21,7 @@ keywords = ["vcd", "fst", "waveform", "wavedump"]
 
 
 [workspace.dependencies]
-fst-reader = "0.10.0"
+fst-reader = "0.10.2"
 leb128 = "0.2.5"
 lz4_flex = "0.11.3"
 memmap2 = "0.9.5"
