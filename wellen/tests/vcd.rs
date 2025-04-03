@@ -155,7 +155,6 @@ fn load_github_issue_42() {
     let _waves = read(filename).expect("failed to parse");
 }
 
-
 /// https://github.com/ekiwi/wellen/issues/40
 /// Invalid commands in the VCD file should lead to an error being returned, not a panic.
 #[test]
@@ -164,4 +163,10 @@ fn load_github_issue_40() {
     let r = read(filename);
     assert!(r.is_err());
     assert!(r.err().unwrap().to_string().contains("unknown or invalid command"));
+}
+#[test]
+fn test_long_names_vcd() {
+    let filename = "inputs/verilator/long_name.fst";
+    let r =read(filename);
+    assert!(!r.is_err());
 }
