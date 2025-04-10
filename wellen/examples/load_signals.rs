@@ -24,6 +24,8 @@ struct Args {
         help = "only parse the file, but do not actually load the signals"
     )]
     skip_load: bool,
+    #[arg(long)]
+    single_thread: bool,
 }
 
 fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
@@ -63,18 +65,18 @@ fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
     )
 }
 
-const LOAD_OPTS: LoadOptions = LoadOptions {
-    multi_thread: true,
-    remove_scopes_with_empty_name: false,
-};
-
 fn main() {
     let args = Args::parse();
+
+    let load_opts = LoadOptions {
+        multi_thread: !args.single_thread,
+        remove_scopes_with_empty_name: false,
+    };
 
     // load header
     let header_start = std::time::Instant::now();
     let header =
-        viewers::read_header_from_file(&args.filename, &LOAD_OPTS).expect("Failed to load file!");
+        viewers::read_header_from_file(&args.filename, &load_opts).expect("Failed to load file!");
     let header_load_duration = header_start.elapsed();
     println!(
         "It took {:?} to load the header of {}",
@@ -159,7 +161,7 @@ fn main() {
         let _signal_name: String = var.full_name(&hierarchy);
         let ids = [var.signal_ref(); 1];
         let start = std::time::Instant::now();
-        let loaded = wave_source.load_signals(&ids, &hierarchy, LOAD_OPTS.multi_thread);
+        let loaded = wave_source.load_signals(&ids, &hierarchy, load_opts.multi_thread);
         let load_time = start.elapsed();
         assert_eq!(loaded.len(), ids.len());
         let (loaded_id, loaded_signal) = loaded.into_iter().next().unwrap();
