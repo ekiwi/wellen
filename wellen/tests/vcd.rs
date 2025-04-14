@@ -166,7 +166,7 @@ fn load_github_issue_40() {
 }
 #[test]
 fn test_long_names_vcd() {
-    let filename = "inputs/verilator/long_name.fst";
+    let filename = "inputs/verilator/long_name.vcd";
     let r =read(filename);
     assert!(!r.is_err());
 }
