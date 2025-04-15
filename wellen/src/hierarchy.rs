@@ -538,13 +538,13 @@ fn to_scope_ref_iterator(
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub struct SourceLocId(NonZeroU16);
+pub struct SourceLocId(NonZeroU32);
 
 impl SourceLocId {
     #[inline]
     fn from_index(index: usize) -> Self {
-        let value = (index + 1) as u16;
-        SourceLocId(NonZeroU16::new(value).unwrap())
+        let value = (index + 1) as u32;
+        SourceLocId(NonZeroU32::new(value).unwrap())
     }
 
     #[inline]
@@ -1209,15 +1209,15 @@ mod tests {
             std::mem::size_of::<HierarchyStringId>() // name
                 + std::mem::size_of::<HierarchyStringId>() // component name
                 + 1 // tpe
-                + 2 // source info
-                + 2 // source info
+                + 4 // source info
+                + 4 // source info
                 + std::mem::size_of::<ScopeOrVarRef>() // child
                 + std::mem::size_of::<ScopeRef>() // parent
                 + std::mem::size_of::<ScopeOrVarRef>() // next
                 + 3 // padding
         );
-        // currently this all comes out to 32 bytes (~= 4.5x 64-bit pointers)
-        assert_eq!(std::mem::size_of::<Scope>(), 36);
+        // currently this all comes out to 40 bytes (= 5x 64-bit pointers)
+        assert_eq!(std::mem::size_of::<Scope>(), 40);
 
         // for comparison: one string is 24 bytes for the struct alone (ignoring heap allocation)
         assert_eq!(std::mem::size_of::<String>(), 24);
