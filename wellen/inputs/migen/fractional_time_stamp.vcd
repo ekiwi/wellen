@@ -1,0 +1,28 @@
+$var wire 1 ! orgate0 $end
+$var wire 1 " orgate1 $end
+$var wire 1 # orgate2 $end
+$var wire 1 $ sys_clk $end
+$enddefinitions $end
+$dumpvars
+$end
+#0
+0!
+0"
+0#
+0$
+#3.2
+1$
+#6.0
+0$
+#9.0
+1"
+1#
+1$
+#12.0
+0$
+#15.0
+1$
+0!
+0"
+0#
+0$
