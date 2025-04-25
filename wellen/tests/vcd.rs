@@ -165,3 +165,21 @@ fn load_github_issue_40() {
     assert!(r.is_err());
     assert!(r.err().unwrap().to_string().contains("unknown or invalid command"));
 }
+
+
+/// Time stamps ending with .0 can show up from Migen. Make sure they can be parsed.
+#[test]
+fn load_github_issue_55_float_time_stamp() {
+    let filename = "inputs/migen/migen.vcd";
+    let _waves = read(filename).expect("failed to parse");
+}
+
+/// Error for float time stamps that does not have a zero fractional part.
+/// Migen will not produce these, but someone may...
+#[test]
+fn load_github_issue_55_fractional_time_stamp() {
+    let filename = "inputs/migen/fractional_time_stamp.vcd";
+    let r = read(filename);
+    assert!(r.is_err());
+    assert!(r.err().unwrap().to_string().contains("parse an integer"));
+}

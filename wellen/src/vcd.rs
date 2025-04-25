@@ -1051,7 +1051,25 @@ fn parse_first_token(token: &[u8]) -> Result<FirstTokenResult> {
     match token[0] {
         b'#' => {
             let value_str = std::str::from_utf8(&token[1..])?;
-            let value: u64 = value_str.parse()?;
+            // Try parsing as u64
+            let value = match value_str.parse::<u64>() {
+                Ok(val) => Ok(val),
+                Err(e) => {
+                    // Try parsing as f64
+                    match value_str.parse::<f64>() {
+                        Ok(val) => {
+                            if val.fract() == 0.0 {
+                                // Convert to u64 if no fractional part
+                                Ok(val as u64)
+                            } else {
+                                Err(e)
+                            }
+                        }
+                        Err(_) => Err(e),
+                    }
+                }
+            }?;
+
             Ok(FirstTokenResult::Time(value))
         }
         b'0' | b'1' | b'z' | b'Z' | b'x' | b'X' | b'h' | b'H' | b'u' | b'U' | b'w' | b'W'
