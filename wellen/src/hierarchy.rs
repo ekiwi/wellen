@@ -142,6 +142,8 @@ pub enum ScopeType {
     // from GHW
     GhwGeneric,
     VhdlArray,
+    // for questa sim
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

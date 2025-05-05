@@ -638,6 +638,11 @@ fn diff_questa_sim_test() {
 }
 
 #[test]
+fn diff_questa_sim_issue_57() {
+    run_diff_test_vcd_only("inputs/questa-sim/wellen-issue-57-uart.vcd");
+}
+
+#[test]
 fn diff_riviera_pro_dump() {
     run_diff_test(
         "inputs/riviera-pro/dump.vcd",

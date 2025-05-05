@@ -594,6 +594,8 @@ fn convert_scope_tpe(tpe: &[u8]) -> Result<ScopeType> {
         b"vhdl_if_generate" => Ok(ScopeType::VhdlIfGenerate),
         b"vhdl_generate" => Ok(ScopeType::VhdlGenerate),
         b"vhdl_package" => Ok(ScopeType::VhdlPackage),
+        // questa sim produces "unknown" scopes
+        b"unknown" => Ok(ScopeType::Unknown),
         _ => Err(VcdParseError::VcdUnknownScopeType(
             String::from_utf8_lossy(tpe).to_string(),
         )),
