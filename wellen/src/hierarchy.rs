@@ -114,6 +114,7 @@ impl HierarchyStringId {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum ScopeType {
     // VCD Scope Types
     Module,
