@@ -8,6 +8,7 @@ use rustc_hash::FxHashMap;
 use std::num::{NonZeroI32, NonZeroU16, NonZeroU32};
 use std::ops::Index;
 
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Timescale {
@@ -615,6 +616,28 @@ impl HierarchyMetaData {
             version: "".to_string(),
             comments: Vec::default(),
             file_format,
+        }
+    }
+}
+
+impl Hierarchy {
+    pub fn new(file_type: FileFormat) -> Self {
+        // we start with a fake entry in the scope stack to keep track of multiple items in the top scope
+        let scope_stack = vec![ScopeStackEntry {
+            scope_id: usize::MAX,
+            last_child: None,
+            flattened: false,
+        }];
+        Self {
+            vars: Vec::default(),
+            scopes: Vec::default(),
+            first_item: None,
+            strings: vec!["".to_string()], // string 0 is ""
+            source_locs: Vec::default(),
+            enums: Vec::default(),
+            meta: HierarchyMetaData::new(file_type),
+            slices: FxHashMap::default(),
+            signal_idx_to_var: vec![],
         }
     }
 }
