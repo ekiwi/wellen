@@ -185,3 +185,9 @@ fn load_github_issue_55_fractional_time_stamp() {
     assert!(r.is_err());
     assert!(r.err().unwrap().to_string().contains("parse an integer"));
 }
+#[test]
+fn test_long_names_vcd() {
+    let filename = "inputs/verilator/long_name.vcd";
+    let r =read(filename);
+    assert!(!r.is_err());
+}
