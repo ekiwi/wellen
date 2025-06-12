@@ -25,6 +25,29 @@ pub fn read_header<R: BufRead + Seek>(
     let cont = ReadBodyContinuation(reader);
     Ok((hierarchy, cont))
 }
+pub fn read_header_from_file<P: AsRef<std::path::Path>>(
+    filename: P,
+    _options: &LoadOptions,
+) -> Result<(
+    Hierarchy,
+    ReadBodyContinuation<std::io::BufReader<std::fs::File>>,
+)> {
+    let input = std::io::BufReader::new(std::fs::File::open(filename.as_ref())?);
+    let mut reader = match FstReader::open_and_read_time_table(input) {
+        Ok(header) => header,
+        Err(ReaderError::MissingGeometry() | ReaderError::MissingHierarchy()) => {
+            let input = std::io::BufReader::new(std::fs::File::open(filename.as_ref())?);
+            let mut hierarchy_filename = filename.as_ref().to_path_buf();
+            hierarchy_filename.set_extension("fst.hier");
+            let hierarchy = std::io::BufReader::new(std::fs::File::open(hierarchy_filename)?);
+            FstReader::open_incomplete_and_read_time_table(input, hierarchy)?
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let hierarchy = read_hierarchy(&mut reader)?;
+    let cont = ReadBodyContinuation(reader);
+    Ok((hierarchy, cont))
+}
 pub fn read_body<R: BufRead + Seek + Sync + Send + 'static>(
     data: ReadBodyContinuation<R>,
 ) -> Result<(SignalSource, TimeTable)> {
