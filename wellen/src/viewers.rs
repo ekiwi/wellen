@@ -63,8 +63,7 @@ pub fn read_header_from_file<P: AsRef<std::path::Path>>(
             })
         }
         FileFormat::Fst => {
-            let input = std::io::BufReader::new(std::fs::File::open(filename)?);
-            let (hierarchy, body) = crate::fst::read_header(input, options)?;
+            let (hierarchy, body) = crate::fst::read_header_from_file(filename, options)?;
             let body = ReadBodyContinuation(ReadBodyData::Fst(Box::new(body)));
             Ok(HeaderResult {
                 hierarchy,

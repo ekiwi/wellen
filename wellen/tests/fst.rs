@@ -229,3 +229,10 @@ fn test_nvc_overlay_tb_issue_21() {
     let mut waves = read("inputs/nvc/overlay_tb_issue_21.fst").unwrap();
     load_all_signals(&mut waves);
 }
+
+#[test]
+fn test_verilator_incomplete() {
+    let filename = "inputs/verilator/verilator-incomplete.fst";
+    let mut waves = read(filename).expect("failed to parse");
+    load_all_signals(&mut waves);
+}
