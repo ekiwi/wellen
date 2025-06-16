@@ -36,6 +36,7 @@ pub fn read_header_from_file<P: AsRef<std::path::Path>>(
     let mut reader = match FstReader::open_and_read_time_table(input) {
         Ok(header) => header,
         Err(ReaderError::MissingGeometry() | ReaderError::MissingHierarchy()) => {
+            // Geometric block or hierarchy block missing, try to load external hierarchy file.
             let input = std::io::BufReader::new(std::fs::File::open(filename.as_ref())?);
             let mut hierarchy_filename = filename.as_ref().to_path_buf();
             hierarchy_filename.set_extension("fst.hier");
