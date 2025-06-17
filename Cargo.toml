@@ -11,7 +11,6 @@ default-members = ["wellen"]
 [workspace.package]
 version = "0.16.0"
 edition = "2021"
-# we require the `div_ceil` method on integers
 rust-version = "1.81.0"
 authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]
 description = "Fast VCD and FST library for waveform viewers written in Rust."
