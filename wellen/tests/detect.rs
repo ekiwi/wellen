@@ -33,7 +33,10 @@ fn test_detect_file_format() {
                 assert!(filename_str.ends_with(".vcd"), "{filename_str}");
             }
             FileFormat::Fst => {
-                assert!(filename_str.ends_with(".fst"), "{filename_str}");
+                assert!(
+                    filename_str.ends_with(".fst") || filename_str.ends_with(".hier"),
+                    "{filename_str}"
+                );
             }
             FileFormat::Ghw => {
                 assert!(filename_str.ends_with(".ghw"), "{filename_str}");
