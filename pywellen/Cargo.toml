@@ -1,6 +1,7 @@
 [package]
 name = "pywellen"
 version.workspace = true
+rust-version.workspace = true
 edition = "2021"
 authors = ["James Connolly <dogman3117@gmail.com>"]
 

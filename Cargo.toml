@@ -9,10 +9,10 @@ members = ["wellen", "pywellen"]
 default-members = ["wellen"]
 
 [workspace.package]
-version = "0.15.0"
+version = "0.16.0"
 edition = "2021"
 # we require the `div_ceil` method on integers
-rust-version = "1.73.0"
+rust-version = "1.81.0"
 authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]
 description = "Fast VCD and FST library for waveform viewers written in Rust."
 repository = "https://github.com/ekiwi/wellen"
@@ -21,7 +21,7 @@ keywords = ["vcd", "fst", "waveform", "wavedump"]
 
 
 [workspace.dependencies]
-fst-reader = "0.10.2"
+fst-reader = "0.13.0"
 leb128 = "0.2.5"
 lz4_flex = "0.11.3"
 memmap2 = "0.9.5"
