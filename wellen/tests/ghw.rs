@@ -217,3 +217,52 @@ fn test_issue_35_ghw_failed_to_parse_rtik() {
     let wave = read(filename).expect("failed to parse");
     let _h = wave.hierarchy();
 }
+
+#[test]
+fn test_issue_53_array_range_ordering() {
+    let filename = "inputs/ghdl/wellen_issue_53.ghw";
+    let mut wave = read(filename).expect("failed to parse");
+
+    let signal_refs = wave
+        .hierarchy()
+        .iter_vars()
+        .map(|v| v.signal_ref())
+        .collect::<Vec<_>>();
+    wave.load_signals(&signal_refs);
+
+    let h = wave.hierarchy();
+
+    let decimals_scope = &["bcd_counter_debug_tb", "decimals"];
+    // Find array scope
+    let decimals = &h[h.lookup_scope(decimals_scope).unwrap()];
+    assert_eq!(decimals.full_name(h), "bcd_counter_debug_tb.decimals");
+    assert_eq!(decimals.scope_type(), ScopeType::VhdlArray);
+
+    // Confirm that the ordering is correct by checking that decimals[0] is the same
+    // signal as dec0. Do this by checking that the values are the same.
+
+    // Extract values for decimals[0]
+    let var_id = h
+        .lookup_var(&["bcd_counter_debug_tb", "decimals"], &"[0]")
+        .unwrap();
+    let signal_ref = h[var_id].signal_ref();
+
+    let signal = wave.get_signal(signal_ref).unwrap();
+    let mut values = vec![];
+    for (_, value) in signal.iter_changes() {
+        values.push(value.to_bit_string().unwrap());
+    }
+
+    // Extract values for dec0
+    let var_id = h.lookup_var(&["bcd_counter_debug_tb"], &"dec0").unwrap();
+    let signal_ref = h[var_id].signal_ref();
+
+    let signal = wave.get_signal(signal_ref).unwrap();
+    let mut values2 = vec![];
+    for (_, value) in signal.iter_changes() {
+        values2.push(value.to_bit_string().unwrap());
+    }
+
+    // Check that they are the same
+    assert_eq!(values, values2);
+}
