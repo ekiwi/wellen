@@ -664,19 +664,17 @@ impl VhdlType {
         let base_tpe = lookup_concrete_type(types, base);
         match (base_tpe, range) {
             (VhdlType::Enum(_, lits, _), Range::Int(int_range)) => {
-                let range = int_range.range();
-                debug_assert!(*range.start() >= 0 && *range.start() < lits.len() as i64);
-                debug_assert!(*range.end() >= 0 && *range.end() < lits.len() as i64);
+                debug_assert!(int_range.start() >= 0 && int_range.start() < lits.len() as i64);
+                debug_assert!(int_range.end() >= 0 && int_range.end() < lits.len() as i64);
                 // check to see if this is just an alias or if we need to create a new enum
-                if *range.start() == 0 && *range.end() == (lits.len() - 1) as i64 {
+                if int_range.start() == 0 && int_range.end() == (lits.len() - 1) as i64 {
                     VhdlType::TypeAlias(name, base)
                 } else {
                     todo!("actual sub enum!")
                 }
             }
             (VhdlType::NineValueBit(_), Range::Int(int_range)) => {
-                let range = int_range.range();
-                if *range.start() == 0 && *range.end() == 8 {
+                if int_range.start() == 0 && int_range.end() == 8 {
                     VhdlType::TypeAlias(name, base)
                 } else {
                     todo!("actual sub enum!")
@@ -1519,10 +1517,10 @@ enum RangeDir {
 struct IntRange(RangeDir, i64, i64);
 
 impl IntRange {
-    fn range(&self) -> std::ops::RangeInclusive<i64> {
+    fn range(&self) -> Box<dyn Iterator<Item = i64>> {
         match self.0 {
-            RangeDir::To => self.1..=self.2,
-            RangeDir::Downto => self.2..=self.1,
+            RangeDir::To => Box::new(self.1..=self.2),
+            RangeDir::Downto => Box::new((self.2..=self.1).rev()),
         }
     }
 
@@ -1545,10 +1543,22 @@ impl IntRange {
         opt.unwrap_or(Self(RangeDir::To, i32::MIN as i64, i32::MAX as i64))
     }
 
+    fn start(&self) -> i64 {
+        match self.0 {
+            RangeDir::To => self.1,
+            RangeDir::Downto => self.2,
+        }
+    }
+
+    fn end(&self) -> i64 {
+        match self.0 {
+            RangeDir::To => self.2,
+            RangeDir::Downto => self.1,
+        }
+    }
+
     fn is_subset_of(&self, other: &Self) -> bool {
-        let self_range = self.range();
-        let other_range = other.range();
-        self_range.start() >= other_range.start() && self_range.end() <= other_range.end()
+        self.start() >= other.start() && self.end() <= other.end()
     }
 }
 
@@ -1571,5 +1581,27 @@ impl FloatRange {
         let self_range = self.range();
         let other_range = other.range();
         self_range.start() >= other_range.start() && self_range.end() <= other_range.end()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_int_range() {
+        let r = IntRange(RangeDir::To, 1, 3);
+        assert_eq!(r.start(), 1);
+        assert_eq!(r.end(), 3);
+        assert_eq!(r.len(), 3);
+        let r_seq: Vec<i64> = r.range().collect();
+        assert_eq!(r_seq, [1, 2, 3]);
+
+        let r = IntRange(RangeDir::Downto, 4, 0);
+        assert_eq!(r.start(), 0);
+        assert_eq!(r.end(), 4);
+        assert_eq!(r.len(), 5);
+        let r_seq: Vec<i64> = r.range().collect();
+        assert_eq!(r_seq, [4, 3, 2, 1, 0]);
     }
 }
