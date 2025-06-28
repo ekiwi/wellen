@@ -1,4 +1,4 @@
-# Wellen Wavform Library
+# Wellen Waveform Library
 
 [![Crates.io Version](https://img.shields.io/crates/v/wellen)](https://crates.io/crates/wellen)
 [![docs.rs](https://img.shields.io/docsrs/wellen)](https://docs.rs/wellen)
@@ -22,7 +22,7 @@ While all formats supported by `wellen` feature hierarchical scopes and variable
 data, they vary in how much additional information they provide. We thus had to make some choices on how
 to unify the data from various sources in a single data model.
 
-### Global Meta-Data
+### Global Metadata
 
 We record the following information for each file:
 
