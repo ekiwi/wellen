@@ -672,8 +672,7 @@ impl SignalChangeData {
                                     println!("ERROR: offset={offset}, encoding={encoding:?}, width={width}, raw_data[0]={}", raw_data[0]);
                                 }
                                 let states = States::try_from_primitive(meta_value).unwrap();
-                                let num_out_bytes =
-                                    (*bits as usize).div_ceil(states.bits_in_a_byte());
+                                let num_out_bytes = states.bytes_required(*bits as usize);
                                 debug_assert!(num_out_bytes <= data.len());
                                 let signal_bytes = if num_out_bytes == data.len() {
                                     data
