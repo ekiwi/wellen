@@ -227,7 +227,6 @@ impl SignalWriter {
                     } else {
                         // smaller encoding than the maximum
                         self.data_bytes.push(meta_data);
-                        let (local_len, _) = get_len_and_meta(local_encoding, bits);
                         if has_meta {
                             push_zeros(&mut self.data_bytes, len - local_len);
                         } else {
