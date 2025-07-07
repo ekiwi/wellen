@@ -241,7 +241,7 @@ impl SignalWriter {
                     }
                 }
                 SignalEncoding::Real => panic!(
-                    "Expecting reals, but go: {}",
+                    "Expecting reals, but got: {}",
                     String::from_utf8_lossy(value)
                 ),
             },

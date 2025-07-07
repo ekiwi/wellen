@@ -794,7 +794,7 @@ impl SignalEncoder {
                         try_write_1_bit_9_state(time_idx_delta, value_char, &mut self.data)
                             .unwrap_or_else(|| {
                                 panic!(
-                                    "Failed to parse four state value: {} for signal of size 1",
+                                    "Failed to parse nine-state value: {} for signal of size 1",
                                     String::from_utf8_lossy(value)
                                 )
                             });
@@ -802,7 +802,7 @@ impl SignalEncoder {
                 } else {
                     let states = check_states(value_bits).unwrap_or_else(|| {
                         panic!(
-                            "Bit-vector contains invalid character. Only 2, 4 and 9-state signals are supported: {}",
+                            "Bit-vector contains invalid character. Only 2-, 4-, and 9-state signals are supported: {}",
                             String::from_utf8_lossy(value)
                         )
                     });
@@ -819,7 +819,7 @@ impl SignalEncoder {
                         let expanded = expand_special_vector_cases(value_bits, bits)
                             .unwrap_or_else(|| {
                                 panic!(
-                                    "Failed to parse four state value: {} for signal of size {}",
+                                    "Failed to parse four-state value: {} for signal of size {}",
                                     String::from_utf8_lossy(value),
                                     bits
                                 )
