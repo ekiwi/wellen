@@ -378,10 +378,9 @@ impl BitVectorBuilder {
             let meta_data = (local_encoding as u8) << 6;
             self.data.push(value | meta_data);
         } else {
-            let num_bytes = (self.bits as usize).div_ceil(local_encoding.bits_in_a_byte());
             let (data, mask) = value.data_and_mask().unwrap();
-            assert_eq!(data.len(), num_bytes);
             let (local_len, local_has_meta) = get_len_and_meta(local_encoding, self.bits);
+            assert_eq!(data.len(), local_len);
 
             // append data
             let meta_data = (local_encoding as u8) << 6;
@@ -673,8 +672,7 @@ impl SignalChangeData {
                                     println!("ERROR: offset={offset}, encoding={encoding:?}, width={width}, raw_data[0]={}", raw_data[0]);
                                 }
                                 let states = States::try_from_primitive(meta_value).unwrap();
-                                let num_out_bytes =
-                                    (*bits as usize).div_ceil(states.bits_in_a_byte());
+                                let num_out_bytes = states.bytes_required(*bits as usize);
                                 debug_assert!(num_out_bytes <= data.len());
                                 let signal_bytes = if num_out_bytes == data.len() {
                                     data

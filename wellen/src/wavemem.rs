@@ -275,7 +275,7 @@ fn load_fixed_len_signal(
                 // the lower 2 bits of the time idx delta encode how many state bits are encoded in the local signal
                 let local_encoding =
                     States::try_from_primitive((time_idx_delta_raw & 0x3) as u8).unwrap();
-                let num_bytes = (other_len as usize).div_ceil(local_encoding.bits_in_a_byte());
+                let num_bytes = local_encoding.bytes_required(other_len as usize);
                 let mut buf = vec![0u8; num_bytes];
                 data.read_exact(buf.as_mut()).unwrap();
                 let (local_len, local_has_meta) = get_len_and_meta(local_encoding, bits);
@@ -704,7 +704,7 @@ impl SignalEncoder {
                     leb128::write::unsigned(&mut self.data, write_value).unwrap();
                 } else {
                     // sometimes we might include some leading zeros that are not necessary
-                    let required_bytes = (bits as usize).div_ceil(states.bits_in_a_byte());
+                    let required_bytes = states.bytes_required(bits as usize);
                     debug_assert!(value.len() >= required_bytes);
                     let value = &value[(value.len() - required_bytes)..];
 
@@ -794,7 +794,7 @@ impl SignalEncoder {
                         try_write_1_bit_9_state(time_idx_delta, value_char, &mut self.data)
                             .unwrap_or_else(|| {
                                 panic!(
-                                    "Failed to parse four state value: {} for signal of size 1",
+                                    "Failed to parse nine-state value: {} for signal of size 1",
                                     String::from_utf8_lossy(value)
                                 )
                             });
@@ -802,7 +802,7 @@ impl SignalEncoder {
                 } else {
                     let states = check_states(value_bits).unwrap_or_else(|| {
                         panic!(
-                            "Bit-vector contains invalid character. Only 2, 4 and 9-state signals are supported: {}",
+                            "Bit-vector contains invalid character. Only 2-, 4-, and 9-state signals are supported: {}",
                             String::from_utf8_lossy(value)
                         )
                     });
@@ -819,7 +819,7 @@ impl SignalEncoder {
                         let expanded = expand_special_vector_cases(value_bits, bits)
                             .unwrap_or_else(|| {
                                 panic!(
-                                    "Failed to parse four state value: {} for signal of size {}",
+                                    "Failed to parse four-state value: {} for signal of size {}",
                                     String::from_utf8_lossy(value),
                                     bits
                                 )
@@ -1005,6 +1005,17 @@ impl States {
             (1u8 << n) - 1
         } else {
             u8::MAX
+        }
+    }
+
+    /// Returns how many bytes are required to store bits.
+    #[inline]
+    pub fn bytes_required(&self, bits: usize) -> usize {
+        // (bits as usize).div_ceil(self.bits_in_a_byte())
+        match self {
+            States::Two => (bits + 7) >> 3,
+            States::Four => (bits + 3) >> 2,
+            States::Nine => (bits + 1) >> 1,
         }
     }
 }

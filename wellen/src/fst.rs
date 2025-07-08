@@ -227,7 +227,6 @@ impl SignalWriter {
                     } else {
                         // smaller encoding than the maximum
                         self.data_bytes.push(meta_data);
-                        let (local_len, _) = get_len_and_meta(local_encoding, bits);
                         if has_meta {
                             push_zeros(&mut self.data_bytes, len - local_len);
                         } else {
@@ -242,7 +241,7 @@ impl SignalWriter {
                     }
                 }
                 SignalEncoding::Real => panic!(
-                    "Expecting reals, but go: {}",
+                    "Expecting reals, but got: {}",
                     String::from_utf8_lossy(value)
                 ),
             },
@@ -294,7 +293,7 @@ impl SignalWriter {
 
 #[inline]
 pub fn get_len_and_meta(states: States, bits: u32) -> (usize, bool) {
-    let len = (bits as usize).div_ceil(states.bits_in_a_byte());
+    let len = states.bytes_required(bits as usize);
     let has_meta = (states != States::Two) && ((bits as usize) % states.bits_in_a_byte() == 0);
     (len, has_meta)
 }

@@ -242,7 +242,7 @@ impl VecBufferInfo {
     fn data_range(&self) -> std::ops::Range<usize> {
         // data is stored with N bits per byte depending on the states
         let start = self.data_start as usize;
-        let len = (self.bits as usize).div_ceil(self.states.bits_in_a_byte());
+        let len = self.states.bytes_required(self.bits as usize);
         start..(start + len)
     }
 }
@@ -269,7 +269,7 @@ impl VecBuffer {
                     signal_ref: vector.signal_ref(),
                     max_index: vector.max().index() as u32,
                 };
-                data_start += (bits as usize).div_ceil(states.bits_in_a_byte());
+                data_start += states.bytes_required(bits as usize);
                 bit_change_start += (bits as usize).div_ceil(8);
                 info
             })
