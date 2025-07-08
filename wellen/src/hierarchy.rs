@@ -73,7 +73,7 @@ impl Default for VarRef {
 
 /// Uniquely identifies a scope in the hierarchy.
 /// Replaces the old `ModuleRef`.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScopeRef(NonZeroU32);
 
@@ -813,6 +813,8 @@ pub struct HierarchyBuilder {
     handle_to_node: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
     slices: FxHashMap<SignalRef, SignalSlice>,
+    // List of names present in the scope with scope_stack scope_id
+    scope_names: FxHashMap<usize, FxHashMap<String, ScopeRef>>,
 }
 
 const EMPTY_STRING: HierarchyStringId = HierarchyStringId(unsafe { NonZeroU32::new_unchecked(1) });
@@ -836,6 +838,7 @@ impl HierarchyBuilder {
             handle_to_node: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
             slices: FxHashMap::default(),
+            scope_names: FxHashMap::default(),
         }
     }
 }
@@ -942,27 +945,12 @@ impl HierarchyBuilder {
         let name = self.get_str(name_id);
 
         let parent = &self.scope_stack[find_parent_scope(&self.scope_stack)];
-        let mut maybe_item = if parent.scope_id == usize::MAX {
-            // we are on the top
-            self.first_item
-        } else {
-            let parent_scope = &self.scopes[parent.scope_id];
-            parent_scope.child
-        };
 
-        while let Some(item) = maybe_item {
-            if let ScopeOrVarRef::Scope(other) = item {
-                let scope = &self.scopes[other.index()];
-                let other_name = self.get_str(scope.name);
-                if other_name == name {
-                    // duplicate found!
-                    return Some(other);
-                }
-            }
-            maybe_item = self.get_next(item);
+        if let Some(scopes) = self.scope_names.get(&parent.scope_id) {
+            scopes.get(name).cloned()
+        } else {
+            None
         }
-        // no duplicate found
-        None
     }
 
     fn get_next(&self, item: ScopeOrVarRef) -> Option<ScopeOrVarRef> {
@@ -1009,7 +997,8 @@ impl HierarchyBuilder {
             });
         } else {
             let node_id = self.scopes.len();
-            let wrapped_id = ScopeOrVarRef::Scope(ScopeRef::from_index(node_id).unwrap());
+            let scope_ref = ScopeRef::from_index(node_id).unwrap();
+            let wrapped_id = ScopeOrVarRef::Scope(scope_ref);
             if self.first_item.is_none() {
                 self.first_item = Some(wrapped_id);
             }
@@ -1021,6 +1010,14 @@ impl HierarchyBuilder {
                 last_child: None,
                 flattened: false,
             });
+
+            self.scope_names
+                .insert(node_id, FxHashMap::default());
+            let name_str = self.get_str(name).to_string();
+            self.scope_names
+                .entry(parent.map(|parent| parent.index()).unwrap_or(usize::MAX))
+                .or_insert(Default::default())
+                .insert(name_str, scope_ref);
 
             // empty component name is treated the same as none
             let component = component.filter(|&name| name != EMPTY_STRING);
