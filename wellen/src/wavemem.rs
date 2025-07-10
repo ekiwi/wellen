@@ -767,28 +767,14 @@ impl SignalEncoder {
         let time_idx_delta = time_index - self.prev_time_idx;
         match self.tpe {
             SignalEncoding::BitVector(len) => {
-                let value_bits: &[u8] = match value[0] {
-                    b'b' | b'B' => &value[1..],
-                    _ => value,
-                };
-                // special detection for pymtl3 which adds an extra `0b` for all bit vectors
-                let value_bits: &[u8] = if value_bits.len() <= 2 {
-                    value_bits
-                } else {
-                    match &value_bits[0..2] {
-                        b"0b" => &value_bits[2..],
-                        _ => value_bits,
-                    }
-                };
                 if len.get() == 1 {
-                    let value_char = match value_bits {
+                    // Simplify parsing of non-compliant output by checking last character
+                    let value_char = match value.last() {
                         // special handling for empty values which we always treat as zero
-                        [] => b'0',
-                        [v] => *v,
-                        _ => unreachable!(
-                            "value bits are too long for 0-bit or 1-bit signal: {}",
-                            String::from_utf8_lossy(value)
-                        ),
+                        None => b'0',
+                        // special handling for zero-length vector
+                        Some(b'b') => b'0',
+                        Some(v) => *v,
                     };
                     let states =
                         try_write_1_bit_9_state(time_idx_delta, value_char, &mut self.data)
@@ -800,6 +786,19 @@ impl SignalEncoder {
                             });
                     self.max_states = States::join(self.max_states, states);
                 } else {
+                    let value_bits: &[u8] = match value[0] {
+                        b'b' | b'B' => &value[1..],
+                        _ => value,
+                    };
+                    // special detection for pymtl3 which adds an extra `0b` for all bit vectors
+                    let value_bits: &[u8] = if value_bits.len() <= 2 {
+                        value_bits
+                    } else {
+                        match &value_bits[0..2] {
+                            b"0b" => &value_bits[2..],
+                            _ => value_bits,
+                        }
+                    };
                     let states = check_states(value_bits).unwrap_or_else(|| {
                         panic!(
                             "Bit-vector contains invalid character. Only 2-, 4-, and 9-state signals are supported: {}",
