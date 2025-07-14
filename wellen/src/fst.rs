@@ -506,6 +506,16 @@ fn convert_timescale(exponent: i8) -> Timescale {
             10u32.pow((exponent + 15) as u32),
             TimescaleUnit::FemtoSeconds,
         )
+    } else if exponent >= -18 {
+        Timescale::new(
+            10u32.pow((exponent + 18) as u32),
+            TimescaleUnit::AttoSeconds,
+        )
+    } else if exponent >= -21 {
+        Timescale::new(
+            10u32.pow((exponent + 21) as u32),
+            TimescaleUnit::ZeptoSeconds,
+        )
     } else {
         panic!("Unexpected timescale exponent: {}", exponent);
     }

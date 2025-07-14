@@ -102,6 +102,8 @@ fn diff_hierarchy_item(
 
 fn as_fs(timescale: Timescale) -> u64 {
     let factor = match timescale.unit {
+        TimescaleUnit::ZeptoSeconds => unreachable!("should not get here!"),
+        TimescaleUnit::AttoSeconds => unreachable!("should not get here!"),
         TimescaleUnit::FemtoSeconds => 1,
         TimescaleUnit::PicoSeconds => 1000,
         TimescaleUnit::NanoSeconds => 1000 * 1000,
