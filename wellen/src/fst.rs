@@ -84,8 +84,7 @@ impl<R: BufRead + Seek + Sync + Send> SignalSourceImplementation for FstWaveData
         // create a FST filter
         let fst_ids = ids
             .iter()
-            .zip(types.iter())
-            .map(|(ii, _)| FstSignalHandle::from_index(ii.index()))
+            .map(|ii| FstSignalHandle::from_index(ii.index()))
             .collect::<Vec<_>>();
         let filter = FstFilter::filter_signals(fst_ids);
 
