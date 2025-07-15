@@ -1,0 +1,159 @@
+$date
+	Tue Mar 25 18:09:14 2025
+$end
+$version
+	GTKWave Analyzer v3.3.116 (w)1999-2023 BSI
+$end
+$timescale
+	1ns
+$end
+$scope module main $end
+$scope module MODULE0 $end
+$var wire 1 1 dummy $end
+$upscope $end
+$scope task TASK0 $end
+$var wire 1 E dummy $end
+$upscope $end
+$scope function FUNCTION0 $end
+$var wire 1 * dummy $end
+$upscope $end
+$scope begin BEGIN0 $end
+$var wire 1 # dummy $end
+$upscope $end
+$scope fork FORK0 $end
+$var wire 1 ( dummy $end
+$upscope $end
+$scope generate GENERATE0 $end
+$var wire 1 , dummy $end
+$upscope $end
+$scope struct STRUCT0 $end
+$var wire 1 < dummy $end
+$upscope $end
+$scope union UNION0 $end
+$var wire 1 L dummy $end
+$upscope $end
+$scope class CLASS0 $end
+$var wire 1 % dummy $end
+$upscope $end
+$scope interface INTERFACE0 $end
+$var wire 1 0 dummy $end
+$upscope $end
+$scope package PACKAGE0 $end
+$var wire 1 2 dummy $end
+$upscope $end
+$scope program PROGRAM0 $end
+$var wire 1 6 dummy $end
+$upscope $end
+$scope vhdl_architecture ARCHITECTURE0 $end
+$var wire 1 " dummy $end
+$upscope $end
+$scope vhdl_procedure PROCEDURE0 $end
+$var wire 1 4 dummy $end
+$upscope $end
+$scope vhdl_function FUNCTION1 $end
+$var wire 1 + dummy $end
+$upscope $end
+$scope vhdl_record RECORD0 $end
+$var wire 1 : dummy $end
+$upscope $end
+$scope vhdl_process PROCESS0 $end
+$var wire 1 5 dummy $end
+$upscope $end
+$scope vhdl_block BLOCK0 $end
+$var wire 1 $ dummy $end
+$upscope $end
+$scope vhdl_for_generate FOR_GENERATE0 $end
+$var wire 1 ) dummy $end
+$upscope $end
+$scope vhdl_if_generate IF_GENERATE0 $end
+$var wire 1 . dummy $end
+$upscope $end
+$scope vhdl_generate GENERATE1 $end
+$var wire 1 - dummy $end
+$upscope $end
+$var enum 2 & ENUM2_IN[1:0] $end
+$var string 0 = STR_OUT $end
+$var event 1 ' EVENT_IN $end
+$var integer 32 / INT32_OUT $end
+$var real 1 8 REAL_BUF $end
+$var real 1 9 REAL_PARAM $end
+$var reg 128 ; REG128_INOUT[127:0] $end
+$var supply0 1 > SUPPLY0_var $end
+$var supply1 1 ? SUPPLY1_var $end
+$var tri 1 K TRI_var $end
+$var triand 1 H TRIAND_var $end
+$var trior 1 I TRIOR_var $end
+$var trireg 1 J TRIREG_var $end
+$var tri0 1 F TRI0_var $end
+$var tri1 1 G TRI1_var $end
+$var wand 1 M WAND_var $end
+$var wire 1 N WIRE_var $end
+$var wor 1 O WOR_var $end
+$var port 2 3 PORT_var[1:0] $end
+$var real 1 7 REALTIME_var $end
+$var bit 10 @ SV_BIT_10_var[9:0] $end
+$var logic 10 C SV_LOGIC_10_var[9:0] $end
+$var int 32 B SV_INT32_var $end
+$var byte 8 A SV_BYTE8_var[7:0] $end
+$var real 1 D SV_SHORTREAL_var $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+b10000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001 ;
+b0 &
+0G
+0K
+sC-String =
+0I
+0J
+0H
+0M
+0F
+b1010 @
+0O
+b1000 A
+0N
+r3.14 7
+b0 3
+b1010 C
+b100000 B
+b101010 /
+0?
+r3.14 D
+0>
+1'
+r3.14 9
+r3.14 8
+$end
+#10
+r-1 8
+1H
+1G
+b1 &
+1J
+1K
+1I
+sEnds =
+b11 3
+1O
+1M
+1F
+1N
+1'
+1?
+1>
+#20
+b10 &
+sat\040null =
+1'
+#30
+1'
+#40
+$dumpoff
+b0 &
+$end
+#50
+$dumpon
+$end
+#60
