@@ -216,7 +216,7 @@ impl VarDirection {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-#[repr(packed(4))]
+#[repr(Rust, packed(4))]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct VarIndex {
     lsb: i64,
