@@ -92,7 +92,7 @@ impl Reader {
         );
     }
 
-    fn collect_signal_meta_data(&self, id: SignalRef) -> SignalMetaData {
+    fn collect_signal_meta_data(&self, id: SignalRef) -> SignalMetaData<'_> {
         let mut time_idx_offset = 0;
         let mut blocks = Vec::with_capacity(self.blocks.len());
         for block in self.blocks.iter() {

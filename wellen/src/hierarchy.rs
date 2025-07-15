@@ -767,7 +767,7 @@ impl Hierarchy {
         (name, mapping)
     }
 
-    fn get_item(&self, id: ScopeOrVarRef) -> ScopeOrVar {
+    fn get_item(&self, id: ScopeOrVarRef) -> ScopeOrVar<'_> {
         match id {
             ScopeOrVarRef::Scope(id) => ScopeOrVar::Scope(&self[id]),
             ScopeOrVarRef::Var(id) => ScopeOrVar::Var(&self[id]),

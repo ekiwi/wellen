@@ -289,7 +289,7 @@ impl Signal {
         self.time_indices[offset.start]
     }
 
-    pub fn get_value_at(&self, offset: &DataOffset, element: u16) -> SignalValue {
+    pub fn get_value_at(&self, offset: &DataOffset, element: u16) -> SignalValue<'_> {
         assert!(element < offset.elements);
         self.data.get_value_at(offset.start + element as usize)
     }
@@ -302,7 +302,7 @@ impl Signal {
         &self.time_indices
     }
 
-    pub fn iter_changes(&self) -> SignalChangeIterator {
+    pub fn iter_changes(&self) -> SignalChangeIterator<'_> {
         SignalChangeIterator::new(self)
     }
 
@@ -643,7 +643,7 @@ impl Debug for SignalChangeData {
 }
 
 impl SignalChangeData {
-    fn get_value_at(&self, offset: usize) -> SignalValue {
+    fn get_value_at(&self, offset: usize) -> SignalValue<'_> {
         match &self {
             SignalChangeData::FixedLength {
                 encoding,
