@@ -84,8 +84,7 @@ impl<R: BufRead + Seek + Sync + Send> SignalSourceImplementation for FstWaveData
         // create a FST filter
         let fst_ids = ids
             .iter()
-            .zip(types.iter())
-            .map(|(ii, _)| FstSignalHandle::from_index(ii.index()))
+            .map(|ii| FstSignalHandle::from_index(ii.index()))
             .collect::<Vec<_>>();
         let filter = FstFilter::filter_signals(fst_ids);
 
@@ -505,6 +504,16 @@ fn convert_timescale(exponent: i8) -> Timescale {
         Timescale::new(
             10u32.pow((exponent + 15) as u32),
             TimescaleUnit::FemtoSeconds,
+        )
+    } else if exponent >= -18 {
+        Timescale::new(
+            10u32.pow((exponent + 18) as u32),
+            TimescaleUnit::AttoSeconds,
+        )
+    } else if exponent >= -21 {
+        Timescale::new(
+            10u32.pow((exponent + 21) as u32),
+            TimescaleUnit::ZeptoSeconds,
         )
     } else {
         panic!("Unexpected timescale exponent: {}", exponent);

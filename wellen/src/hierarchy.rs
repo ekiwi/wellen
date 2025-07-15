@@ -24,6 +24,8 @@ impl Timescale {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub enum TimescaleUnit {
+    ZeptoSeconds,
+    AttoSeconds,
     FemtoSeconds,
     PicoSeconds,
     NanoSeconds,
@@ -36,6 +38,8 @@ pub enum TimescaleUnit {
 impl TimescaleUnit {
     pub fn to_exponent(&self) -> Option<i8> {
         match &self {
+            TimescaleUnit::ZeptoSeconds => Some(-21),
+            TimescaleUnit::AttoSeconds => Some(-18),
             TimescaleUnit::FemtoSeconds => Some(-15),
             TimescaleUnit::PicoSeconds => Some(-12),
             TimescaleUnit::NanoSeconds => Some(-9),

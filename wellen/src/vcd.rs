@@ -560,6 +560,8 @@ fn find_last(haystack: &[u8], needle: u8) -> Option<usize> {
 
 fn convert_timescale_unit(name: &[u8]) -> TimescaleUnit {
     match name {
+        b"zs" => TimescaleUnit::ZeptoSeconds,
+        b"as" => TimescaleUnit::AttoSeconds,
         b"fs" => TimescaleUnit::FemtoSeconds,
         b"ps" => TimescaleUnit::PicoSeconds,
         b"ns" => TimescaleUnit::NanoSeconds,
