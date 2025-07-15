@@ -245,6 +245,8 @@ struct TimescaleUnit(pub(crate) wellen::TimescaleUnit);
 impl TimescaleUnit {
     fn __str__(&self) -> String {
         match self.0 {
+            wellen::TimescaleUnit::ZeptoSeconds => "zs".to_string(),
+            wellen::TimescaleUnit::AttoSeconds => "as".to_string(),
             wellen::TimescaleUnit::FemtoSeconds => "fs".to_string(),
             wellen::TimescaleUnit::PicoSeconds => "ps".to_string(),
             wellen::TimescaleUnit::NanoSeconds => "ns".to_string(),
