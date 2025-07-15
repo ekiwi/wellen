@@ -143,10 +143,6 @@ def test_vcd_var_types_types():
             # Note: enum_type might be None if no enum definition is provided in VCD
             pass  # VCD format may not include enum definitions
 
-        print(f"  Tested {var_name}: type={var_type}, bitwidth={var.bitwidth()}")
-
-    print(f"Successfully tested {len(found_vars)} variables with new Var APIs")
-
 def test_hierarchy_metadata_swerv1():
     """Test reading metadata from hierarchy"""
     filename = _git_root_rel("wellen/inputs/verilator/swerv1.vcd")
@@ -296,5 +292,3 @@ def test_scope_types():
             expected_full_name = f"main.{scope_name}"
             actual_full_name = scope.full_name(h)
             assert actual_full_name == expected_full_name, f"Expected full name '{expected_full_name}', got '{actual_full_name}'"
-
-    print(f"Successfully tested scope types for {len(found_scopes)} scopes")
