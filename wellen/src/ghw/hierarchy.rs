@@ -178,9 +178,7 @@ pub fn read_hierarchy(
                 let dec = read_hierarchy_section(header, &mut tables, input, &mut hb)?;
                 debug_assert!(
                     decode.is_none(),
-                    "unexpected second hierarchy section:\n{:?}\n{:?}",
-                    decode,
-                    dec
+                    "unexpected second hierarchy section:\n{decode:?}\n{dec:?}"
                 );
                 decode = Some(dec);
             }
@@ -461,9 +459,7 @@ fn read_subtype_bounds(
             // restrict array size along dimension zero (we only support 1D arrays at the moment)
             let range = read_range(input)?;
             // create new type with restricted range
-            Ok(VhdlType::from_subtype_array(
-                name, &types, base, range, None,
-            ))
+            Ok(VhdlType::from_subtype_array(name, types, base, range, None))
         }
         VhdlType::Array(_, el, _) => {
             // restrict array size along dimension zero (we only support 1D arrays at the moment)
@@ -477,7 +473,7 @@ fn read_subtype_bounds(
                 Some(type_to_id(types, restricted))
             };
             // create new type with restricted range and potentially a new, restricted element type
-            let sub = VhdlType::from_subtype_array(name, &types, base, range, sub_element_tpe);
+            let sub = VhdlType::from_subtype_array(name, types, base, range, sub_element_tpe);
             Ok(sub)
         }
         VhdlType::Record(base_name, base_fields) => {
@@ -1451,7 +1447,7 @@ fn read_signal_id(input: &mut impl BufRead, max_signal_id: usize) -> Result<GhwS
     if index > max_signal_id {
         Err(GhwParseError::FailedToParseSection(
             "hierarchy",
-            format!("SignalId too large {index} > {}", max_signal_id),
+            format!("SignalId too large {index} > {max_signal_id}"),
         ))
     } else {
         let id = GhwSignalId::new(index as u32);

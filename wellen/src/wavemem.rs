@@ -69,10 +69,7 @@ impl Reader {
             .map(|b| b.time_table.len())
             .max()
             .unwrap();
-        println!(
-            "[wavemem] the maximum time table size is {}.",
-            max_time_table_size
-        );
+        println!("[wavemem] the maximum time table size is {max_time_table_size}.");
         let total_data_size = self
             .blocks
             .iter()
@@ -88,17 +85,10 @@ impl Reader {
             .iter()
             .map(|b| b.time_table.len() * std::mem::size_of::<Time>())
             .sum::<usize>();
+        println!("[wavemem] data across all blocks takes up {total_data_size} bytes.");
+        println!("[wavemem] offsets across all blocks take up {total_offset_size} bytes.");
         println!(
-            "[wavemem] data across all blocks takes up {} bytes.",
-            total_data_size
-        );
-        println!(
-            "[wavemem] offsets across all blocks take up {} bytes.",
-            total_offset_size
-        );
-        println!(
-            "[wavemem] time table data across all blocks takes up {} bytes.",
-            total_time_table_size
+            "[wavemem] time table data across all blocks takes up {total_time_table_size} bytes."
         );
     }
 

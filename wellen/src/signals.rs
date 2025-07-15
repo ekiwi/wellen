@@ -37,8 +37,8 @@ impl Display for SignalValue<'_> {
             SignalValue::NineValue(data, bits) => {
                 write!(f, "{}", nine_state_to_bit_string(data, *bits))
             }
-            SignalValue::String(value) => write!(f, "{}", value),
-            SignalValue::Real(value) => write!(f, "{}", value),
+            SignalValue::String(value) => write!(f, "{value}"),
+            SignalValue::Real(value) => write!(f, "{value}"),
         }
     }
 }
@@ -811,8 +811,7 @@ mod tests {
                     .to_bit_string()
                     .unwrap(),
                 expected,
-                "bits={}",
-                bits
+                "bits={bits}"
             );
         }
     }
@@ -833,8 +832,7 @@ mod tests {
                     .to_bit_string()
                     .unwrap(),
                 expected,
-                "bits={}",
-                bits
+                "bits={bits}"
             );
         }
     }

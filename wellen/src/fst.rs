@@ -516,7 +516,7 @@ fn convert_timescale(exponent: i8) -> Timescale {
             TimescaleUnit::ZeptoSeconds,
         )
     } else {
-        panic!("Unexpected timescale exponent: {}", exponent);
+        panic!("Unexpected timescale exponent: {exponent}");
     }
 }
 

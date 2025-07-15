@@ -72,12 +72,12 @@ fn test_component_names() {
         let name = scope.name(h);
         let comp = scope.component(h);
         if name == "pc1" {
-            assert!(comp.is_none(), "{:?}", comp);
+            assert!(comp.is_none(), "{comp:?}");
         } else if name.starts_with("pc2") {
-            assert_eq!(comp.unwrap(), "pc2", "{:?}", comp);
+            assert_eq!(comp.unwrap(), "pc2", "{comp:?}");
         } else {
             let comp = comp.unwrap();
-            assert!(comp == "rol1" || comp == "rol2", "{:?}", comp);
+            assert!(comp == "rol1" || comp == "rol2", "{comp:?}");
         }
     }
 }
@@ -210,7 +210,7 @@ fn test_nvc_vhdl_test_bool_issue_16() {
         .get_signal(var.signal_ref())
         .unwrap()
         .iter_changes()
-        .map(|(time, value)| format!("{time} {}", value))
+        .map(|(time, value)| format!("{time} {value}"))
         .collect::<Vec<_>>();
     assert_eq!(
         time_and_values,

@@ -287,10 +287,9 @@ fn diff_hierarchy_item(
             }
         }
         (::vcd::ScopeItem::Comment(_), _) => {} // we do not care about comments
-        (other_ref, our) => panic!(
-            "Unexpected combination of scope items: {:?} (expected) vs. {:?}",
-            other_ref, our
-        ),
+        (other_ref, our) => {
+            panic!("Unexpected combination of scope items: {other_ref:?} (expected) vs. {our:?}")
+        }
     }
 }
 
@@ -414,7 +413,7 @@ fn diff_signals<R: BufRead>(
             ::vcd::Command::Begin(_) => {}   // ignore
             ::vcd::Command::End(_) => {}     // ignore
             ::vcd::Command::Comment(_) => {} // ignore
-            other => panic!("Unhandled command: {:?}", other),
+            other => panic!("Unhandled command: {other:?}"),
         }
     }
 }

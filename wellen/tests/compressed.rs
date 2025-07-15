@@ -20,7 +20,7 @@ fn test_compression(wave: &mut Waveform) {
         let signal = wave.get_signal(idx).expect("signal should be loaded!");
         let compressed = CompressedSignal::compress(signal);
         let uncompressed: Signal = compressed.uncompress();
-        assert_eq!(signal, &uncompressed, "{}", signal_name);
+        assert_eq!(signal, &uncompressed, "{signal_name}");
         compare_size(&uncompressed, &compressed);
         wave.unload_signals(&[idx]);
     }

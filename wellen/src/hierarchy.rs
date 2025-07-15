@@ -250,7 +250,7 @@ impl VarIndex {
         if self.width == DEFAULT_ZERO_REPLACEMENT {
             1
         } else {
-            self.width.get().abs() as u32 + 1
+            self.width.get().unsigned_abs() + 1
         }
     }
 }

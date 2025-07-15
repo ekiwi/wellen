@@ -32,21 +32,21 @@ fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
     let total_num_elements = hierarchy.iter_vars().len() + hierarchy.iter_scopes().len();
     let reduced_size = hierarchy
         .iter_scopes()
-        .map(|s| s.name(hierarchy).bytes().len())
+        .map(|s| s.name(hierarchy).len())
         .sum::<usize>()
         + hierarchy
             .iter_vars()
-            .map(|v| v.name(hierarchy).bytes().len())
+            .map(|v| v.name(hierarchy).len())
             .sum::<usize>();
     // to compute full names efficiently, we do need to save a 16-bit parent pointer which takes some space
     let _parent_overhead = std::mem::size_of::<u16>() * total_num_elements;
     let full_size = hierarchy
         .iter_scopes()
-        .map(|s| s.full_name(hierarchy).bytes().len())
+        .map(|s| s.full_name(hierarchy).len())
         .sum::<usize>()
         + hierarchy
             .iter_vars()
-            .map(|v| v.full_name(hierarchy).bytes().len())
+            .map(|v| v.full_name(hierarchy).len())
             .sum::<usize>();
     let string_overhead = std::mem::size_of::<String>() * total_num_elements;
 
@@ -171,18 +171,14 @@ fn main() {
         signal_sizes.push(bytes_in_mem);
     }
     let signal_load_total_duration = signal_load_start.elapsed();
-    println!(
-        "It took {:?} to load all signals. (and drop them)",
-        signal_load_total_duration
-    );
+    println!("It took {signal_load_total_duration:?} to load all signals. (and drop them)");
 
     let average_signal_load_time =
         signal_load_times.iter().sum::<std::time::Duration>() / signal_load_times.len() as u32;
     let max_signal_load_time = signal_load_times.iter().max().unwrap();
     let min_signal_load_time = signal_load_times.iter().min().unwrap();
     println!(
-        "Loading a signal takes: {:?}..{:?} (avg. {:?})",
-        min_signal_load_time, max_signal_load_time, average_signal_load_time
+        "Loading a signal takes: {min_signal_load_time:?}..{max_signal_load_time:?} (avg. {average_signal_load_time:?})"
     );
 
     let total_signal_size = signal_sizes.iter().sum::<usize>();

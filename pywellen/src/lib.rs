@@ -8,7 +8,7 @@ use pyo3::{exceptions::PyRuntimeError, prelude::*};
 
 use wellen::{
     viewers::{self},
-    LoadOptions, SignalValue, TimeTableIdx, ScopeType,
+    LoadOptions, ScopeType, SignalValue, TimeTableIdx,
 };
 
 pub trait PyErrExt<T> {
@@ -127,7 +127,8 @@ impl Scope {
             ScopeType::VhdlArray => "vhdl_array",
             ScopeType::Unknown => "unknown",
             _ => "unknown", // `ScopeType` is marked as non-exhaustive
-        }.to_string()
+        }
+        .to_string()
     }
 
     pub fn vars(&self, hier: Bound<'_, Hierarchy>) -> VarIter {
@@ -198,11 +199,19 @@ impl Var {
     }
     pub fn enum_type(&self, hier: Bound<'_, Hierarchy>) -> Option<(String, Vec<(String, String)>)> {
         self.0.enum_type(&hier.borrow().0).map(|(name, values)| {
-            (name.to_string(), values.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())
+            (
+                name.to_string(),
+                values
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+            )
         })
     }
     pub fn vhdl_type_name(&self, hier: Bound<'_, Hierarchy>) -> Option<String> {
-        self.0.vhdl_type_name(&hier.borrow().0).map(|s| s.to_string())
+        self.0
+            .vhdl_type_name(&hier.borrow().0)
+            .map(|s| s.to_string())
     }
     pub fn direction(&self) -> String {
         format!("{:?}", self.0.direction())
@@ -287,7 +296,11 @@ impl Timescale {
     }
 
     fn __repr__(&self) -> String {
-        format!("Timescale(factor={}, unit={})", self.0.factor, TimescaleUnit(self.0.unit).__repr__())
+        format!(
+            "Timescale(factor={}, unit={})",
+            self.0.factor,
+            TimescaleUnit(self.0.unit).__repr__()
+        )
     }
 }
 
