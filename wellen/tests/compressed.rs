@@ -21,7 +21,7 @@ fn test_compression(wave: &mut Waveform) {
     for (idx, signal_name, is_event) in all_signals {
         wave.load_signals(&[idx]);
         let signal = wave.get_signal(idx).expect("signal should be loaded!");
-        let compressed = CompressedSignal::compress(signal, is_event);
+        let compressed = CompressedSignal::compress_with_options(signal, is_event);
         let uncompressed: Signal = compressed.uncompress();
         assert_eq!(signal, &uncompressed, "{signal_name}");
         compare_size(&uncompressed, &compressed);
