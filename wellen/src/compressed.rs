@@ -32,7 +32,11 @@ pub enum Compression {
 }
 
 impl CompressedSignal {
-    pub fn compress(signal: &Signal, preserve_duplicates: bool) -> Self {
+    pub fn compress(signal: &Signal) -> Self {
+        Self::compress_with_options(signal, false)
+    }
+
+    pub fn compress_with_options(signal: &Signal, preserve_duplicates: bool) -> Self {
         if let Some((data, meta)) = compress_signal(signal) {
             CompressedSignal {
                 idx: signal.signal_ref(),
