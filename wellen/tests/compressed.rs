@@ -8,17 +8,20 @@ use wellen::simple::Waveform;
 use wellen::*;
 
 fn test_compression(wave: &mut Waveform) {
-    let all_signals: Vec<(SignalRef, String)> = wave
+    let all_signals: Vec<(SignalRef, String, bool)> = wave
         .hierarchy()
         .get_unique_signals_vars()
         .iter()
         .flatten()
-        .map(|v| (v.signal_ref(), v.full_name(wave.hierarchy())))
+        .map(|v| {
+            let is_event = v.var_type() == VarType::Event;
+            (v.signal_ref(), v.full_name(wave.hierarchy()), is_event)
+        })
         .collect();
-    for (idx, signal_name) in all_signals {
+    for (idx, signal_name, is_event) in all_signals {
         wave.load_signals(&[idx]);
         let signal = wave.get_signal(idx).expect("signal should be loaded!");
-        let compressed = CompressedSignal::compress(signal);
+        let compressed = CompressedSignal::compress(signal, is_event);
         let uncompressed: Signal = compressed.uncompress();
         assert_eq!(signal, &uncompressed, "{signal_name}");
         compare_size(&uncompressed, &compressed);
@@ -136,4 +139,9 @@ fn test_compressed_nvc_xwb_fofb_shaper_filt_tb() {
 #[test]
 fn test_compressed_nvc_vhdl_test_bool_issue_16() {
     do_test_from_file("inputs/nvc/vhdl_test_bool_issue_16.fst");
+}
+
+#[test]
+fn test_compressed_event_example() {
+    do_test_from_file("inputs/icarus/event_example.vcd");
 }
