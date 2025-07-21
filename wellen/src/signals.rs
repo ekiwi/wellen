@@ -406,7 +406,7 @@ impl BitVectorBuilder {
             }
         }
         // see if there actually was a change and revert if there was not
-        if check_if_changed_and_truncate(self.bytes_per_entry, &mut self.data) {
+        if check_if_changed_and_truncate(self.bytes_per_entry, &mut self.data, false) {
             self.time_indices.push(time_idx);
         }
     }
@@ -707,6 +707,7 @@ pub trait SignalSourceImplementation: Sync + Send {
         &mut self,
         ids: &[SignalRef],
         types: &[SignalEncoding],
+        preserve_duplicates: &[bool],
         multi_threaded: bool,
     ) -> Vec<Signal>;
     /// Print memory size / speed statistics.
@@ -750,7 +751,15 @@ impl SignalSource {
             .iter()
             .map(|i| hierarchy.get_signal_tpe(*i).unwrap())
             .collect();
-        let signals = self.inner.load_signals(&ids, &types, multi_threaded);
+        let preserve_duplicates: Vec<_> = ids
+            .iter()
+            .map(|i| {
+                hierarchy.get_signal_var_type(*i)
+                    .map(|var_type| matches!(var_type, crate::hierarchy::VarType::Event))
+                    .unwrap_or(false)
+            })
+            .collect();
+        let signals = self.inner.load_signals(&ids, &types, &preserve_duplicates, multi_threaded);
         // the signal source must always return the correct number of signals!
         assert_eq!(signals.len(), ids.len());
         let mut out = Vec::with_capacity(orig_ids.len());

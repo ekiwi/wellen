@@ -30,17 +30,20 @@ impl SignalSourceImplementation for Reader {
         &mut self,
         ids: &[SignalRef],
         types: &[SignalEncoding],
+        preserve_duplicates: &[bool],
         multi_threaded: bool,
     ) -> Vec<Signal> {
         if multi_threaded {
             ids.par_iter()
                 .zip(types.par_iter())
-                .map(|(id, len)| self.load_signal(*id, *len))
+                .zip(preserve_duplicates.par_iter())
+                .map(|((id, len), preserve_dups)| self.load_signal(*id, *len, *preserve_dups))
                 .collect::<Vec<_>>()
         } else {
             ids.iter()
                 .zip(types.iter())
-                .map(|(id, len)| self.load_signal(*id, *len))
+                .zip(preserve_duplicates.iter())
+                .map(|((id, len), preserve_dups)| self.load_signal(*id, *len, *preserve_dups))
                 .collect::<Vec<_>>()
         }
     }
@@ -136,9 +139,9 @@ impl Reader {
         }
     }
 
-    fn load_signal(&self, id: SignalRef, tpe: SignalEncoding) -> Signal {
+    fn load_signal(&self, id: SignalRef, tpe: SignalEncoding, preserve_duplicates: bool) -> Signal {
         let meta = self.collect_signal_meta_data(id);
-        load_compressed_signal(meta, id, tpe)
+        load_compressed_signal(meta, id, tpe, preserve_duplicates)
     }
 }
 
@@ -146,6 +149,7 @@ pub(crate) fn load_compressed_signal(
     meta: SignalMetaData,
     id: SignalRef,
     tpe: SignalEncoding,
+    preserve_duplicates: bool,
 ) -> Signal {
     let mut time_indices: Vec<TimeTableIdx> = Vec::new();
     let mut data_bytes: Vec<u8> = Vec::new();
@@ -177,6 +181,7 @@ pub(crate) fn load_compressed_signal(
                     &mut time_indices,
                     &mut data_bytes,
                     id,
+                    preserve_duplicates,
                 );
             }
             SignalEncoding::Real => {
@@ -265,6 +270,7 @@ fn load_fixed_len_signal(
     time_indices: &mut Vec<TimeTableIdx>,
     out: &mut Vec<u8>,
     _signal_id: SignalRef, // for debugging
+    preserve_duplicates: bool,
 ) {
     let mut last_time_idx = time_idx_offset;
     let (len, has_meta) = get_len_and_meta(signal_states, bits);
@@ -326,7 +332,7 @@ fn load_fixed_len_signal(
         };
         // see if there actually was a change and revert if there was not
         last_time_idx += time_idx_delta;
-        if check_if_changed_and_truncate(bytes_per_entry, out) {
+        if check_if_changed_and_truncate(bytes_per_entry, out, preserve_duplicates) {
             time_indices.push(last_time_idx);
         }
     }
@@ -334,7 +340,13 @@ fn load_fixed_len_signal(
     debug_assert_eq!(out.len(), time_indices.len() * bytes_per_entry);
 }
 
-pub fn check_if_changed_and_truncate(bytes_per_entry: usize, out: &mut Vec<u8>) -> bool {
+pub fn check_if_changed_and_truncate(bytes_per_entry: usize, out: &mut Vec<u8>, preserve_duplicates: bool) -> bool {
+    // If preserve_duplicates is true, always consider each occurrence as a change
+    // This is needed for signals like events that represent discrete occurrences
+    if preserve_duplicates {
+        return true;
+    }
+    
     let changed = if out.len() < 2 * bytes_per_entry {
         true
     } else {

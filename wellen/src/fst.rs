@@ -80,6 +80,7 @@ impl<R: BufRead + Seek + Sync + Send> SignalSourceImplementation for FstWaveData
         &mut self,
         ids: &[SignalRef],
         types: &[SignalEncoding],
+        preserve_duplicates: &[bool],
         _multi_threaded: bool,
     ) -> Vec<Signal> {
         // create a FST filter
@@ -98,7 +99,8 @@ impl<R: BufRead + Seek + Sync + Send> SignalSourceImplementation for FstWaveData
         let mut signals = ids
             .iter()
             .zip(types.iter())
-            .map(|(id, tpe)| SignalWriter::new(*id, *tpe))
+            .zip(preserve_duplicates.iter())
+            .map(|((id, tpe), preserve_dups)| SignalWriter::new(*id, *tpe, *preserve_dups))
             .collect::<Vec<_>>();
         let idx_to_pos: FxHashMap<usize, usize> = FxHashMap::from_iter(
             ids.iter()
@@ -135,10 +137,11 @@ struct SignalWriter {
     strings: Vec<String>,
     time_indices: Vec<TimeTableIdx>,
     max_states: States,
+    preserve_duplicates: bool,
 }
 
 impl SignalWriter {
-    fn new(id: SignalRef, tpe: SignalEncoding) -> Self {
+    fn new(id: SignalRef, tpe: SignalEncoding, preserve_duplicates: bool) -> Self {
         Self {
             tpe,
             id,
@@ -147,6 +150,7 @@ impl SignalWriter {
             strings: Vec::new(),
             time_indices: Vec::new(),
             max_states: States::default(),
+            preserve_duplicates,
         }
     }
 
@@ -236,7 +240,7 @@ impl SignalWriter {
                     }
 
                     let bytes_per_entry = get_bytes_per_entry(len, has_meta);
-                    if check_if_changed_and_truncate(bytes_per_entry, &mut self.data_bytes) {
+                    if check_if_changed_and_truncate(bytes_per_entry, &mut self.data_bytes, self.preserve_duplicates) {
                         self.time_indices.push(time_idx);
                     }
                 }
@@ -248,7 +252,7 @@ impl SignalWriter {
             FstSignalValue::Real(value) => {
                 debug_assert_eq!(self.tpe, SignalEncoding::Real);
                 self.data_bytes.extend_from_slice(&value.to_le_bytes());
-                if check_if_changed_and_truncate(8, &mut self.data_bytes) {
+                if check_if_changed_and_truncate(8, &mut self.data_bytes, self.preserve_duplicates) {
                     self.time_indices.push(time_idx);
                 }
             }

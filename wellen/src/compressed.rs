@@ -20,6 +20,8 @@ pub struct CompressedSignal {
     data: Vec<u8>,
     /// information on how the signal is compressed
     encoding: SignalEncodingMetaData,
+    /// whether to preserve duplicate values (needed for event signals)
+    preserve_duplicates: bool,
 }
 
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
@@ -30,13 +32,14 @@ pub enum Compression {
 }
 
 impl CompressedSignal {
-    pub fn compress(signal: &Signal) -> Self {
+    pub fn compress(signal: &Signal, preserve_duplicates: bool) -> Self {
         if let Some((data, meta)) = compress_signal(signal) {
             CompressedSignal {
                 idx: signal.signal_ref(),
                 tpe: signal.signal_encoding(),
                 data,
                 encoding: meta,
+                preserve_duplicates,
             }
         } else {
             // empty
@@ -48,6 +51,7 @@ impl CompressedSignal {
                     compression: Compression::None,
                     max_states: Default::default(),
                 },
+                preserve_duplicates,
             }
         }
     }
@@ -58,7 +62,7 @@ impl CompressedSignal {
             max_states: self.encoding.max_states,
             blocks: vec![block],
         };
-        load_compressed_signal(meta, self.idx, self.tpe)
+        load_compressed_signal(meta, self.idx, self.tpe, self.preserve_duplicates)
     }
 }
 

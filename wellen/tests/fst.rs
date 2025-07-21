@@ -236,3 +236,64 @@ fn test_verilator_incomplete() {
     let mut waves = read(filename).expect("failed to parse");
     load_all_signals(&mut waves);
 }
+
+/// Test that verifies FST and VCD implementations handle events identically
+/// by comparing both file formats with the same content
+#[test]
+fn test_event_handling_consistency_fst_vs_vcd() {
+    // Load both FST and VCD versions of the same event example
+    let mut fst_waves = read("inputs/icarus/event_example.fst").expect("failed to parse FST");
+    let mut vcd_waves = read("inputs/icarus/event_example.vcd").expect("failed to parse VCD");
+
+    // Both should have identical time tables
+    assert_eq!(fst_waves.time_table(), vcd_waves.time_table());
+    let expected_times = [0, 10, 30, 45, 70, 80];
+    assert_eq!(fst_waves.time_table(), expected_times);
+
+    // Load the event signals from both formats
+    let fst_event_refs = {
+        let h = fst_waves.hierarchy();
+        let event1_ref = h.lookup_var(&["event_example"], &"event1").unwrap();
+        let event2_ref = h.lookup_var(&["event_example"], &"event2").unwrap();
+        (h[event1_ref].signal_ref(), h[event2_ref].signal_ref())
+    };
+
+    let vcd_event_refs = {
+        let h = vcd_waves.hierarchy();
+        let event1_ref = h.lookup_var(&["event_example"], &"event1").unwrap();
+        let event2_ref = h.lookup_var(&["event_example"], &"event2").unwrap();
+        (h[event1_ref].signal_ref(), h[event2_ref].signal_ref())
+    };
+
+    // Load the signals
+    fst_waves.load_signals(&[fst_event_refs.0, fst_event_refs.1]);
+    vcd_waves.load_signals(&[vcd_event_refs.0, vcd_event_refs.1]);
+
+    // Get the signals and compare their changes
+    let fst_event1 = fst_waves.get_signal(fst_event_refs.0).unwrap();
+    let fst_event2 = fst_waves.get_signal(fst_event_refs.1).unwrap();
+    let vcd_event1 = vcd_waves.get_signal(vcd_event_refs.0).unwrap();
+    let vcd_event2 = vcd_waves.get_signal(vcd_event_refs.1).unwrap();
+
+    let fst_event1_changes: Vec<_> = fst_event1.iter_changes().collect();
+    let fst_event2_changes: Vec<_> = fst_event2.iter_changes().collect();
+    let vcd_event1_changes: Vec<_> = vcd_event1.iter_changes().collect();
+    let vcd_event2_changes: Vec<_> = vcd_event2.iter_changes().collect();
+
+    // Both implementations should produce identical results
+    assert_eq!(fst_event1_changes.len(), vcd_event1_changes.len());
+    assert_eq!(fst_event2_changes.len(), vcd_event2_changes.len());
+    assert_eq!(fst_event1_changes.len(), 4);
+    assert_eq!(fst_event2_changes.len(), 3);
+
+    // Compare individual change entries
+    for (fst_change, vcd_change) in fst_event1_changes.iter().zip(vcd_event1_changes.iter()) {
+        assert_eq!(fst_change.0, vcd_change.0); // time indices should match
+        assert_eq!(fst_change.1, vcd_change.1); // values should match
+    }
+
+    for (fst_change, vcd_change) in fst_event2_changes.iter().zip(vcd_event2_changes.iter()) {
+        assert_eq!(fst_change.0, vcd_change.0); // time indices should match
+        assert_eq!(fst_change.1, vcd_change.1); // values should match
+    }
+}
