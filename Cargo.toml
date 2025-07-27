@@ -8,6 +8,7 @@ resolver = "2"
 members = ["wellen", "pywellen"]
 default-members = ["wellen"]
 
+
 [workspace.package]
 version = "0.12.1"
 edition = "2021"
