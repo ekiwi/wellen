@@ -5,7 +5,7 @@
 
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::hierarchy::SignalRef;
-use crate::wavemem::{check_if_changed_and_truncate, States};
+use crate::wavemem::{States, check_if_changed_and_truncate};
 use crate::{Hierarchy, SignalEncoding};
 use num_enum::TryFromPrimitive;
 use std::fmt::{Debug, Display, Formatter};
@@ -669,7 +669,10 @@ impl SignalChangeData {
                                 // otherwise the actual number of states is encoded in the meta data
                                 let meta_value = (raw_data[0] >> 6) & 0x3;
                                 if States::try_from_primitive(meta_value).is_err() {
-                                    println!("ERROR: offset={offset}, encoding={encoding:?}, width={width}, raw_data[0]={}", raw_data[0]);
+                                    println!(
+                                        "ERROR: offset={offset}, encoding={encoding:?}, width={width}, raw_data[0]={}",
+                                        raw_data[0]
+                                    );
                                 }
                                 let states = States::try_from_primitive(meta_value).unwrap();
                                 let num_out_bytes = states.bytes_required(*bits as usize);

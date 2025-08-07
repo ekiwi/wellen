@@ -223,7 +223,7 @@ pub struct VarIndex {
     width: NonZeroI32,
 }
 
-const DEFAULT_ZERO_REPLACEMENT: NonZeroI32 = unsafe { NonZeroI32::new_unchecked(i32::MIN) };
+const DEFAULT_ZERO_REPLACEMENT: NonZeroI32 = NonZeroI32::new(i32::MIN).unwrap();
 
 impl VarIndex {
     pub fn new(msb: i64, lsb: i64) -> Self {
@@ -819,7 +819,7 @@ pub struct HierarchyBuilder {
     slices: FxHashMap<SignalRef, SignalSlice>,
 }
 
-const EMPTY_STRING: HierarchyStringId = HierarchyStringId(unsafe { NonZeroU32::new_unchecked(1) });
+const EMPTY_STRING: HierarchyStringId = HierarchyStringId(NonZeroU32::new(1).unwrap());
 
 impl HierarchyBuilder {
     pub fn new(file_type: FileFormat) -> Self {

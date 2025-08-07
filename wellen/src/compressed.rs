@@ -6,7 +6,7 @@
 //! Makes the `[crate::wavemem]` signal compression available for individual signals.
 
 use crate::wavemem::{
-    compress_signal, load_compressed_signal, SignalEncodingMetaData, SignalMetaData,
+    SignalEncodingMetaData, SignalMetaData, compress_signal, load_compressed_signal,
 };
 use crate::{Signal, SignalEncoding, SignalRef, Time};
 use std::borrow::Cow;

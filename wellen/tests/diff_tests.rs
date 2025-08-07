@@ -111,7 +111,9 @@ fn diff_test_one(vcd_filename: &str, mut our: Waveform, skip_content_comparison:
     let ref_header = match ref_parser.parse_header() {
         Ok(parsed) => parsed,
         Err(e) => {
-            println!("WARN: skipping difftest because file cannot be parsed by the (3rd party!) rust vcd library");
+            println!(
+                "WARN: skipping difftest because file cannot be parsed by the (3rd party!) rust vcd library"
+            );
             println!("{e:?}");
             return;
         }

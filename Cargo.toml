@@ -9,9 +9,9 @@ members = ["wellen", "pywellen"]
 default-members = ["wellen"]
 
 [workspace.package]
-version = "0.17.1"
-edition = "2021"
-rust-version = "1.81.0"
+version = "0.18.0"
+edition = "2024"
+rust-version = "1.85.0"
 authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]
 description = "Fast VCD and FST library for waveform viewers written in Rust."
 repository = "https://github.com/ekiwi/wellen"
@@ -20,24 +20,24 @@ keywords = ["vcd", "fst", "waveform", "wavedump"]
 
 
 [workspace.dependencies]
-fst-reader = "0.13.1"
+fst-reader = "0.14.0"
 leb128 = "0.2.5"
-lz4_flex = "0.11.3"
-memmap2 = "0.9.5"
+lz4_flex = "0.11.5"
+memmap2 = "0.9.7"
 rayon = "1.10.0"
 num_enum = "0.7"
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 rustc-hash = "2.1"
-miniz_oxide = "0.8.3"
+miniz_oxide = "0.8.9"
 
 # dev dependencies
 itertools = "0.14.0"
 vcd = "0.7.0"
-clap = { version = "4.4.6", features = ["derive"] }
-criterion = "0.5"
-indicatif = "0.17.8"
-proptest = "1.4.0"
+clap = { version = "4.5", features = ["derive"] }
+criterion = "0.7"
+indicatif = "0.18"
+proptest = "1.7"
 wellen = { path = "wellen" }
 
 [profile.release]

@@ -7,7 +7,7 @@
 // a batch processing instead of a GUI app.
 
 use crate::{
-    viewers, Hierarchy, LoadOptions, Result, Signal, SignalRef, SignalSource, Time, TimeTable,
+    Hierarchy, LoadOptions, Result, Signal, SignalRef, SignalSource, Time, TimeTable, viewers,
 };
 use rustc_hash::FxHashMap;
 use std::fmt::{Debug, Formatter};

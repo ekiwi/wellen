@@ -25,7 +25,7 @@ pub fn read_ghw_header(input: &mut impl BufRead) -> Result<HeaderData> {
         other => {
             return Err(GhwParseError::UnexpectedHeaderMagic(
                 String::from_utf8_lossy(other).to_string(),
-            ))
+            ));
         }
     }
 
@@ -188,7 +188,7 @@ pub fn read_hierarchy(
             other => {
                 return Err(GhwParseError::UnexpectedSection(
                     String::from_utf8_lossy(other).to_string(),
-                ))
+                ));
             }
         }
     }
@@ -318,7 +318,7 @@ fn read_range(input: &mut impl BufRead) -> Result<Range> {
             return Err(GhwParseError::UnexpectedType(
                 format!("{other:?}"),
                 "for range",
-            ))
+            ));
         }
     };
 
@@ -852,11 +852,7 @@ struct GhwTables {
 
 /// Returns a if it is a non-anonymous string, otherwise b.
 fn pick_best_name(a: StringId, b: StringId) -> StringId {
-    if a.is_none() {
-        b
-    } else {
-        a
-    }
+    if a.is_none() { b } else { a }
 }
 
 impl GhwTables {

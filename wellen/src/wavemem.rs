@@ -279,7 +279,12 @@ fn load_fixed_len_signal(
                         out.append(&mut buf);
                     } else {
                         if meta_data > 0 {
-                            debug_assert_eq!(buf[0] & 0x3f, buf[0], "unexpected data in upper 2-bits of buf[0]={:x} {_signal_id:?} {len} {signal_states:?}", buf[0]);
+                            debug_assert_eq!(
+                                buf[0] & 0x3f,
+                                buf[0],
+                                "unexpected data in upper 2-bits of buf[0]={:x} {_signal_id:?} {len} {signal_states:?}",
+                                buf[0]
+                            );
                         }
                         out.push(meta_data | buf[0]);
                         out.extend_from_slice(&buf[1..]);
@@ -990,11 +995,7 @@ impl States {
     #[inline]
     pub(crate) fn first_byte_mask(&self, bits: u32) -> u8 {
         let n = self.bits_in_first_byte(bits);
-        if n > 0 {
-            (1u8 << n) - 1
-        } else {
-            u8::MAX
-        }
+        if n > 0 { (1u8 << n) - 1 } else { u8::MAX }
     }
 
     /// Returns how many bytes are required to store bits.
@@ -1249,7 +1250,10 @@ mod tests {
         compress(&max_value, max_states, min_states, bits, &mut out);
         // check
         let direct_conversion = convert_to_bits(min_states, &value);
-        assert_eq!(direct_conversion, out, "{value} - write_n_states -> {max_value:?} - compress -> {out:?} != {direct_conversion:?}");
+        assert_eq!(
+            direct_conversion, out,
+            "{value} - write_n_states -> {max_value:?} - compress -> {out:?} != {direct_conversion:?}"
+        );
     }
 
     proptest! {

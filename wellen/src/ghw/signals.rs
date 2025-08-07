@@ -47,7 +47,7 @@ pub fn read_signals(
             other => {
                 return Err(GhwParseError::UnexpectedSection(
                     String::from_utf8_lossy(other).to_string(),
-                ))
+                ));
             }
         }
     }

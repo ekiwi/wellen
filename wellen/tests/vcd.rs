@@ -162,11 +162,12 @@ fn load_github_issue_40() {
     let filename = "inputs/github_issues/issue40.vcd";
     let r = read(filename);
     assert!(r.is_err());
-    assert!(r
-        .err()
-        .unwrap()
-        .to_string()
-        .contains("unknown or invalid command"));
+    assert!(
+        r.err()
+            .unwrap()
+            .to_string()
+            .contains("unknown or invalid command")
+    );
 }
 
 /// Time stamps ending with .0 can show up from Migen. Make sure they can be parsed.

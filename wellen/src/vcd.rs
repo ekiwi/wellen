@@ -3,7 +3,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use crate::fst::{parse_scope_attributes, parse_var_attributes, Attribute};
+use crate::fst::{Attribute, parse_scope_attributes, parse_var_attributes};
 use crate::hierarchy::*;
 use crate::signals::SignalSource;
 use crate::viewers::ProgressCount;
@@ -521,7 +521,7 @@ pub fn parse_name(raw_name: &[u8], length: u32) -> Result<(String, Option<VarInd
             None => {
                 return Err(VcdParseError::VcdVarNameParsing(
                     String::from_utf8_lossy(name).to_string(),
-                ))
+                ));
             }
         };
         let index = &name[index_start..(name.len())];
@@ -723,7 +723,7 @@ fn read_vcd_header(
                         return Err(VcdParseError::VcdUnexpectedNumberOfTokens(
                             "timescale".to_string(),
                             iter_bytes_to_list_str(tokens.iter()),
-                        ))
+                        ));
                     }
                 };
                 HeaderCmd::Timescale(factor, unit)
@@ -745,7 +745,7 @@ fn read_vcd_header(
                     _ => {
                         return Err(VcdParseError::VcdUnsupportedAttributeType(
                             iter_bytes_to_list_str(tokens.iter()),
-                        ))
+                        ));
                     }
                 }
             }

@@ -6,8 +6,8 @@
 use bytesize::ByteSize;
 use clap::Parser;
 use indicatif::ProgressStyle;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use wellen::*;
 

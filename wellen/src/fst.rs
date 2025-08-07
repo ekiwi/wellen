@@ -8,7 +8,7 @@ use crate::signals::{
     FixedWidthEncoding, Signal, SignalSource, SignalSourceImplementation, TimeTableIdx,
 };
 use crate::vcd::parse_name;
-use crate::wavemem::{check_if_changed_and_truncate, check_states, write_n_state, States};
+use crate::wavemem::{States, check_if_changed_and_truncate, check_states, write_n_state};
 use crate::{FileFormat, LoadOptions, TimeTable, WellenError};
 use fst_reader::*;
 use rustc_hash::FxHashMap;
@@ -299,11 +299,7 @@ pub fn get_len_and_meta(states: States, bits: u32) -> (usize, bool) {
 
 #[inline]
 pub fn get_bytes_per_entry(len: usize, has_meta: bool) -> usize {
-    if has_meta {
-        len + 1
-    } else {
-        len
-    }
+    if has_meta { len + 1 } else { len }
 }
 
 const META_MASK: u8 = 3 << 6;
