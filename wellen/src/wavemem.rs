@@ -314,20 +314,21 @@ fn load_fixed_len_signal(
 }
 
 pub fn check_if_changed_and_truncate(bytes_per_entry: usize, out: &mut Vec<u8>) -> bool {
-    let changed = if out.len() < 2 * bytes_per_entry {
-        true
-    } else {
-        let prev_start = out.len() - 2 * bytes_per_entry;
-        let new_start = out.len() - bytes_per_entry;
-        out[prev_start..new_start] != out[new_start..]
-    };
-
-    if !changed {
-        // remove new value
-        out.truncate(out.len() - bytes_per_entry);
-    }
-
-    changed
+    true
+    // let changed = if out.len() < 2 * bytes_per_entry {
+    //     true
+    // } else {
+    //     let prev_start = out.len() - 2 * bytes_per_entry;
+    //     let new_start = out.len() - bytes_per_entry;
+    //     out[prev_start..new_start] != out[new_start..]
+    // };
+    //
+    // if !changed {
+    //     // remove new value
+    //     out.truncate(out.len() - bytes_per_entry);
+    // }
+    //
+    // changed
 }
 
 #[inline]
