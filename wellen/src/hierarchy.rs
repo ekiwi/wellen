@@ -83,8 +83,11 @@ pub struct ScopeRef(NonZeroU32);
 
 impl ScopeRef {
     #[inline]
-    pub fn from_index(index: usize) -> Option<Self> {
-        NonZeroU32::new(index as u32 + 1).map(Self)
+    pub const fn from_index(index: usize) -> Option<Self> {
+        match NonZeroU32::new(index as u32 + 1) {
+            None => None,
+            Some(v) => Some(Self(v)),
+        }
     }
 
     #[inline]
@@ -596,7 +599,6 @@ struct EnumType {
 pub struct Hierarchy {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
-    first_item: Option<ScopeOrVarRef>,
     strings: Vec<String>,
     source_locs: Vec<SourceLoc>,
     enums: Vec<EnumType>,
@@ -638,24 +640,31 @@ impl Hierarchy {
         self.scopes.iter()
     }
 
+    /// Retrieves the first item inside the implicit fake top scope
+    fn first_item(&self) -> Option<ScopeOrVarRef> {
+        debug_assert!(self.scopes[FAKE_TOP_SCOPE.index()].next.is_none());
+        self.scopes[FAKE_TOP_SCOPE.index()].child
+    }
+
     /// Returns an iterator over references to all top-level scopes and variables.
     pub fn items(&self) -> impl Iterator<Item = ScopeOrVarRef> + '_ {
-        HierarchyItemIdIterator::new(self, self.first_item)
+        HierarchyItemIdIterator::new(self, self.first_item())
     }
 
     /// Returns an iterator over references to all top-level scopes.
     pub fn scopes(&self) -> impl Iterator<Item = ScopeRef> + '_ {
-        to_scope_ref_iterator(HierarchyItemIdIterator::new(self, self.first_item))
+        to_scope_ref_iterator(HierarchyItemIdIterator::new(self, self.first_item()))
     }
 
     /// Returns an iterator over references to all top-level variables.
     pub fn vars(&self) -> impl Iterator<Item = VarRef> + '_ {
-        to_var_ref_iterator(HierarchyItemIdIterator::new(self, self.first_item))
+        to_var_ref_iterator(HierarchyItemIdIterator::new(self, self.first_item()))
     }
 
     /// Returns the first scope that was declared in the underlying file.
     pub fn first_scope(&self) -> Option<&Scope> {
-        self.scopes.first()
+        // we need to skip the fake top scope
+        self.scopes.get(1)
     }
 
     /// Returns one variable per unique signal in the order of signal handles.
@@ -809,7 +818,6 @@ struct ScopeStackEntry {
 pub struct HierarchyBuilder {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
-    first_item: Option<ScopeOrVarRef>,
     scope_stack: Vec<ScopeStackEntry>,
     strings: Vec<String>,
     source_locs: Vec<SourceLoc>,
@@ -820,19 +828,29 @@ pub struct HierarchyBuilder {
 }
 
 const EMPTY_STRING: HierarchyStringId = HierarchyStringId(NonZeroU32::new(1).unwrap());
+const FAKE_TOP_SCOPE: ScopeRef = ScopeRef::from_index(0).unwrap();
 
 impl HierarchyBuilder {
     pub fn new(file_type: FileFormat) -> Self {
         // we start with a fake entry in the scope stack to keep track of multiple items in the top scope
         let scope_stack = vec![ScopeStackEntry {
-            scope_id: usize::MAX,
+            scope_id: FAKE_TOP_SCOPE.index(),
             last_child: None,
             flattened: false,
         }];
+        let fake_top_scope = Scope {
+            name: EMPTY_STRING,
+            component: None,
+            tpe: ScopeType::Module,
+            declaration_source: None,
+            instance_source: None,
+            child: None,
+            parent: None,
+            next: None,
+        };
         HierarchyBuilder {
             vars: Vec::default(),
-            scopes: Vec::default(),
-            first_item: None,
+            scopes: vec![fake_top_scope],
             scope_stack,
             strings: vec!["".to_string()], // string 0 is ""
             source_locs: Vec::default(),
@@ -856,7 +874,6 @@ impl HierarchyBuilder {
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
-            first_item: self.first_item,
             strings: self.strings,
             source_locs: self.source_locs,
             enums: self.enums,
@@ -911,7 +928,6 @@ impl HierarchyBuilder {
         let entry_pos = find_parent_scope(&self.scope_stack);
         let entry = &mut self.scope_stack[entry_pos];
         let parent = entry.scope_id;
-        let fake_top_scope_parent = parent == usize::MAX;
         match entry.last_child {
             Some(ScopeOrVarRef::Var(child)) => {
                 // add pointer to new node from last child
@@ -924,20 +940,19 @@ impl HierarchyBuilder {
                 self.scopes[child.index()].next = Some(node_id);
             }
             None => {
-                if !fake_top_scope_parent {
-                    // otherwise we need to add a pointer from the parent
-                    assert!(self.scopes[parent].child.is_none());
-                    self.scopes[parent].child = Some(node_id);
-                }
+                // otherwise we need to add a pointer from the parent
+                assert!(self.scopes[parent].child.is_none());
+                self.scopes[parent].child = Some(node_id);
             }
         }
         // the new node is now the last child
         entry.last_child = Some(node_id);
-        // return the parent id if we had a real parent and we aren't at the top scope
-        if fake_top_scope_parent {
+        // return the parent id, unless it is the fake top scope
+        let parent_ref = ScopeRef::from_index(parent).unwrap();
+        if parent_ref == FAKE_TOP_SCOPE {
             None
         } else {
-            Some(ScopeRef::from_index(parent).unwrap())
+            Some(parent_ref)
         }
     }
 
@@ -946,13 +961,7 @@ impl HierarchyBuilder {
         let name = self.get_str(name_id);
 
         let parent = &self.scope_stack[find_parent_scope(&self.scope_stack)];
-        let mut maybe_item = if parent.scope_id == usize::MAX {
-            // we are on the top
-            self.first_item
-        } else {
-            let parent_scope = &self.scopes[parent.scope_id];
-            parent_scope.child
-        };
+        let mut maybe_item = self.scopes[parent.scope_id].child;
 
         while let Some(item) = maybe_item {
             if let ScopeOrVarRef::Scope(other) = item {
@@ -1014,9 +1023,6 @@ impl HierarchyBuilder {
         } else {
             let node_id = self.scopes.len();
             let wrapped_id = ScopeOrVarRef::Scope(ScopeRef::from_index(node_id).unwrap());
-            if self.first_item.is_none() {
-                self.first_item = Some(wrapped_id);
-            }
             let parent = self.add_to_hierarchy_tree(wrapped_id);
 
             // new active scope
@@ -1068,9 +1074,6 @@ impl HierarchyBuilder {
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
         let wrapped_id = ScopeOrVarRef::Var(var_id);
-        if self.first_item.is_none() {
-            self.first_item = Some(wrapped_id);
-        }
         let parent = self.add_to_hierarchy_tree(wrapped_id);
 
         // add lookup
