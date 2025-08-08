@@ -4,7 +4,8 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::FileFormat;
-use rustc_hash::FxHashMap;
+use indexmap::IndexSet;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::num::{NonZeroI32, NonZeroU16, NonZeroU32};
 use std::ops::Index;
 
@@ -819,12 +820,13 @@ pub struct HierarchyBuilder {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
     scope_stack: Vec<ScopeStackEntry>,
-    strings: Vec<String>,
     source_locs: Vec<SourceLoc>,
     enums: Vec<EnumType>,
     handle_to_node: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
     slices: FxHashMap<SignalRef, SignalSlice>,
+    /// used to deduplicate strings
+    strings: IndexSet<String, FxBuildHasher>,
     /// keeps track of the number of child scopes to decide when to switch to a hash table based
     /// deduplication strategy
     scope_child_scope_count: Vec<u8>,
@@ -855,11 +857,15 @@ impl HierarchyBuilder {
             parent: None,
             next: None,
         };
+        let mut strings: IndexSet<String, FxBuildHasher> = Default::default();
+        let (zero_id, _) = strings.insert_full("".to_string());
+        // empty string should always map to zero
+        debug_assert_eq!(zero_id, 0);
         HierarchyBuilder {
             vars: Vec::default(),
             scopes: vec![fake_top_scope],
             scope_stack,
-            strings: vec!["".to_string()], // string 0 is ""
+            strings,
             source_locs: Vec::default(),
             enums: Vec::default(),
             handle_to_node: Vec::default(),
@@ -883,7 +889,7 @@ impl HierarchyBuilder {
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
-            strings: self.strings,
+            strings: self.strings.into_iter().collect::<Vec<_>>(),
             source_locs: self.source_locs,
             enums: self.enums,
             signal_idx_to_var: self.handle_to_node,
@@ -896,11 +902,12 @@ impl HierarchyBuilder {
         if value.is_empty() {
             return EMPTY_STRING;
         }
-        // we assign each string a unique ID, currently we make no effort to avoid saving the same string twice
-        let sym = HierarchyStringId::from_index(self.strings.len());
-        self.strings.push(value);
-        debug_assert_eq!(self.strings.len(), sym.index() + 1);
-        sym
+        if let Some(index) = self.strings.get_index_of(&value) {
+            HierarchyStringId::from_index(index)
+        } else {
+            let (index, _) = self.strings.insert_full(value);
+            HierarchyStringId::from_index(index)
+        }
     }
 
     pub fn get_str(&self, id: HierarchyStringId) -> &str {
