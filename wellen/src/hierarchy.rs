@@ -4,7 +4,8 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::FileFormat;
-use rustc_hash::FxHashMap;
+use indexmap::IndexSet;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::num::{NonZeroI32, NonZeroU16, NonZeroU32};
 use std::ops::Index;
 
@@ -77,7 +78,7 @@ impl Default for VarRef {
 
 /// Uniquely identifies a scope in the hierarchy.
 /// Replaces the old `ModuleRef`.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScopeRef(NonZeroU32);
 
@@ -102,7 +103,7 @@ impl Default for ScopeRef {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct HierarchyStringId(NonZeroU32);
 
@@ -819,16 +820,24 @@ pub struct HierarchyBuilder {
     vars: Vec<Var>,
     scopes: Vec<Scope>,
     scope_stack: Vec<ScopeStackEntry>,
-    strings: Vec<String>,
     source_locs: Vec<SourceLoc>,
     enums: Vec<EnumType>,
     handle_to_node: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
     slices: FxHashMap<SignalRef, SignalSlice>,
+    /// used to deduplicate strings
+    strings: IndexSet<String, FxBuildHasher>,
+    /// keeps track of the number of child scopes to decide when to switch to a hash table based
+    /// deduplication strategy
+    scope_child_scope_count: Vec<u8>,
+    scope_dedup_tables: FxHashMap<ScopeRef, FxHashMap<HierarchyStringId, ScopeRef>>,
 }
 
 const EMPTY_STRING: HierarchyStringId = HierarchyStringId(NonZeroU32::new(1).unwrap());
 const FAKE_TOP_SCOPE: ScopeRef = ScopeRef::from_index(0).unwrap();
+/// Scopes that have a larger number of subscopes will get a HashTable to
+/// speed up searching for duplicates. Otherwise, we run into a O(n**2) problem.
+const DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD: u8 = 32;
 
 impl HierarchyBuilder {
     pub fn new(file_type: FileFormat) -> Self {
@@ -848,16 +857,22 @@ impl HierarchyBuilder {
             parent: None,
             next: None,
         };
+        let mut strings: IndexSet<String, FxBuildHasher> = Default::default();
+        let (zero_id, _) = strings.insert_full("".to_string());
+        // empty string should always map to zero
+        debug_assert_eq!(zero_id, 0);
         HierarchyBuilder {
             vars: Vec::default(),
             scopes: vec![fake_top_scope],
             scope_stack,
-            strings: vec!["".to_string()], // string 0 is ""
+            strings,
             source_locs: Vec::default(),
             enums: Vec::default(),
             handle_to_node: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
             slices: FxHashMap::default(),
+            scope_child_scope_count: vec![0],
+            scope_dedup_tables: Default::default(),
         }
     }
 }
@@ -874,7 +889,7 @@ impl HierarchyBuilder {
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
-            strings: self.strings,
+            strings: self.strings.into_iter().collect::<Vec<_>>(),
             source_locs: self.source_locs,
             enums: self.enums,
             signal_idx_to_var: self.handle_to_node,
@@ -887,11 +902,12 @@ impl HierarchyBuilder {
         if value.is_empty() {
             return EMPTY_STRING;
         }
-        // we assign each string a unique ID, currently we make no effort to avoid saving the same string twice
-        let sym = HierarchyStringId::from_index(self.strings.len());
-        self.strings.push(value);
-        debug_assert_eq!(self.strings.len(), sym.index() + 1);
-        sym
+        if let Some(index) = self.strings.get_index_of(&value) {
+            HierarchyStringId::from_index(index)
+        } else {
+            let (index, _) = self.strings.insert_full(value);
+            HierarchyStringId::from_index(index)
+        }
     }
 
     pub fn get_str(&self, id: HierarchyStringId) -> &str {
@@ -961,21 +977,29 @@ impl HierarchyBuilder {
         let name = self.get_str(name_id);
 
         let parent = &self.scope_stack[find_parent_scope(&self.scope_stack)];
-        let mut maybe_item = self.scopes[parent.scope_id].child;
 
-        while let Some(item) = maybe_item {
-            if let ScopeOrVarRef::Scope(other) = item {
-                let scope = &self.scopes[other.index()];
-                let other_name = self.get_str(scope.name);
-                if other_name == name {
-                    // duplicate found!
-                    return Some(other);
+        if self.scope_child_scope_count[parent.scope_id] > DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD {
+            let parent_ref = ScopeRef::from_index(parent.scope_id).unwrap();
+            debug_assert!(self.scope_dedup_tables.contains_key(&parent_ref));
+            self.scope_dedup_tables[&parent_ref].get(&name_id).cloned()
+        } else {
+            // linear search
+            let mut maybe_item = self.scopes[parent.scope_id].child;
+
+            while let Some(item) = maybe_item {
+                if let ScopeOrVarRef::Scope(other) = item {
+                    let scope = &self.scopes[other.index()];
+                    let other_name = self.get_str(scope.name);
+                    if other_name == name {
+                        // duplicate found!
+                        return Some(other);
+                    }
                 }
+                maybe_item = self.get_next(item);
             }
-            maybe_item = self.get_next(item);
+            // no duplicate found
+            None
         }
-        // no duplicate found
-        None
     }
 
     fn get_next(&self, item: ScopeOrVarRef) -> Option<ScopeOrVarRef> {
@@ -1022,7 +1046,8 @@ impl HierarchyBuilder {
             });
         } else {
             let node_id = self.scopes.len();
-            let wrapped_id = ScopeOrVarRef::Scope(ScopeRef::from_index(node_id).unwrap());
+            let scope_ref = ScopeRef::from_index(node_id).unwrap();
+            let wrapped_id = ScopeOrVarRef::Scope(scope_ref);
             let parent = self.add_to_hierarchy_tree(wrapped_id);
 
             // new active scope
@@ -1047,7 +1072,60 @@ impl HierarchyBuilder {
                 instance_source,
             };
             self.scopes.push(node);
+            self.scope_child_scope_count.push(0);
+
+            // increment the child scope count of the parent
+            self.increment_child_scope_count(parent, name, scope_ref);
         }
+    }
+
+    /// increments the child scope count and generates a hash table if we cross the threshold
+    /// must be called after the child is inserted into the list and into the scope Vec
+    fn increment_child_scope_count(
+        &mut self,
+        parent: Option<ScopeRef>,
+        child_name: HierarchyStringId,
+        child_ref: ScopeRef,
+    ) {
+        let p = if let Some(p) = parent {
+            p
+        } else {
+            FAKE_TOP_SCOPE
+        };
+
+        let child_scopes = self.scope_child_scope_count[p.index()];
+
+        if child_scopes < DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD {
+            self.scope_child_scope_count[p.index()] += 1;
+        } else if child_scopes == DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD {
+            // we are at the threshold
+            self.scope_child_scope_count[p.index()] += 1;
+            debug_assert!(!self.scope_dedup_tables.contains_key(&p));
+            let lookup = self.build_child_scope_map(p);
+            self.scope_dedup_tables.insert(p, lookup);
+        } else {
+            debug_assert_eq!(child_scopes, DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD + 1);
+            debug_assert!(self.scope_dedup_tables.contains_key(&p));
+            // insert new name
+            self.scope_dedup_tables
+                .get_mut(&p)
+                .unwrap()
+                .insert(child_name, child_ref);
+        }
+    }
+
+    /// Creates a mapping of child scope names to scope references
+    fn build_child_scope_map(&self, parent: ScopeRef) -> FxHashMap<HierarchyStringId, ScopeRef> {
+        let mut maybe_item = self.scopes[parent.index()].child;
+        let mut out = FxHashMap::default();
+        while let Some(item) = maybe_item {
+            if let ScopeOrVarRef::Scope(child_scope) = item {
+                let scope = &self.scopes[child_scope.index()];
+                out.insert(scope.name, child_scope);
+            }
+            maybe_item = self.get_next(item);
+        }
+        out
     }
 
     /// Helper function for adding scopes that were generated from a nested array name in VCD or FST.

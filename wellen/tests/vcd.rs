@@ -3,8 +3,27 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
+use rustc_hash::FxHashSet;
 use wellen::simple::*;
 use wellen::*;
+
+fn check_no_duplicate_scopes(h: &Hierarchy) {
+    let mut todo = Vec::from_iter(h.scopes());
+    while let Some(scope) = todo.pop() {
+        let scope = &h[scope];
+        let mut seen = FxHashSet::default();
+        for child in scope.scopes(h) {
+            todo.push(child);
+            let name = h[child].name(h);
+            assert!(
+                !seen.contains(name),
+                "Duplicate scope of same name `{name}` found in {}",
+                scope.full_name(h)
+            );
+            seen.insert(name.to_string());
+        }
+    }
+}
 
 #[test]
 fn test_vcd_not_starting_at_zero() {
@@ -98,6 +117,7 @@ fn test_vcd_scope_merging() {
     let h = waves.hierarchy();
     let top_scopes = h.scopes().map(|s| h[s].full_name(h)).collect::<Vec<_>>();
     assert_eq!(top_scopes, ["tb"]);
+    check_no_duplicate_scopes(h);
 }
 
 /// This test file was provided by Gianluca Bellocchi in the following issue:
@@ -107,7 +127,8 @@ fn test_vcd_scope_merging() {
 #[test]
 fn load_vivado_surfer_test() {
     let filename = "inputs/vivado/vivado_surfer_test.vcd";
-    let _waves = read(filename).expect("failed to parse");
+    let waves = read(filename).expect("failed to parse");
+    check_no_duplicate_scopes(waves.hierarchy());
 }
 
 /// A user reported problems with parsing a VCD that contains change value entries for a 0-bit signal
@@ -185,4 +206,11 @@ fn load_github_issue_55_fractional_time_stamp() {
     let r = read(filename);
     assert!(r.is_err());
     assert!(r.err().unwrap().to_string().contains("parse an integer"));
+}
+
+/// This test file used to lead to very long runtimes, until we fixed a O(n**2) problem.
+#[test]
+fn load_icarus_gatelevel_netlist_pull_61() {
+    let filename = "inputs/icarus/gatelevel_netlist_large_hierarchy_wellen_pull_61.vcd";
+    let _waves = read(filename).expect("failed to parse");
 }
