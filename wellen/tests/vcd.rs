@@ -186,3 +186,10 @@ fn load_github_issue_55_fractional_time_stamp() {
     assert!(r.is_err());
     assert!(r.err().unwrap().to_string().contains("parse an integer"));
 }
+
+/// This test file used to lead to very long runtimes, until we fixed a O(n**2) problem.
+#[test]
+fn load_icarus_gatelevel_netlist_pull_61() {
+    let filename = "inputs/icarus/gatelevel_netlist_large_hierarchy_wellen_pull_61.vcd";
+    let _waves = read(filename).expect("failed to parse");
+}
