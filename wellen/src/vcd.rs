@@ -161,9 +161,13 @@ const FST_SUP_VAR_DATA_TYPE_MASK: u64 = (1 << FST_SUP_VAR_DATA_TYPE_BITS) - 1;
 fn parse_attribute(
     tokens: Vec<&[u8]>,
     path_names: &mut FxHashMap<u64, HierarchyStringId>,
+    enums: &mut FxHashMap<u64, EnumTypeId>,
     h: &mut HierarchyBuilder,
 ) -> Result<Option<Attribute>> {
     match tokens[1] {
+        b"01" => Err(VcdParseError::VcdUnsupportedAttributeType(
+            "EnvVar".to_string(),
+        )),
         b"02" => {
             // FstHierarchyEntry::VhdlVarInfo
             if tokens.len() != 4 {
@@ -184,32 +188,94 @@ fn parse_attribute(
             if tokens.len() != 4 {
                 return Err(unexpected_n_tokens("attribute", &tokens));
             }
-            let path = std::str::from_utf8(tokens[2])?.to_string();
+            let path = std::str::from_utf8(tokens[2])?;
             let id = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
-            let string_ref = h.add_string(path);
+            let string_ref = h.add_string(path.into());
             path_names.insert(id, string_ref);
             Ok(None)
         }
         b"04" => {
             // FstHierarchyEntry::SourceStem
-            if tokens.len() != 4 {
-                // TODO: GTKWave might actually generate 5 tokens in order to include whether it is the
-                //       instance of the normal source path
+            parse_source_stem(&tokens, path_names, false)
+        }
+        b"05" => {
+            // FstHierarchyEntry::SourceInstantiationStem
+            parse_source_stem(&tokens, path_names, true)
+        }
+        b"06" => Err(VcdParseError::VcdUnsupportedAttributeType(
+            "ValueList".to_string(),
+        )),
+        b"07" => {
+            // FstHierarchyEntry::EnumTable
+            if tokens.len() < 4 {
+                // we need at least 4 tokens
                 return Err(unexpected_n_tokens("attribute", &tokens));
             }
-            let path_id = std::str::from_utf8(tokens[2])?.parse::<u64>()?;
-            let line = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
-            let is_instance = false;
-            Ok(Some(Attribute::SourceLoc(
-                path_names[&path_id],
-                line,
-                is_instance,
-            )))
+
+            let name = tokens[2];
+            if name == b"\"\"" {
+                // empty name => reference
+                if tokens.len() > 4 {
+                    Err(unexpected_n_tokens("attribute", &tokens))
+                } else {
+                    let handle = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
+                    Ok(Some(Attribute::Enum(enums[&handle])))
+                }
+            } else {
+                // parse the enum table
+                let num_entries = std::str::from_utf8(tokens[3])?.parse::<usize>()?;
+
+                // "misc" + "07" + name + length + two token per entry + id
+                let expected_tokens = 2 + 2 + 2 * num_entries + 1;
+                if tokens.len() != expected_tokens {
+                    return Err(unexpected_n_tokens("attribute", &tokens));
+                }
+
+                let handle = std::str::from_utf8(tokens.last().unwrap())?.parse::<u64>()?;
+                let mut mapping = Vec::with_capacity(num_entries);
+                let offset = 4;
+                for entry_id in 0..num_entries {
+                    let value =
+                        h.add_string(std::str::from_utf8(tokens[offset + entry_id])?.into());
+                    let key = h.add_string(
+                        std::str::from_utf8(tokens[offset + entry_id + num_entries])?.into(),
+                    );
+                    mapping.push((key, value));
+                }
+                debug_assert_eq!(mapping.len(), num_entries);
+                let name_id = h.add_string(std::str::from_utf8(name)?.into());
+                let enum_ref = h.add_enum_type(name_id, mapping);
+                enums.insert(handle, enum_ref);
+                // we just store the table for later use
+                Ok(None)
+            }
         }
+        b"08" => Err(VcdParseError::VcdUnsupportedAttributeType(
+            "Unknown".to_string(),
+        )),
         _ => Err(VcdParseError::VcdUnsupportedAttributeType(
             iter_bytes_to_list_str(tokens.iter()),
         )),
     }
+}
+
+fn parse_source_stem(
+    tokens: &[&[u8]],
+    path_names: &mut FxHashMap<u64, HierarchyStringId>,
+    is_instance: bool,
+) -> Result<Option<Attribute>> {
+    if tokens.len() != 4 {
+        // TODO: GTKWave might actually generate 5 tokens in order to include whether it is the
+        //       instance of the normal source path
+        return Err(unexpected_n_tokens("attribute", tokens));
+    }
+    let path_id = std::str::from_utf8(tokens[2])?.parse::<u64>()?;
+    let line = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
+    Ok(Some(Attribute::SourceLoc(
+        path_names[&path_id],
+        line,
+        is_instance,
+    )))
 }
 
 type IdLookup = Option<FxHashMap<Vec<u8>, SignalRef>>;
@@ -321,12 +387,14 @@ fn read_hierarchy_inner(
         }
     };
 
+    let mut enums = FxHashMap::default();
+
     let callback = |cmd: HeaderCmd| match cmd {
         HeaderCmd::Scope(tpe, name) => {
             let flatten = options.remove_scopes_with_empty_name && name.is_empty();
             let (declaration_source, instance_source) =
                 parse_scope_attributes(&mut attributes, &mut h)?;
-            let name = h.add_string(std::str::from_utf8(name)?.to_string());
+            let name = h.add_string(std::str::from_utf8(name)?.into());
             h.add_scope(
                 name,
                 None, // VCDs do not contain component names
@@ -363,7 +431,7 @@ fn read_hierarchy_inner(
             let (type_name, var_type, enum_type) =
                 parse_var_attributes(&mut attributes, raw_vcd_var_tpe, &var_name)?;
             let name = h.add_string(var_name);
-            let type_name = type_name.map(|s| h.add_string(s));
+            let type_name = type_name.map(|s| h.add_string(s.into()));
             let num_scopes = scopes.len();
             h.add_array_scopes(scopes);
 
@@ -399,7 +467,7 @@ fn read_hierarchy_inner(
             Ok(())
         }
         HeaderCmd::MiscAttribute(tokens) => {
-            if let Some(attr) = parse_attribute(tokens, &mut path_names, &mut h)? {
+            if let Some(attr) = parse_attribute(tokens, &mut path_names, &mut enums, &mut h)? {
                 attributes.push(attr);
             }
             Ok(())
@@ -481,15 +549,20 @@ enum ExtractSuffixIndexState {
     LookingForName(VarIndex),
 }
 
+type ScopeNames<'a> = Vec<std::borrow::Cow<'a, str>>;
+
 /// Splits a full name into:
 /// 1. the variable name
 /// 2. the bit index
 /// 3. any extra scopes generated by a multidimensional arrays
 ///
 /// `length` is used in order to distinguish bit-indices and array scopes.
-pub fn parse_name(raw_name: &[u8], length: u32) -> Result<(String, Option<VarIndex>, Vec<String>)> {
+pub fn parse_name(
+    raw_name: &[u8],
+    length: u32,
+) -> Result<(std::borrow::Cow<'_, str>, Option<VarIndex>, ScopeNames<'_>)> {
     if raw_name.is_empty() {
-        return Ok(("".to_string(), None, vec![]));
+        return Ok(("".into(), None, vec![]));
     }
     debug_assert!(
         raw_name[0] != b'[',
@@ -514,22 +587,22 @@ pub fn parse_name(raw_name: &[u8], length: u32) -> Result<(String, Option<VarInd
     };
 
     // see if there are any other indices from multidimensional arrays
-    let mut indices = vec![];
+    let mut indices: Vec<std::borrow::Cow<str>> = vec![];
     while name.last().cloned() == Some(b']') {
         let index_start = match find_last(name, b'[') {
             Some(s) => s,
             None => {
                 return Err(VcdParseError::VcdVarNameParsing(
-                    String::from_utf8_lossy(name).to_string(),
+                    String::from_utf8_lossy(name).into(),
                 ));
             }
         };
         let index = &name[index_start..(name.len())];
-        indices.push(String::from_utf8_lossy(index).to_string());
+        indices.push(String::from_utf8_lossy(index));
         name = trim_right(&name[..index_start]);
     }
 
-    let name = String::from_utf8_lossy(name).to_string();
+    let name = String::from_utf8_lossy(name);
 
     if indices.is_empty() {
         Ok((name, index, indices))

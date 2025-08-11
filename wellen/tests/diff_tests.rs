@@ -491,6 +491,32 @@ fn diff_ghdl_pcpu() {
 }
 
 #[test]
+fn diff_ghdl_oscar_ghdl_fst() {
+    // GHDL FST file converted to VCD with `fst2vcd`
+    run_diff_test(
+        "inputs/ghdl/oscar/ghdl.fst.vcd",
+        "inputs/ghdl/oscar/ghdl.fst",
+    );
+}
+
+#[test]
+fn diff_ghdl_oscar_vhdl3_fst() {
+    // GHDL FST file converted to VCD with `fst2vcd`
+    // the Rust `vcd` library does not like the custom scope types in the VCD
+    run_diff_test(
+        "inputs/ghdl/oscar/vhdl3.fst.vcd",
+        "inputs/ghdl/oscar/vhdl3.fst",
+    );
+}
+
+/// from: https://github.com/ekiwi/wellen/issues/43
+#[test]
+fn diff_ghdl_oscar_vhdltype() {
+    // GHDL FST file converted to VCD with `fst2vcd`
+    run_diff_test_vcd_only("inputs/ghdl/oscar/vhdltype.vcd");
+}
+
+#[test]
 #[ignore] // currently fails since our diff test does not take de-duplicated scopes into account
 fn diff_gtkwave_perm_current() {
     run_diff_test(
