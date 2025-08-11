@@ -974,8 +974,6 @@ impl HierarchyBuilder {
 
     /// Checks to see if a scope of the same name already exists.
     fn find_duplicate_scope(&self, name_id: HierarchyStringId) -> Option<ScopeRef> {
-        let name = self.get_str(name_id);
-
         let parent = &self.scope_stack[find_parent_scope(&self.scope_stack)];
 
         if self.scope_child_scope_count[parent.scope_id] > DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD {
@@ -988,9 +986,9 @@ impl HierarchyBuilder {
 
             while let Some(item) = maybe_item {
                 if let ScopeOrVarRef::Scope(other) = item {
-                    let scope = &self.scopes[other.index()];
-                    let other_name = self.get_str(scope.name);
-                    if other_name == name {
+                    // it is enough to compare the string id
+                    // since strings get the same id iff they have the same value
+                    if self.scopes[other.index()].name == name_id {
                         // duplicate found!
                         return Some(other);
                     }

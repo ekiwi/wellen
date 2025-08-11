@@ -9,7 +9,7 @@ members = ["wellen", "pywellen"]
 default-members = ["wellen"]
 
 [workspace.package]
-version = "0.18.1"
+version = "0.18.2"
 edition = "2024"
 rust-version = "1.85.0"
 authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]
