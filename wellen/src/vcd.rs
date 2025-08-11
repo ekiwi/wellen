@@ -161,9 +161,13 @@ const FST_SUP_VAR_DATA_TYPE_MASK: u64 = (1 << FST_SUP_VAR_DATA_TYPE_BITS) - 1;
 fn parse_attribute(
     tokens: Vec<&[u8]>,
     path_names: &mut FxHashMap<u64, HierarchyStringId>,
+    enums: &mut FxHashMap<u64, EnumTypeId>,
     h: &mut HierarchyBuilder,
 ) -> Result<Option<Attribute>> {
     match tokens[1] {
+        b"01" => Err(VcdParseError::VcdUnsupportedAttributeType(
+            "EnvVar".to_string(),
+        )),
         b"02" => {
             // FstHierarchyEntry::VhdlVarInfo
             if tokens.len() != 4 {
@@ -192,24 +196,81 @@ fn parse_attribute(
         }
         b"04" => {
             // FstHierarchyEntry::SourceStem
-            if tokens.len() != 4 {
-                // TODO: GTKWave might actually generate 5 tokens in order to include whether it is the
-                //       instance of the normal source path
+            parse_source_stem(&tokens, path_names, false)
+        }
+        b"05" => {
+            // FstHierarchyEntry::SourceInstantiationStem
+            parse_source_stem(&tokens, path_names, true)
+        }
+        b"06" => Err(VcdParseError::VcdUnsupportedAttributeType(
+            "ValueList".to_string(),
+        )),
+        b"07" => {
+            // FstHierarchyEntry::EnumTable
+            if tokens.len() < 4 {
+                // we need at least 4 tokens
                 return Err(unexpected_n_tokens("attribute", &tokens));
             }
-            let path_id = std::str::from_utf8(tokens[2])?.parse::<u64>()?;
-            let line = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
-            let is_instance = false;
-            Ok(Some(Attribute::SourceLoc(
-                path_names[&path_id],
-                line,
-                is_instance,
-            )))
+
+            let name = tokens[2];
+            if name == b"\"\"" {
+                // empty name => reference
+                if tokens.len() > 4 {
+                    Err(unexpected_n_tokens("attribute", &tokens))
+                } else {
+                    let handle = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
+                    Ok(Some(Attribute::Enum(enums[&handle])))
+                }
+            } else {
+                // parse the enum table
+                let num_entries = std::str::from_utf8(tokens[3])?.parse::<usize>()?;
+
+                // "misc" + "07" + name + length + two token per entry + id
+                let expected_tokens = 2 + 2 + 2 * num_entries + 1;
+                if tokens.len() != expected_tokens {
+                    return Err(unexpected_n_tokens("attribute", &tokens));
+                }
+
+                let handle = std::str::from_utf8(tokens.last().unwrap())?.parse::<u64>()?;
+                let mut mapping = Vec::with_capacity(num_entries);
+                for entry in tokens[3..tokens.len() - 1].chunks(2) {
+                    let key = h.add_string(std::str::from_utf8(entry[0])?.to_string());
+                    let value = h.add_string(std::str::from_utf8(entry[0])?.to_string());
+                    mapping.push((key, value));
+                }
+                let name_id = h.add_string(std::str::from_utf8(name)?.to_string());
+                let enum_ref = h.add_enum_type(name_id, mapping);
+                enums.insert(handle, enum_ref);
+                // we just store the table for later use
+                Ok(None)
+            }
         }
+        b"08" => Err(VcdParseError::VcdUnsupportedAttributeType(
+            "Unknown".to_string(),
+        )),
         _ => Err(VcdParseError::VcdUnsupportedAttributeType(
             iter_bytes_to_list_str(tokens.iter()),
         )),
     }
+}
+
+fn parse_source_stem(
+    tokens: &[&[u8]],
+    path_names: &mut FxHashMap<u64, HierarchyStringId>,
+    is_instance: bool,
+) -> Result<Option<Attribute>> {
+    if tokens.len() != 4 {
+        // TODO: GTKWave might actually generate 5 tokens in order to include whether it is the
+        //       instance of the normal source path
+        return Err(unexpected_n_tokens("attribute", &tokens));
+    }
+    let path_id = std::str::from_utf8(tokens[2])?.parse::<u64>()?;
+    let line = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
+    Ok(Some(Attribute::SourceLoc(
+        path_names[&path_id],
+        line,
+        is_instance,
+    )))
 }
 
 type IdLookup = Option<FxHashMap<Vec<u8>, SignalRef>>;
@@ -321,6 +382,8 @@ fn read_hierarchy_inner(
         }
     };
 
+    let mut enums = FxHashMap::default();
+
     let callback = |cmd: HeaderCmd| match cmd {
         HeaderCmd::Scope(tpe, name) => {
             let flatten = options.remove_scopes_with_empty_name && name.is_empty();
@@ -399,7 +462,7 @@ fn read_hierarchy_inner(
             Ok(())
         }
         HeaderCmd::MiscAttribute(tokens) => {
-            if let Some(attr) = parse_attribute(tokens, &mut path_names, &mut h)? {
+            if let Some(attr) = parse_attribute(tokens, &mut path_names, &mut enums, &mut h)? {
                 attributes.push(attr);
             }
             Ok(())
