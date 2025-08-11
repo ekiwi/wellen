@@ -214,3 +214,25 @@ fn load_icarus_gatelevel_netlist_pull_61() {
     let filename = "inputs/icarus/gatelevel_netlist_large_hierarchy_wellen_pull_61.vcd";
     let _waves = read(filename).expect("failed to parse");
 }
+
+/// This tests support for the custom enum table encoding in a VCD
+/// see: https://github.com/ekiwi/wellen/issues/43
+#[test]
+fn enum_definitions_from_vcd_issue_43() {
+    let filename = "inputs/ghdl/oscar/vhdltype.vcd";
+    let waves = read(filename).expect("failed to parse");
+    let h = waves.hierarchy();
+    let swap_var = h
+        .lookup_var(&["ve_manual_tb", "memreg_c_i"], &"swap")
+        .expect("failed to find variable");
+    let (swap_enum_name, swap_enum_map) = h[swap_var].enum_type(h).expect("enum type is missing");
+    assert_eq!(swap_enum_name, "swap_t");
+    assert_eq!(
+        swap_enum_map,
+        [
+            ("00000000", "noswap"),
+            ("00000001", "swap"),
+            ("00000010", "switch")
+        ]
+    );
+}

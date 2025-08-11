@@ -233,11 +233,16 @@ fn parse_attribute(
 
                 let handle = std::str::from_utf8(tokens.last().unwrap())?.parse::<u64>()?;
                 let mut mapping = Vec::with_capacity(num_entries);
-                for entry in tokens[3..tokens.len() - 1].chunks(2) {
-                    let key = h.add_string(std::str::from_utf8(entry[0])?.into());
-                    let value = h.add_string(std::str::from_utf8(entry[0])?.into());
+                let offset = 4;
+                for entry_id in 0..num_entries {
+                    let value =
+                        h.add_string(std::str::from_utf8(tokens[offset + entry_id])?.into());
+                    let key = h.add_string(
+                        std::str::from_utf8(tokens[offset + entry_id + num_entries])?.into(),
+                    );
                     mapping.push((key, value));
                 }
+                debug_assert_eq!(mapping.len(), num_entries);
                 let name_id = h.add_string(std::str::from_utf8(name)?.into());
                 let enum_ref = h.add_enum_type(name_id, mapping);
                 enums.insert(handle, enum_ref);
