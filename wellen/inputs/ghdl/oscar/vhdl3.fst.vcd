@@ -1,0 +1,39 @@
+$date
+	Tue Nov 28 12:09:00 2023
+
+$end
+$version
+	nvc 1.9.2
+$end
+$timescale
+	1fs
+$end
+$scope vhdl_architecture test $end
+$var string 0 ! ee $end
+$scope vhdl_record rr $end
+$var logic 1 " a $end
+$var logic 4 # b[5:2] $end
+$var logic 4 $ c[1:4] $end
+$var string 0 % d $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+sfoo %
+bUUUU $
+bUUUU #
+u"
+sfoo !
+$end
+#50000000
+sbar !
+bHLZ- #
+bWX10 $
+#100000000
+b0101 $
+b1010 #
+sfoo !
+1"
+sbar %
+#150000000
