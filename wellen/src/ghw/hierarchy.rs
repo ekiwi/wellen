@@ -132,7 +132,11 @@ pub fn read_hierarchy(
                 );
                 strings = table;
                 // add all strings to the hierarchy
-                tables.strings = strings.iter().cloned().map(|s| hb.add_string(s)).collect();
+                tables.strings = strings
+                    .iter()
+                    .cloned()
+                    .map(|s| hb.add_string(s.into()))
+                    .collect();
             }
             GHW_TYPE_SECTION => {
                 debug_assert!(tables.types.is_empty(), "unexpected second type table");
@@ -216,7 +220,7 @@ fn add_enums_to_wellen_hierarchy(
                         Some(id) => *id,
                         None => {
                             let name = format!("{ii:0bits$b}", bits = bits as usize);
-                            let id = hb.add_string(name);
+                            let id = hb.add_string(name.into());
                             string_cache.insert(key, id);
                             id
                         }
@@ -981,7 +985,7 @@ fn read_hierarchy_scope(
         let value = read_signal_value_to_str(tables, iter_tpe, input)?;
         // create a new name based on the value
         let name = format!("{}({})", h.get_str(name), value);
-        h.add_string(name)
+        h.add_string(name.into())
     } else {
         name
     };
@@ -1046,7 +1050,7 @@ fn get_index_string(
     match index_string_cache.get(&element_id) {
         Some(id) => *id,
         None => {
-            let id = h.add_string(format!("[{element_id}]"));
+            let id = h.add_string(format!("[{element_id}]").into());
             index_string_cache.insert(element_id, id);
             id
         }

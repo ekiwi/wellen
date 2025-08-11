@@ -597,8 +597,8 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
             } => {
                 let (declaration_source, instance_source) =
                     parse_scope_attributes(&mut attributes, &mut h).unwrap();
-                let name_id = h.add_string(name);
-                let component_id = h.add_string(component);
+                let name_id = h.add_string(name.into());
+                let component_id = h.add_string(component.into());
                 h.add_scope(
                     name_id,
                     Some(component_id),
@@ -622,7 +622,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                 let (type_name, var_type, enum_type) =
                     parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name).unwrap();
                 let name_id = h.add_string(var_name);
-                let type_name = type_name.map(|s| h.add_string(s));
+                let type_name = type_name.map(|s| h.add_string(s.into()));
                 let num_scopes = scopes.len();
                 // we derive the signal type from the fst tpe directly, the VHDL type should never factor in!
                 let signal_tpe = match tpe {
@@ -647,7 +647,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                 h.pop_scopes(num_scopes);
             }
             FstHierarchyEntry::PathName { id, name } => {
-                let string_ref = h.add_string(name);
+                let string_ref = h.add_string(name.into());
                 path_names.insert(id, string_ref);
             }
             FstHierarchyEntry::SourceStem {
@@ -666,9 +666,9 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
             } => {
                 let mapping = mapping
                     .into_iter()
-                    .map(|(a, b)| (h.add_string(a), h.add_string(b)))
+                    .map(|(a, b)| (h.add_string(a.into()), h.add_string(b.into())))
                     .collect::<Vec<_>>();
-                let name = h.add_string(name);
+                let name = h.add_string(name.into());
                 let enum_ref = h.add_enum_type(name, mapping);
                 // remember enum table by handle
                 enums.insert(handle, enum_ref);

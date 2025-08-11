@@ -898,14 +898,14 @@ impl HierarchyBuilder {
         }
     }
 
-    pub fn add_string(&mut self, value: String) -> HierarchyStringId {
+    pub fn add_string(&mut self, value: std::borrow::Cow<str>) -> HierarchyStringId {
         if value.is_empty() {
             return EMPTY_STRING;
         }
-        if let Some(index) = self.strings.get_index_of(&value) {
+        if let Some(index) = self.strings.get_index_of(value.as_ref()) {
             HierarchyStringId::from_index(index)
         } else {
-            let (index, _) = self.strings.insert_full(value);
+            let (index, _) = self.strings.insert_full(value.into_owned());
             HierarchyStringId::from_index(index)
         }
     }
@@ -1128,7 +1128,7 @@ impl HierarchyBuilder {
 
     /// Helper function for adding scopes that were generated from a nested array name in VCD or FST.
     #[inline]
-    pub fn add_array_scopes(&mut self, names: Vec<String>) {
+    pub fn add_array_scopes(&mut self, names: Vec<std::borrow::Cow<str>>) {
         for name in names {
             let name_id = self.add_string(name);
             self.add_scope(name_id, None, ScopeType::VhdlArray, None, None, false);
