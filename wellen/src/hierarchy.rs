@@ -412,6 +412,18 @@ impl ScopeOrVarRef {
     }
 }
 
+impl From<ScopeRef> for ScopeOrVarRef {
+    fn from(value: ScopeRef) -> Self {
+        Self::Scope(value)
+    }
+}
+
+impl From<VarRef> for ScopeOrVarRef {
+    fn from(value: VarRef) -> Self {
+        Self::Var(value)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum ScopeOrVar<'a> {
     Scope(&'a Scope),
@@ -827,17 +839,17 @@ pub struct HierarchyBuilder {
     slices: FxHashMap<SignalRef, SignalSlice>,
     /// used to deduplicate strings
     strings: IndexSet<String, FxBuildHasher>,
-    /// keeps track of the number of child scopes to decide when to switch to a hash table based
+    /// keeps track of the number of children to decide when to switch to a hash table based
     /// deduplication strategy
-    scope_child_scope_count: Vec<u8>,
+    scope_child_count: Vec<u8>,
     scope_dedup_tables: FxHashMap<ScopeRef, FxHashMap<HierarchyStringId, ScopeRef>>,
 }
 
 const EMPTY_STRING: HierarchyStringId = HierarchyStringId(NonZeroU32::new(1).unwrap());
 const FAKE_TOP_SCOPE: ScopeRef = ScopeRef::from_index(0).unwrap();
-/// Scopes that have a larger number of subscopes will get a HashTable to
+/// Scopes that have a larger number of children will get a HashTable to
 /// speed up searching for duplicates. Otherwise, we run into a O(n**2) problem.
-const DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD: u8 = 32;
+const DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD: u8 = 128;
 
 impl HierarchyBuilder {
     pub fn new(file_type: FileFormat) -> Self {
@@ -871,7 +883,7 @@ impl HierarchyBuilder {
             handle_to_node: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
             slices: FxHashMap::default(),
-            scope_child_scope_count: vec![0],
+            scope_child_count: vec![0],
             scope_dedup_tables: Default::default(),
         }
     }
@@ -976,7 +988,7 @@ impl HierarchyBuilder {
     fn find_duplicate_scope(&self, name_id: HierarchyStringId) -> Option<ScopeRef> {
         let parent = &self.scope_stack[find_parent_scope(&self.scope_stack)];
 
-        if self.scope_child_scope_count[parent.scope_id] > DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD {
+        if self.scope_child_count[parent.scope_id] > DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD {
             let parent_ref = ScopeRef::from_index(parent.scope_id).unwrap();
             debug_assert!(self.scope_dedup_tables.contains_key(&parent_ref));
             self.scope_dedup_tables[&parent_ref].get(&name_id).cloned()
@@ -1045,8 +1057,7 @@ impl HierarchyBuilder {
         } else {
             let node_id = self.scopes.len();
             let scope_ref = ScopeRef::from_index(node_id).unwrap();
-            let wrapped_id = ScopeOrVarRef::Scope(scope_ref);
-            let parent = self.add_to_hierarchy_tree(wrapped_id);
+            let parent = self.add_to_hierarchy_tree(scope_ref.into());
 
             // new active scope
             self.scope_stack.push(ScopeStackEntry {
@@ -1070,20 +1081,20 @@ impl HierarchyBuilder {
                 instance_source,
             };
             self.scopes.push(node);
-            self.scope_child_scope_count.push(0);
+            self.scope_child_count.push(0);
 
-            // increment the child scope count of the parent
-            self.increment_child_scope_count(parent, name, scope_ref);
+            // increment the child count of the parent
+            self.increment_child_count(parent, name, scope_ref.into());
         }
     }
 
-    /// increments the child scope count and generates a hash table if we cross the threshold
+    /// increments the child count and generates a hash table if we cross the threshold
     /// must be called after the child is inserted into the list and into the scope Vec
-    fn increment_child_scope_count(
+    fn increment_child_count(
         &mut self,
         parent: Option<ScopeRef>,
         child_name: HierarchyStringId,
-        child_ref: ScopeRef,
+        child_ref: ScopeOrVarRef,
     ) {
         let p = if let Some(p) = parent {
             p
@@ -1091,24 +1102,26 @@ impl HierarchyBuilder {
             FAKE_TOP_SCOPE
         };
 
-        let child_scopes = self.scope_child_scope_count[p.index()];
+        let child_count = self.scope_child_count[p.index()];
 
-        if child_scopes < DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD {
-            self.scope_child_scope_count[p.index()] += 1;
-        } else if child_scopes == DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD {
+        if child_count < DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD {
+            self.scope_child_count[p.index()] += 1;
+        } else if child_count == DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD {
             // we are at the threshold
-            self.scope_child_scope_count[p.index()] += 1;
+            self.scope_child_count[p.index()] += 1;
             debug_assert!(!self.scope_dedup_tables.contains_key(&p));
             let lookup = self.build_child_scope_map(p);
             self.scope_dedup_tables.insert(p, lookup);
         } else {
-            debug_assert_eq!(child_scopes, DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD + 1);
+            debug_assert_eq!(child_count, DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD + 1);
             debug_assert!(self.scope_dedup_tables.contains_key(&p));
             // insert new name
-            self.scope_dedup_tables
-                .get_mut(&p)
-                .unwrap()
-                .insert(child_name, child_ref);
+            if let ScopeOrVarRef::Scope(child_scope_ref) = child_ref {
+                self.scope_dedup_tables
+                    .get_mut(&p)
+                    .unwrap()
+                    .insert(child_name, child_scope_ref);
+            }
         }
     }
 
@@ -1149,8 +1162,7 @@ impl HierarchyBuilder {
     ) {
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
-        let wrapped_id = ScopeOrVarRef::Var(var_id);
-        let parent = self.add_to_hierarchy_tree(wrapped_id);
+        let parent = self.add_to_hierarchy_tree(var_id.into());
 
         // add lookup
         let handle_idx = signal_idx.index();
@@ -1173,6 +1185,8 @@ impl HierarchyBuilder {
             vhdl_type_name,
         };
         self.vars.push(node);
+        // increment the child count of the parent
+        self.increment_child_count(parent, name, var_id.into());
     }
 
     #[inline]
