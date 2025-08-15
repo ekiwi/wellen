@@ -11,7 +11,7 @@ use crate::hierarchy::{Hierarchy, SignalRef};
 use crate::signals::{
     FixedWidthEncoding, Real, Signal, SignalSource, SignalSourceImplementation, Time, TimeTableIdx,
 };
-use crate::vcd::{decode_vcd_bit_vec_change, VcdBitVecChange};
+use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
 use crate::{SignalEncoding, SignalValue, TimeTable};
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;

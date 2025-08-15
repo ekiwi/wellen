@@ -5,11 +5,11 @@
 //! This interface is useful when you want to batch process waveform data instead
 //! of displaying it in a waveform viewer.
 
-use crate::vcd::{decode_vcd_bit_vec_change, VcdBitVecChange};
-use crate::wavemem::{write_n_state, States};
+use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
+use crate::wavemem::{States, write_n_state};
 use crate::{
-    viewers, FileFormat, Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef,
-    SignalValue, Time, WellenError,
+    FileFormat, Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValue, Time,
+    WellenError, viewers,
 };
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};

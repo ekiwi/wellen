@@ -8,7 +8,7 @@ use crate::hierarchy::*;
 use crate::signals::SignalSource;
 use crate::stream::{Filter, StreamEncoder};
 use crate::viewers::ProgressCount;
-use crate::wavemem::{bit_char_to_num, check_states, Encoder, States};
+use crate::wavemem::{Encoder, States, bit_char_to_num, check_states};
 use crate::{FileFormat, LoadOptions, SignalValue, Time, TimeTable};
 use fst_reader::{FstVhdlDataType, FstVhdlVarType};
 use num_enum::TryFromPrimitive;
@@ -1494,29 +1494,16 @@ pub enum VcdBitVecChange<'a> {
 }
 
 pub fn decode_vcd_bit_vec_change(len: NonZeroU32, value: &[u8]) -> (VcdBitVecChange, States) {
-    let value_bits: &[u8] = match value[0] {
-        b'b' | b'B' => &value[1..],
-        _ => value,
-    };
-    // special detection for pymtl3 which adds an extra `0b` for all bit vectors
-    let value_bits: &[u8] = if value_bits.len() <= 2 {
-        value_bits
-    } else {
-        match &value_bits[0..2] {
-            b"0b" => &value_bits[2..],
-            _ => value_bits,
-        }
-    };
     if len.get() == 1 {
-        let value_char = match value_bits {
+        // Simplify parsing of non-compliant output by checking last character
+        let value_char = match value.last() {
             // special handling for empty values which we always treat as zero
-            [] => b'0',
-            [v] => *v,
-            _ => unreachable!(
-                "value bits are too long for 0-bit or 1-bit signal: {}",
-                String::from_utf8_lossy(value)
-            ),
+            None => b'0',
+            // special handling for zero-length vector
+            Some(b'b') => b'0',
+            Some(v) => *v,
         };
+
         let bit_value = bit_char_to_num(value_char).unwrap_or_else(|| {
             panic!(
                 "Failed to parse four state value: {} for signal of size 1",
@@ -1526,13 +1513,26 @@ pub fn decode_vcd_bit_vec_change(len: NonZeroU32, value: &[u8]) -> (VcdBitVecCha
         let states = States::from_value(bit_value);
         (VcdBitVecChange::SingleBit(bit_value), states)
     } else {
+        let value_bits: &[u8] = match value[0] {
+            b'b' | b'B' => &value[1..],
+            _ => value,
+        };
+        // special detection for pymtl3 which adds an extra `0b` for all bit vectors
+        let value_bits: &[u8] = if value_bits.len() <= 2 {
+            value_bits
+        } else {
+            match &value_bits[0..2] {
+                b"0b" => &value_bits[2..],
+                _ => value_bits,
+            }
+        };
         let states = check_states(value_bits).unwrap_or_else(|| {
             panic!(
-                "Bit-vector contains invalid character. Only 2, 4 and 9-state signals are supported: {}",
+                "Bit-vector contains invalid character. Only 2-, 4-, and 9-state signals are supported: {}",
                 String::from_utf8_lossy(value)
             )
         });
-        // write actual data
+
         let bits = len.get() as usize;
         let data_to_write = if value_bits.len() == bits {
             Cow::Borrowed(value_bits)
