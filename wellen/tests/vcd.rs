@@ -236,3 +236,38 @@ fn enum_definitions_from_vcd_issue_43() {
         ]
     );
 }
+
+/// Tests that we correctly generate a delta cycle in the case where a signal
+/// changes from its initial value to a different one at time step zero.
+#[test]
+fn vcd_delta_cycle_at_zero() {
+    // find clock signal changes
+    let single_thread = LoadOptions {
+        multi_thread: false,
+        remove_scopes_with_empty_name: false,
+    };
+
+    let mut wave =
+        wellen::simple::read_with_options("inputs/pymtl3/CGRA.vcd", &single_thread).unwrap();
+    let clk = wave.hierarchy().lookup_var(&["top"], &"clk").unwrap();
+    let clk_signal_ref = wave.hierarchy()[clk].signal_ref();
+    wave.load_signals(&[clk_signal_ref]);
+    let clk_signal = wave.get_signal(clk_signal_ref).unwrap();
+    let at_zero = clk_signal.get_offset(0).unwrap();
+    println!("Clock Index: {}", clk_signal_ref.index());
+    assert_eq!(
+        clk_signal
+            .get_value_at(&at_zero, 0)
+            .to_bit_string()
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(at_zero.elements, 2);
+    assert_eq!(
+        clk_signal
+            .get_value_at(&at_zero, 1)
+            .to_bit_string()
+            .unwrap(),
+        "1"
+    );
+}
