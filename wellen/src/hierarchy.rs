@@ -418,6 +418,18 @@ pub enum ScopeOrVar<'a> {
     Var(&'a Var),
 }
 
+impl From<ScopeRef> for ScopeOrVarRef {
+    fn from(value: ScopeRef) -> Self {
+        Self::Scope(value)
+    }
+}
+
+impl From<VarRef> for ScopeOrVarRef {
+    fn from(value: VarRef) -> Self {
+        Self::Var(value)
+    }
+}
+
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Scope {
@@ -606,6 +618,7 @@ pub struct Hierarchy {
     signal_idx_to_var: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
     slices: FxHashMap<SignalRef, SignalSlice>,
+    comments: Vec<(String, ScopeOrVarRef)>,
 }
 
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
@@ -703,6 +716,12 @@ impl Hierarchy {
     }
     pub fn file_format(&self) -> FileFormat {
         self.meta.file_format
+    }
+
+    /// all comments parsed from the waveform file with the scope or variable
+    /// that they appeared in front of
+    pub fn comments(&self) -> &[(String, ScopeOrVarRef)] {
+        self.comments.as_ref()
     }
 
     pub fn lookup_scope<N: AsRef<str>>(&self, names: &[N]) -> Option<ScopeRef> {
@@ -825,6 +844,9 @@ pub struct HierarchyBuilder {
     handle_to_node: Vec<Option<VarRef>>,
     meta: HierarchyMetaData,
     slices: FxHashMap<SignalRef, SignalSlice>,
+    comments: Vec<(String, ScopeOrVarRef)>,
+    /// comments that will be pushed into the comments vec once the next var or scope is added
+    unassociated_comments: Vec<String>,
     /// used to deduplicate strings
     strings: IndexSet<String, FxBuildHasher>,
     /// keeps track of the number of child scopes to decide when to switch to a hash table based
@@ -871,6 +893,8 @@ impl HierarchyBuilder {
             handle_to_node: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
             slices: FxHashMap::default(),
+            comments: Vec::default(),
+            unassociated_comments: Vec::default(),
             scope_child_scope_count: vec![0],
             scope_dedup_tables: Default::default(),
         }
@@ -886,6 +910,7 @@ impl HierarchyBuilder {
         self.enums.shrink_to_fit();
         self.handle_to_node.shrink_to_fit();
         self.slices.shrink_to_fit();
+        self.comments.shrink_to_fit();
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
@@ -895,6 +920,7 @@ impl HierarchyBuilder {
             signal_idx_to_var: self.handle_to_node,
             meta: self.meta,
             slices: self.slices,
+            comments: self.comments,
         }
     }
 
@@ -1018,6 +1044,15 @@ impl HierarchyBuilder {
         }
     }
 
+    fn commit_comments(&mut self, item: ScopeOrVarRef) {
+        for comment in self
+            .unassociated_comments
+            .drain(0..self.unassociated_comments.len())
+        {
+            self.comments.push((comment, item));
+        }
+    }
+
     pub fn add_scope(
         &mut self,
         name: HierarchyStringId,
@@ -1030,6 +1065,7 @@ impl HierarchyBuilder {
         // check to see if there is a scope of the same name already
         // if so we just activate that scope instead of adding a new one
         if let Some(duplicate) = self.find_duplicate_scope(name) {
+            self.commit_comments(duplicate.into());
             let last_child = self.find_last_child(duplicate);
             self.scope_stack.push(ScopeStackEntry {
                 scope_id: duplicate.index(),
@@ -1037,6 +1073,12 @@ impl HierarchyBuilder {
                 flattened: false,
             })
         } else if flatten {
+            // associate commit with parent
+            self.commit_comments(
+                ScopeRef::from_index(self.scope_stack.last().unwrap().scope_id)
+                    .unwrap()
+                    .into(),
+            );
             self.scope_stack.push(ScopeStackEntry {
                 scope_id: usize::MAX,
                 last_child: None,
@@ -1045,6 +1087,7 @@ impl HierarchyBuilder {
         } else {
             let node_id = self.scopes.len();
             let scope_ref = ScopeRef::from_index(node_id).unwrap();
+            self.commit_comments(scope_ref.into());
             let wrapped_id = ScopeOrVarRef::Scope(scope_ref);
             let parent = self.add_to_hierarchy_tree(wrapped_id);
 
@@ -1150,6 +1193,7 @@ impl HierarchyBuilder {
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
         let wrapped_id = ScopeOrVarRef::Var(var_id);
+        self.commit_comments(wrapped_id);
         let parent = self.add_to_hierarchy_tree(wrapped_id);
 
         // add lookup
@@ -1217,7 +1261,7 @@ impl HierarchyBuilder {
     }
 
     pub fn add_comment(&mut self, comment: String) {
-        self.meta.comments.push(comment);
+        self.unassociated_comments.push(comment);
     }
 
     pub fn add_slice(
