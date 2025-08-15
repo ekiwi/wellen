@@ -658,7 +658,9 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                 let path = path_names[&path_id];
                 attributes.push(Attribute::SourceLoc(path, line, is_instantiation));
             }
-            FstHierarchyEntry::Comment { .. } => {} // ignored
+            FstHierarchyEntry::Comment { string } => {
+                h.add_comment(string);
+            }
             FstHierarchyEntry::EnumTable {
                 name,
                 handle,
