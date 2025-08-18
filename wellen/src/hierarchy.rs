@@ -765,6 +765,13 @@ impl Hierarchy {
         let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
         Some(self[var_id].signal_encoding)
     }
+    
+    /// Retrieves the VarType of a signal identified by its id by looking up a
+    /// variable that refers to the signal.
+    pub fn get_signal_var_type(&self, signal_idx: SignalRef) -> Option<VarType> {
+        let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
+        Some(self[var_id].var_type())
+    }
 
     pub fn get_slice_info(&self, signal_idx: SignalRef) -> Option<SignalSlice> {
         self.slices.get(&signal_idx).copied()
