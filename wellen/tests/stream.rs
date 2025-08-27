@@ -137,7 +137,6 @@ fn diff_stream_nvc_xwb_fofb_shaper_filt_tb_arrays() {
 }
 
 #[test]
-#[ignore] // TODO: why does this one fail?
 fn diff_stream_pymtl3_cgra() {
     diff_stream("inputs/pymtl3/CGRA.vcd");
 }
