@@ -93,9 +93,22 @@ impl Reader {
     }
 
     fn collect_signal_meta_data(&self, id: SignalRef) -> SignalMetaData<'_> {
+        // collect meta data for all blocks
         let mut time_idx_offset = 0;
-        let mut blocks = Vec::with_capacity(self.blocks.len());
+        let mut block_meta_data = Vec::with_capacity(self.blocks.len());
+        let mut prev_end_time = None;
         for block in self.blocks.iter() {
+            // adjust time index offset to take overlapping blocks into account
+            let end_time = *block.time_table.last().unwrap();
+            debug_assert_eq!(*block.time_table.first().unwrap(), block.start_time);
+            if let Some(prev_end_time) = prev_end_time {
+                if block.start_time == prev_end_time {
+                    time_idx_offset -= 1;
+                }
+            }
+            prev_end_time = Some(end_time);
+
+            // add block meta data
             if let Some((start_ii, data_len)) = block.get_offset_and_length(id) {
                 let end_ii = start_ii + data_len;
                 // uncompress if necessary
@@ -103,16 +116,23 @@ impl Reader {
                 let meta_data_raw = leb128::read::unsigned(&mut reader).unwrap();
                 let meta_data = SignalEncodingMetaData::decode(meta_data_raw);
                 let data_block = &block.data[start_ii + reader.position() as usize..end_ii];
-                blocks.push((time_idx_offset, data_block, meta_data));
+                block_meta_data.push((time_idx_offset, data_block, meta_data));
             }
+
+            // increment offset for next block
             time_idx_offset += block.time_table.len() as u32;
         }
-        let max_states = blocks
+
+        // summarize max states accress all blocks
+        let max_states = block_meta_data
             .iter()
             .map(|b| b.2.max_states)
             .reduce(States::join)
             .unwrap_or(States::Nine);
-        SignalMetaData { max_states, blocks }
+        SignalMetaData {
+            max_states,
+            blocks: block_meta_data,
+        }
     }
 
     fn load_signal(&self, id: SignalRef, tpe: SignalEncoding) -> Signal {
@@ -528,13 +548,25 @@ impl Encoder {
         let time_table = Self::combine_time_tables(&reader.blocks);
         (SignalSource::new(Box::new(reader)), time_table)
     }
-
     fn combine_time_tables(blocks: &[Block]) -> TimeTable {
         // create a combined time table from all blocks
-        let len = blocks.iter().map(|b| b.time_table.len()).sum::<usize>();
-        let mut table = Vec::with_capacity(len);
+        let max_len = blocks.iter().map(|b| b.time_table.len()).sum::<usize>();
+        let mut table = Vec::with_capacity(max_len);
+        let mut prev_end_time = None;
         for block in blocks.iter() {
-            table.extend_from_slice(&block.time_table);
+            if let Some(prev_end_time) = prev_end_time {
+                let start_time = block.time_table[0];
+                debug_assert!(prev_end_time <= start_time);
+                if prev_end_time == start_time {
+                    // avoid duplicate entries for overlapping time tables
+                    table.extend_from_slice(&block.time_table[1..]);
+                } else {
+                    table.extend_from_slice(&block.time_table);
+                }
+            } else {
+                table.extend_from_slice(&block.time_table);
+            }
+            prev_end_time = Some(*block.time_table.last().unwrap());
         }
         table
     }
@@ -543,14 +575,25 @@ impl Encoder {
     pub fn append(&mut self, mut other: Encoder) {
         // ensure that we have no open blocks
         self.finish_block();
+        debug_assert!(!self.blocks.is_empty(), "cannot append to an empty encoder");
+        debug_assert_eq!(
+            self.time_table.len(),
+            1,
+            "should have started a new time table"
+        );
         // ensure that the other encoder is also done
         other.finish_block();
+
         // if the other encoder has no blocks, there is nothing for us to do
         if let Some(other_first_block) = other.blocks.first() {
             // make sure the timeline fits
             let us_end_time = self.blocks.last().unwrap().end_time();
             let other_start = other_first_block.start_time;
-            assert!(
+            debug_assert_eq!(
+                other_first_block.start_time,
+                other_first_block.time_table[0]
+            );
+            debug_assert!(
                 us_end_time <= other_start,
                 "Can only append encoders in chronological order!"
             );
