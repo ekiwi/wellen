@@ -1493,7 +1493,7 @@ pub enum VcdBitVecChange<'a> {
     MultiBit(Cow<'a, [u8]>),
 }
 
-pub fn decode_vcd_bit_vec_change(len: NonZeroU32, value: &[u8]) -> (VcdBitVecChange, States) {
+pub fn decode_vcd_bit_vec_change(len: NonZeroU32, value: &[u8]) -> (VcdBitVecChange<'_>, States) {
     if len.get() == 1 {
         // Simplify parsing of non-compliant output by checking last character
         let value_char = match value.last() {

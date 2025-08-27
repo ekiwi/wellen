@@ -34,15 +34,19 @@ pub fn read_from_file<P: AsRef<std::path::Path>>(
             todo!("streaming for ghw")
         }
         FileFormat::Fst => {
-            todo!("streaming for fst")
+            let (hierarchy, body) = crate::fst::read_header_from_file(filename, options)?;
+            Ok(StreamingWaveform {
+                hierarchy,
+                body: StreamBody::Fst(body),
+            })
         }
     }
 }
 
 /// Read from something that is not a file. Reads only the header.
 pub fn read<R: BufRead + Seek + Send + Sync + 'static>(
-    input: R,
-    options: &LoadOptions,
+    _input: R,
+    _options: &LoadOptions,
 ) -> Result<StreamingWaveform<R>> {
     todo!("support streaming read from things that are not files")
 }
@@ -55,6 +59,7 @@ pub struct StreamingWaveform<R: BufRead + Seek> {
 
 enum StreamBody<R: BufRead + Seek> {
     Vcd(crate::vcd::ReadBodyContinuation<R>),
+    Fst(crate::fst::ReadBodyContinuation<R>),
 }
 
 impl<R: BufRead + Seek> Debug for StreamingWaveform<R> {
@@ -105,6 +110,9 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
         match &mut self.body {
             StreamBody::Vcd(data) => {
                 crate::vcd::stream_body(data, &self.hierarchy, filter, callback)?
+            }
+            StreamBody::Fst(data) => {
+                crate::fst::stream_body(data, &self.hierarchy, filter, callback)?
             }
         }
         Ok(())
@@ -166,6 +174,20 @@ where
             encoding,
             buf: Vec::with_capacity(128),
         }
+    }
+
+    pub(crate) fn vcd_value_change_with_time(&mut self, time: u64, id: u64, value: &[u8]) {
+        // it is ok to call this everytime since it will just do nothing if the time did not change
+        self.time_change(time);
+        self.vcd_value_change(id, value);
+    }
+
+    pub(crate) fn real_change_with_time(&mut self, time: u64, id: u64, value: f64) {
+        // it is ok to call this everytime since it will just do nothing if the time did not change
+        self.time_change(time);
+        let signal_ref = SignalRef::from_index(id as usize).unwrap();
+        let time = self.time.unwrap();
+        (self.callback)(time, signal_ref, SignalValue::Real(value));
     }
 
     pub(crate) fn vcd_value_change(&mut self, id: u64, value: &[u8]) {

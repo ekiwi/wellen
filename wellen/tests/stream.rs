@@ -76,6 +76,16 @@ fn diff_stream_ghdl_pcpu() {
 }
 
 #[test]
+fn diff_stream_ghdl_oscar_ghdl() {
+    diff_stream("inputs/ghdl/oscar/ghdl.fst");
+}
+
+#[test]
+fn diff_stream_ghdl_oscar_vhdl3() {
+    diff_stream("inputs/ghdl/oscar/vhdl3.fst");
+}
+
+#[test]
 fn diff_stream_gtkwave_perm_current() {
     diff_stream("inputs/gtkwave-analyzer/perm_current.vcd");
 }
@@ -131,9 +141,23 @@ fn diff_stream_ncsim_ffdiv_32bit_tb() {
 }
 
 #[test]
-#[ignore] // TODO: add streaming support for FST
 fn diff_stream_nvc_xwb_fofb_shaper_filt_tb_arrays() {
     diff_stream("inputs/nvc/xwb_fofb_shaper_filt_tb_arrays.fst");
+}
+
+#[test]
+fn diff_stream_nvc_xwb_fofb_shaper_filt_tb() {
+    diff_stream("inputs/nvc/xwb_fofb_shaper_filt_tb.fst");
+}
+
+#[test]
+fn diff_stream_nvc_overlay_tb_issue_21() {
+    diff_stream("inputs/nvc/overlay_tb_issue_21.fst");
+}
+
+#[test]
+fn diff_stream_nvc_vhdl_test_bool_issue_16() {
+    diff_stream("inputs/nvc/vhdl_test_bool_issue_16.fst");
 }
 
 #[test]
@@ -244,6 +268,26 @@ fn diff_stream_verilator_swerv1() {
 #[test]
 fn diff_stream_verilator_vlt_dump() {
     diff_stream("inputs/verilator/vlt_dump.vcd");
+}
+
+#[test]
+fn diff_stream_verilator_basic_test() {
+    diff_stream("inputs/verilator/basic_test.fst");
+}
+
+#[test]
+fn diff_stream_verilator_many_sv_datatypes() {
+    diff_stream("inputs/verilator/many_sv_datatypes.fst");
+}
+
+#[test]
+fn diff_stream_verilator_surfer_issue_201_fst() {
+    diff_stream("inputs/verilator/surfer_issue_201.fst");
+}
+
+#[test]
+fn diff_stream_verilator_verilator_incomplete() {
+    diff_stream("inputs/verilator/verilator-incomplete.fst");
 }
 
 #[test]

@@ -7,6 +7,7 @@ use crate::hierarchy::*;
 use crate::signals::{
     FixedWidthEncoding, Signal, SignalSource, SignalSourceImplementation, TimeTableIdx,
 };
+use crate::stream::{Filter, StreamEncoder};
 use crate::vcd::parse_name;
 use crate::wavemem::{States, check_if_changed_and_truncate, check_states, write_n_state};
 use crate::{FileFormat, LoadOptions, TimeTable, WellenError};
@@ -696,4 +697,43 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
     };
     reader.read_hierarchy(cb)?;
     Ok(h.finish())
+}
+
+// FST Streaming
+
+pub fn stream_body<R: BufRead + Seek>(
+    data: &mut ReadBodyContinuation<R>,
+    hierarchy: &Hierarchy,
+    filter: &Filter,
+    callback: impl FnMut(crate::Time, SignalRef, crate::SignalValue<'_>),
+) -> Result<()> {
+    let reader = &mut data.0;
+
+    // convert wellen to FST filter
+    let fst_ids = filter.signals.map(|ids| {
+        ids.iter()
+            .map(|ii| FstSignalHandle::from_index(ii.index()))
+            .collect::<Vec<_>>()
+    });
+
+    let fst_filter = FstFilter {
+        start: filter.start,
+        end: filter.end,
+        include: fst_ids,
+    };
+
+    let mut enc = StreamEncoder::new(hierarchy, filter, callback);
+
+    // map fst callback to wellen callback
+    let fst_callback = |time: u64, handle: FstSignalHandle, value: FstSignalValue| {
+        let signal_id = handle.get_index() as u64;
+        match value {
+            FstSignalValue::String(value) => enc.vcd_value_change_with_time(time, signal_id, value),
+            FstSignalValue::Real(value) => enc.real_change_with_time(time, signal_id, value),
+        }
+    };
+
+    reader.read_signals(&fst_filter, fst_callback)?;
+
+    Ok(())
 }
