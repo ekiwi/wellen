@@ -98,17 +98,6 @@ impl Reader {
         let mut block_meta_data = Vec::with_capacity(self.blocks.len());
         let mut prev_end_time = None;
         for block in self.blocks.iter() {
-            if let Some((start_ii, data_len)) = block.get_offset_and_length(id) {
-                let end_ii = start_ii + data_len;
-                // uncompress if necessary
-                let mut reader = std::io::Cursor::new(&block.data[start_ii..end_ii]);
-                let meta_data_raw = leb128::read::unsigned(&mut reader).unwrap();
-                let meta_data = SignalEncodingMetaData::decode(meta_data_raw);
-                let data_block = &block.data[start_ii + reader.position() as usize..end_ii];
-                block_meta_data.push((time_idx_offset, data_block, meta_data));
-            }
-            time_idx_offset += block.time_table.len() as u32;
-
             // adjust time index offset to take overlapping blocks into account
             let end_time = *block.time_table.last().unwrap();
             debug_assert_eq!(*block.time_table.first().unwrap(), block.start_time);
@@ -118,6 +107,20 @@ impl Reader {
                 }
             }
             prev_end_time = Some(end_time);
+
+            // add block meta data
+            if let Some((start_ii, data_len)) = block.get_offset_and_length(id) {
+                let end_ii = start_ii + data_len;
+                // uncompress if necessary
+                let mut reader = std::io::Cursor::new(&block.data[start_ii..end_ii]);
+                let meta_data_raw = leb128::read::unsigned(&mut reader).unwrap();
+                let meta_data = SignalEncodingMetaData::decode(meta_data_raw);
+                let data_block = &block.data[start_ii + reader.position() as usize..end_ii];
+                block_meta_data.push((time_idx_offset, data_block, meta_data));
+            }
+
+            // increment offset for next block
+            time_idx_offset += block.time_table.len() as u32;
         }
 
         // summarize max states accress all blocks

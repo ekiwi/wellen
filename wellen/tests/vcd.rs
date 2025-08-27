@@ -239,11 +239,12 @@ fn enum_definitions_from_vcd_issue_43() {
 
 /// Tests that we correctly generate a delta cycle in the case where a signal
 /// changes from its initial value to a different one at time step zero.
+/// This would always work for single threaded, but used to fail for multi-threaded VCD parsing.
 #[test]
 fn vcd_delta_cycle_at_zero() {
     // find clock signal changes
     let single_thread = LoadOptions {
-        multi_thread: false,
+        multi_thread: true,
         remove_scopes_with_empty_name: false,
     };
 
@@ -254,7 +255,6 @@ fn vcd_delta_cycle_at_zero() {
     wave.load_signals(&[clk_signal_ref]);
     let clk_signal = wave.get_signal(clk_signal_ref).unwrap();
     let at_zero = clk_signal.get_offset(0).unwrap();
-    println!("Clock Index: {}", clk_signal_ref.index());
     assert_eq!(
         clk_signal
             .get_value_at(&at_zero, 0)
@@ -270,4 +270,7 @@ fn vcd_delta_cycle_at_zero() {
             .unwrap(),
         "1"
     );
+
+    // TODO: the problem is that because of multi threading, we get two different time table indices
+    //       for time zero, that needs to be avoided!
 }
