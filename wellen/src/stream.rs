@@ -28,7 +28,7 @@ pub fn read_from_file<P: AsRef<std::path::Path>>(
                 crate::vcd::read_header_from_file(filename, options)?;
             Ok(StreamingWaveform {
                 hierarchy,
-                body: StreamBody::Vcd(body),
+                body: viewers::ReadBodyData::Vcd(Box::new(body)),
             })
         }
         FileFormat::Ghw => {
@@ -38,7 +38,7 @@ pub fn read_from_file<P: AsRef<std::path::Path>>(
             let (hierarchy, body) = crate::fst::read_header_from_file(filename, options)?;
             Ok(StreamingWaveform {
                 hierarchy,
-                body: StreamBody::Fst(body),
+                body: viewers::ReadBodyData::Fst(Box::new(body)),
             })
         }
     }
@@ -55,12 +55,7 @@ pub fn read<R: BufRead + Seek + Send + Sync + 'static>(
 /// Represents a waveform that was loaded for streaming.
 pub struct StreamingWaveform<R: BufRead + Seek> {
     hierarchy: Hierarchy,
-    body: StreamBody<R>,
-}
-
-enum StreamBody<R: BufRead + Seek> {
-    Vcd(crate::vcd::ReadBodyContinuation<R>),
-    Fst(crate::fst::ReadBodyContinuation<R>),
+    body: viewers::ReadBodyData<R>,
 }
 
 impl<R: BufRead + Seek> Debug for StreamingWaveform<R> {
@@ -109,12 +104,13 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
         callback: impl FnMut(Time, SignalRef, SignalValue<'_>),
     ) -> Result<()> {
         match &mut self.body {
-            StreamBody::Vcd(data) => {
+            viewers::ReadBodyData::Vcd(data) => {
                 crate::vcd::stream_body(data, &self.hierarchy, filter, callback)?
             }
-            StreamBody::Fst(data) => {
+            viewers::ReadBodyData::Fst(data) => {
                 crate::fst::stream_body(data, &self.hierarchy, filter, callback)?
             }
+            viewers::ReadBodyData::Ghw(_) => panic!("streaming GHW files is not supported"),
         }
         Ok(())
     }
