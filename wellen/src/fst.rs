@@ -727,10 +727,7 @@ pub fn stream_body<R: BufRead + Seek>(
     // map fst callback to wellen callback
     let fst_callback = |time: u64, handle: FstSignalHandle, value: FstSignalValue| {
         let signal_id = handle.get_index() as u64;
-        match value {
-            FstSignalValue::String(value) => enc.vcd_value_change_with_time(time, signal_id, value),
-            FstSignalValue::Real(value) => enc.real_change_with_time(time, signal_id, value),
-        }
+        enc.fst_value_change(time, signal_id, value);
     };
 
     reader.read_signals(&fst_filter, fst_callback)?;

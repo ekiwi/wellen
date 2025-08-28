@@ -6,11 +6,13 @@ use rustc_hash::FxHashMap;
 use wellen::simple::Waveform;
 use wellen::{Hierarchy, SignalRef, SignalValue, Time, TimeTableIdx, Var};
 
+#[allow(dead_code)]
 pub fn load_all_signals(our: &mut Waveform) {
     let all_signals = get_all_signals(our.hierarchy());
     our.load_signals(&all_signals);
 }
 
+#[allow(dead_code)]
 pub fn get_all_signals(h: &Hierarchy) -> Vec<SignalRef> {
     h.get_unique_signals_vars()
         .iter()
@@ -19,6 +21,7 @@ pub fn get_all_signals(h: &Hierarchy) -> Vec<SignalRef> {
         .collect()
 }
 
+#[allow(dead_code)]
 pub fn diff_signals(a: &mut Waveform, b: &mut Waveform, time_factor: u64) {
     // with the same time tables, comparisons become much easier!
     assert_eq!(time_factor, 1);
@@ -66,6 +69,7 @@ pub fn diff_signals(a: &mut Waveform, b: &mut Waveform, time_factor: u64) {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_value<'a>(
     our: &'a Waveform,
     signal_ref: SignalRef,
@@ -147,6 +151,7 @@ pub fn diff_signal_value(
     }
 }
 
+#[allow(dead_code)]
 /// Checks to make sure that 4 and 9 state signals are only used when they are required.
 fn ensure_minimal_format(signal_value: SignalValue) {
     match signal_value {

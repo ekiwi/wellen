@@ -6,11 +6,12 @@
 //! of displaying it in a waveform viewer.
 
 use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
-use crate::wavemem::{States, write_n_state};
+use crate::wavemem::{States, check_states, write_n_state};
 use crate::{
     FileFormat, Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValue, Time,
     WellenError, viewers,
 };
+use fst_reader::FstSignalValue;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
 
@@ -176,18 +177,65 @@ where
         }
     }
 
-    pub(crate) fn vcd_value_change_with_time(&mut self, time: u64, id: u64, value: &[u8]) {
-        // it is ok to call this everytime since it will just do nothing if the time did not change
-        self.time_change(time);
-        self.vcd_value_change(id, value);
-    }
+    pub(crate) fn fst_value_change(&mut self, time: u64, id: u64, value: FstSignalValue) {
+        debug_assert!(
+            !self.skipping_time_step,
+            "fst reader should filter out time steps"
+        );
 
-    pub(crate) fn real_change_with_time(&mut self, time: u64, id: u64, value: f64) {
-        // it is ok to call this everytime since it will just do nothing if the time did not change
-        self.time_change(time);
-        let signal_ref = SignalRef::from_index(id as usize).unwrap();
-        let time = self.time.unwrap();
-        (self.callback)(time, signal_ref, SignalValue::Real(value));
+        // check to see if the signal should be included
+        let maybe_tpe = self.encoding.get(id as usize).and_then(|a| a.as_ref());
+        #[allow(unused_assignments)]
+        let mut maybe_str = None;
+        if let Some(tpe) = maybe_tpe.cloned() {
+            let signal_ref = SignalRef::from_index(id as usize).unwrap();
+            let signal_value = match value {
+                FstSignalValue::String(value) => match tpe {
+                    SignalEncoding::String => {
+                        maybe_str = Some(String::from_utf8_lossy(value));
+                        SignalValue::String(maybe_str.as_ref().unwrap())
+                    }
+
+                    SignalEncoding::BitVector(len) => {
+                        let bits = len.get();
+
+                        debug_assert_eq!(
+                            value.len(),
+                            bits as usize,
+                            "{}",
+                            String::from_utf8_lossy(value)
+                        );
+
+                        let states = check_states(value).unwrap_or_else(|| {
+                            panic!(
+                                "Unexpected signal value: {}",
+                                String::from_utf8_lossy(value)
+                            )
+                        });
+
+                        // convert from ASCII characters to packed encoding
+                        self.buf.clear();
+                        write_n_state(states, value, &mut self.buf, None);
+
+                        match states {
+                            States::Two => SignalValue::Binary(&self.buf, bits),
+                            States::Four => SignalValue::FourValue(&self.buf, bits),
+                            States::Nine => SignalValue::NineValue(&self.buf, bits),
+                        }
+                    }
+                    SignalEncoding::Real => panic!(
+                        "Expecting reals, but got: {}",
+                        String::from_utf8_lossy(value)
+                    ),
+                },
+                FstSignalValue::Real(value) => {
+                    debug_assert_eq!(tpe, SignalEncoding::Real);
+                    SignalValue::Real(value)
+                }
+            };
+
+            (self.callback)(time, signal_ref, signal_value);
+        }
     }
 
     pub(crate) fn vcd_value_change(&mut self, id: u64, value: &[u8]) {
