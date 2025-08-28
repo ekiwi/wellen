@@ -117,7 +117,7 @@ pub fn read_header<R: BufRead + Seek>(
 
 pub struct ReadBodyContinuation<R: BufRead + Seek>(ReadBodyData<R>);
 
-enum ReadBodyData<R: BufRead + Seek> {
+pub(crate) enum ReadBodyData<R: BufRead + Seek> {
     Vcd(Box<crate::vcd::ReadBodyContinuation<R>>),
     Fst(Box<crate::fst::ReadBodyContinuation<R>>),
     Ghw(Box<crate::ghw::ReadBodyContinuation<R>>),
