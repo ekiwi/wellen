@@ -12,6 +12,7 @@ use crate::{
     WellenError, viewers,
 };
 use fst_reader::FstSignalValue;
+use rustc_hash::FxHashMap;
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
 
@@ -93,11 +94,24 @@ impl<'a> Filter<'a> {
     }
 }
 
+/// Defines an event that can be used to sample a waveform.
+#[derive(Debug, Copy, Clone)]
+pub enum Event {
+    RisingEdge(SignalRef),
+    FallingEdge(SignalRef),
+}
+
+pub trait GetSignalValue {
+    fn get(&self, signal: SignalRef) -> Option<SignalValue<'_>>;
+}
+
 impl<R: BufRead + Seek> StreamingWaveform<R> {
+    /// Retrieve the variable hierarchy.
     pub fn hierarchy(&self) -> &Hierarchy {
         &self.hierarchy
     }
 
+    /// Stream value changes. The callback is called everytime a signal changes its value.
     pub fn stream(
         &mut self,
         filter: &Filter,
@@ -114,6 +128,26 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
         }
         Ok(())
     }
+
+    // /// Samples stream. The callback is called for every sampling event and provides access
+    // /// to all signal values at that point in time.
+    // pub fn sampled(
+    //     &mut self,
+    //     event: Event,
+    //     filter: &Filter,
+    //     callback: impl FnMut(Time, &impl GetSignalValue),
+    // ) -> Result<()> {
+    //     match &mut self.body {
+    //         viewers::ReadBodyData::Vcd(data) => {
+    //             crate::vcd::stream_body(data, &self.hierarchy, filter, callback)?
+    //         }
+    //         viewers::ReadBodyData::Fst(data) => {
+    //             crate::fst::stream_body(data, &self.hierarchy, filter, callback)?
+    //         }
+    //         viewers::ReadBodyData::Ghw(_) => panic!("streaming GHW files is not supported"),
+    //     }
+    //     Ok(())
+    // }
 }
 
 /// Takes on the role of the [Encoder] when streaming instead of encoding to
@@ -126,7 +160,7 @@ where
     time: Option<Time>,
     skipping_time_step: bool,
     /// contains encoding for all _included_ signals (depending on the [Filter] provided)
-    encoding: Vec<Option<SignalEncoding>>,
+    encoding: SignalEncodingMap,
     buf: Vec<u8>,
 }
 
@@ -135,40 +169,11 @@ where
     C: FnMut(Time, SignalRef, SignalValue<'_>),
 {
     pub(crate) fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> Self {
-        // remember encoding information for all included signals
-        let encoding = match filter.signals {
-            None => {
-                // all signals
-                hierarchy
-                    .get_unique_signals_vars()
-                    .into_iter()
-                    .map(|var| {
-                        Some(match var {
-                            None => SignalEncoding::String, // we do not know!
-                            Some(var) => var.signal_encoding(),
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            }
-            Some([]) => {
-                // nothing
-                vec![]
-            }
-            Some(signals) => {
-                let max_index = signals.iter().map(|r| r.index()).max().unwrap();
-                let mut enc = vec![None; max_index + 1];
-                for &signal in signals.iter() {
-                    enc[signal.index()] = hierarchy.get_signal_tpe(signal);
-                }
-                enc
-            }
-        };
-
         Self {
             callback,
             time: Default::default(),
             skipping_time_step: false,
-            encoding,
+            encoding: SignalEncodingMap::from_filter(hierarchy, filter),
             buf: Vec::with_capacity(128),
         }
     }
@@ -180,11 +185,11 @@ where
         );
 
         // check to see if the signal should be included
-        let maybe_tpe = self.encoding.get(id as usize).and_then(|a| a.as_ref());
+        let signal_ref = SignalRef::from_index(id as usize).unwrap();
+        let maybe_tpe = self.encoding.get(signal_ref);
         #[allow(unused_assignments)]
         let mut maybe_str = None;
-        if let Some(tpe) = maybe_tpe.cloned() {
-            let signal_ref = SignalRef::from_index(id as usize).unwrap();
+        if let Some(tpe) = maybe_tpe {
             let signal_value = match value {
                 FstSignalValue::String(value) => match tpe {
                     SignalEncoding::String => {
@@ -239,13 +244,13 @@ where
             return;
         }
         // check to see if the signal should be included
-        let maybe_tpe = self.encoding.get(id as usize).and_then(|a| a.as_ref());
+        let signal_ref = SignalRef::from_index(id as usize).unwrap();
+        let maybe_tpe = self.encoding.get(signal_ref);
         if let Some(tpe) = maybe_tpe {
-            let signal_ref = SignalRef::from_index(id as usize).unwrap();
             let time = self.time.unwrap();
             self.buf.clear();
             let signal_value = match tpe {
-                &SignalEncoding::BitVector(len) => {
+                SignalEncoding::BitVector(len) => {
                     let (data, states) = decode_vcd_bit_vec_change(len, value);
 
                     // put data into buffer
@@ -317,5 +322,74 @@ where
 
     pub(crate) fn time_is_none(&self) -> bool {
         self.time.is_none()
+    }
+}
+
+/// Stores values for a number of signals.
+#[derive(Debug, Default)]
+struct SignalValues {
+    /// Stores signal values for fixed size signals.
+    value_bytes: Vec<u8>,
+    /// Stores signal strings.
+    strings: Vec<String>,
+    /// Stores value byte offsets when using the sampled stream interface.
+    offsets: Vec<u32>,
+}
+
+enum SignalEncodingMap {
+    Dense(Vec<Option<SignalEncoding>>),
+    Sparse(FxHashMap<SignalRef, SignalEncoding>),
+}
+
+impl SignalEncodingMap {
+    fn from_filter(hierarchy: &Hierarchy, filter: &Filter) -> Self {
+        match filter.signals {
+            None => {
+                // all signals -> dense map
+                let dense = hierarchy
+                    .get_unique_signals_vars()
+                    .into_iter()
+                    .map(|var| {
+                        Some(match var {
+                            None => SignalEncoding::String, // we do not know!
+                            Some(var) => var.signal_encoding(),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                Self::Dense(dense)
+            }
+            Some([]) => {
+                // nothing
+                Self::Dense(vec![])
+            }
+            Some(signals) => {
+                let max_index = signals.iter().map(|r| r.index()).max().unwrap();
+                let density = max_index * 10 / signals.len();
+                // 70% or more used
+                if density > 7 {
+                    let mut enc = vec![None; max_index + 1];
+                    for &signal in signals.iter() {
+                        enc[signal.index()] = hierarchy.get_signal_tpe(signal);
+                    }
+                    Self::Dense(enc)
+                } else {
+                    Self::Sparse(FxHashMap::from_iter(signals.iter().map(|signal| {
+                        (
+                            *signal,
+                            hierarchy
+                                .get_signal_tpe(*signal)
+                                .unwrap_or_else(|| SignalEncoding::String),
+                        )
+                    })))
+                }
+            }
+        }
+    }
+
+    fn get(&self, index: SignalRef) -> Option<SignalEncoding> {
+        match self {
+            SignalEncodingMap::Dense(v) => v[index.index()].clone(),
+            SignalEncodingMap::Sparse(m) => m.get(&index).cloned(),
+        }
     }
 }
