@@ -378,7 +378,7 @@ impl SignalEncodingMap {
                             *signal,
                             hierarchy
                                 .get_signal_tpe(*signal)
-                                .unwrap_or_else(|| SignalEncoding::String),
+                                .unwrap_or(SignalEncoding::String),
                         )
                     })))
                 }
@@ -388,7 +388,7 @@ impl SignalEncodingMap {
 
     fn get(&self, index: SignalRef) -> Option<SignalEncoding> {
         match self {
-            SignalEncodingMap::Dense(v) => v[index.index()].clone(),
+            SignalEncodingMap::Dense(v) => v[index.index()],
             SignalEncodingMap::Sparse(m) => m.get(&index).cloned(),
         }
     }
