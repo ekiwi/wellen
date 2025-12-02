@@ -325,24 +325,60 @@ where
     }
 }
 
-/// Stores values for a number of signals.
+/// Efficiently stores values for a number of signals.
 #[derive(Debug, Default)]
 struct SignalValues {
     /// Stores signal values for fixed size signals.
     value_bytes: Vec<u8>,
     /// Stores signal strings.
     strings: Vec<String>,
+    /// Stores real signals.
+    reals: Vec<Real>,
     /// Stores value byte offsets when using the sampled stream interface.
     offsets: Vec<u32>,
 }
 
+impl SignalValues {
+    fn insert(&mut self, signal: SignalRef, value: SignalValue<'_>, offset: usize) {
+        match value {
+            SignalValue::Binary(data, _) | SignalValue::FourValue(data, _) | SignalValue::NineValue(data, _) => {
+                self.value_bytes[offset..(offset + data.len())].copy_from_slice(data);
+            }
+            SignalValue::String(data) => {
+                self.strings[offset] = data.to_string();
+            }
+            SignalValue::Real(data) => {
+                self.reals[offset] = data;
+            }
+        }
+    }
+
+    fn get(&self, signal: SignalRef, offset: usize, enc: SignalEncoding) -> SignalValue<'_> {
+        match enc {
+            SignalEncoding::String => {
+                SignalValue::String(&self.strings[offset])
+            }
+            SignalEncoding::Real => {
+                SignalValue::Real(self.reals[offset])
+            }
+            SignalEncoding::BitVector(width) => {
+
+            }
+        }
+    }
+}
+
 enum SignalEncodingMap {
     Dense(Vec<Option<SignalEncoding>>),
+    DenseWithOffset(Vec<Option<(SignalEncoding, u32)>>),
     Sparse(FxHashMap<SignalRef, SignalEncoding>),
+    SparseWithOffset(FxHashMap<SignalRef, (SignalEncoding, u32)>),
 }
 
 impl SignalEncodingMap {
-    fn from_filter(hierarchy: &Hierarchy, filter: &Filter) -> Self {
+    fn from_filter(hierarchy: &Hierarchy, filter: &Filter, width_offset: bool) -> Self {
+        let mut string_offset = 0u32;
+        let mut
         match filter.signals {
             None => {
                 // all signals -> dense map
@@ -389,7 +425,17 @@ impl SignalEncodingMap {
     fn get(&self, index: SignalRef) -> Option<SignalEncoding> {
         match self {
             SignalEncodingMap::Dense(v) => v[index.index()],
+            SignalEncodingMap::DenseWithOffset(v) => v[index.index()].map(|(e,_)| e),
             SignalEncodingMap::Sparse(m) => m.get(&index).cloned(),
+            SignalEncodingMap::SparseWithOffset(m) => m.get(&index).cloned().map(|(e,_)| e),
+        }
+    }
+
+    fn get_with_offset(&self, index: SignalRef) -> Option<(SignalEncoding, u32)> {
+        match self {
+            SignalEncodingMap::DenseWithOffset(v) => v[index.index()],
+            SignalEncodingMap::SparseWithOffset(m) => m.get(&index).cloned(),
+            _ => None,
         }
     }
 }
