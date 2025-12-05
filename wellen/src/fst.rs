@@ -197,13 +197,17 @@ impl SignalWriter {
                         // the minimal number of states. If that turns out to be wrong, we go back and
                         // expand the existing data.
                         let num_prev_entries = self.time_indices.len();
-                        self.data_bytes = expand_entries(
-                            self.max_states,
-                            signal_states,
-                            &self.data_bytes,
-                            num_prev_entries,
-                            bits,
-                        );
+                        if !self.data_bytes.is_empty() {
+                            self.data_bytes = expand_entries(
+                                self.max_states,
+                                signal_states,
+                                &self.data_bytes,
+                                num_prev_entries,
+                                bits,
+                            );
+                        } else {
+                            debug_assert_eq!(num_prev_entries, 0);
+                        }
                         self.max_states = signal_states;
                     }
 
@@ -338,12 +342,20 @@ fn expand_entries(from: States, to: States, old: &[u8], entries: usize, bits: u3
         push_zeros(&mut data, padding_len);
         // copy over the actual values
         if from_meta {
+            data.extend_from_slice(&value[1..]);
+        } else if from == States::Two {
+            data.extend_from_slice(value);
+        } else {
+            // mask out meta data from MSB
             data.push(value[0] & !META_MASK);
             data.extend_from_slice(&value[1..]);
-        } else {
-            data.extend_from_slice(value);
         }
     }
+    debug_assert_eq!(
+        data.len(),
+        to_bytes_per_entry * entries,
+        "we should always use all the bytes that we precalculated"
+    );
     data
 }
 
@@ -733,4 +745,47 @@ pub fn stream_body<R: BufRead + Seek>(
     reader.read_signals(&fst_filter, fst_callback)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_expand_entries() {
+        // this test was inspired by issue 77 on the wellen repository
+        let from = States::Four;
+        let to = States::Nine;
+        let bits = 4;
+        let entries = 1;
+        // 1 << 6: meta_value = 1 ==> 4-states
+        // 0xff: "zzzz"
+        let old = [1 << 6, 0xff];
+
+        // "zzzz" stays encoded as a single byte as a 2-state value
+        // however, a padding byte will be introduced to accommodate for 9-state values
+        let expected = [1 << 6, 0, 0xff];
+
+        let new = expand_entries(from, to, &old, entries, bits);
+        assert_eq!(new, expected);
+    }
+
+    #[test]
+    fn test_expand_entries_combined_meta() {
+        // testing a case where the meta data is shared in a byte with the bits
+        let from = States::Four;
+        let to = States::Nine;
+        let bits = 3;
+        let entries = 1;
+        // 1 << 6: meta_value = 1 ==> 4-states
+        // 0x3f: "zzz"
+        let old = [1 << 6 | 0x3f];
+
+        // "zzz" stays encoded as a single byte as a 2-state value
+        // however, a padding byte will be introduced to accommodate for 9-state values
+        let expected = [1 << 6, 0x3f];
+
+        let new = expand_entries(from, to, &old, entries, bits);
+        assert_eq!(new, expected);
+    }
 }

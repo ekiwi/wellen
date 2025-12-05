@@ -257,5 +257,8 @@ fn test_nvc_issue_77() {
         .iter_changes()
         .map(|(time_idx, value)| format!("@{time_idx}={}", value.to_bit_string().unwrap()))
         .join(", ");
-    println!("{signal_trace}");
+    assert_eq!(
+        "@0=zzzz, @5=hhhh, @11028=hhh1, @11144=hh11, @41722=hh1h, @41952=h11h",
+        signal_trace
+    );
 }
