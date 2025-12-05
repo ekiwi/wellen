@@ -5,6 +5,7 @@
 //
 // test fst specific meta data
 
+use itertools::Itertools;
 use std::collections::HashSet;
 use wellen::simple::*;
 use wellen::*;
@@ -235,4 +236,26 @@ fn test_verilator_incomplete() {
     let filename = "inputs/verilator/verilator-incomplete.fst";
     let mut waves = read(filename).expect("failed to parse");
     load_all_signals(&mut waves);
+}
+
+/// This file was provided by usbalex in the following issue:
+/// https://github.com/ekiwi/wellen/issues/77
+#[test]
+fn test_nvc_issue_77() {
+    let mut waves = read("inputs/nvc/tb_sys_clm_lram_m_wellen_issue_77.fst").unwrap();
+    let scope_name = "tb_sys_clm_lram_m/i_sys_clm_lram_m/i_lram_6t_src_1t_m/i_array_bl_periph_0/i_curr_mirror_0/i_mirror/i_mirror_cmp";
+    let var_name = "cfg_cal";
+    let scope_parts: Vec<_> = scope_name.split("/").collect();
+    let var_ref = waves
+        .hierarchy()
+        .lookup_var(&scope_parts, &var_name)
+        .unwrap();
+    let signal_ref = waves.hierarchy()[var_ref].signal_ref();
+    waves.load_signals(&[signal_ref]);
+    let signal = waves.get_signal(signal_ref).unwrap();
+    let signal_trace = signal
+        .iter_changes()
+        .map(|(time_idx, value)| format!("@{time_idx}={}", value.to_bit_string().unwrap()))
+        .join(", ");
+    println!("{signal_trace}");
 }
