@@ -266,7 +266,6 @@ fn load_fixed_len_signal(
     out: &mut Vec<u8>,
     _signal_id: SignalRef, // for debugging
 ) {
-    dbg!(bits, signal_states);
     let mut last_time_idx = time_idx_offset;
     let (len, has_meta) = get_len_and_meta(signal_states, bits);
     let bytes_per_entry = get_bytes_per_entry(len, has_meta);
