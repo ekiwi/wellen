@@ -288,6 +288,8 @@ pub enum SignalEncoding {
     Real,
     /// encoded as a fixed width bit-vector
     BitVector(NonZeroU32),
+    /// essentially a bit vector of size 0
+    Event,
 }
 
 impl SignalEncoding {
@@ -376,6 +378,7 @@ impl Var {
         match &self.signal_encoding {
             SignalEncoding::String => None,
             SignalEncoding::Real => None,
+            SignalEncoding::Event => Some(0),
             SignalEncoding::BitVector(len) => Some(len.get()),
         }
     }

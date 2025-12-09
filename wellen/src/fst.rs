@@ -162,6 +162,11 @@ impl SignalWriter {
         }
         match value {
             FstSignalValue::String(value) => match self.tpe {
+                SignalEncoding::Event => {
+                    debug_assert!(value.is_empty(), "events should not carry any data!");
+                    // all we do is note the time of the event, there is no data to save
+                    self.time_indices.push(time_idx);
+                }
                 SignalEncoding::String => {
                     let str_value = String::from_utf8_lossy(value).to_string();
                     // check to see if the value actually changed
@@ -261,6 +266,17 @@ impl SignalWriter {
 
     fn finish(self) -> Signal {
         match self.tpe {
+            SignalEncoding::Event => {
+                debug_assert!(self.data_bytes.is_empty());
+                debug_assert!(self.strings.is_empty());
+                Signal::new_fixed_len(
+                    self.id,
+                    self.time_indices,
+                    FixedWidthEncoding::Event,
+                    0,
+                    self.data_bytes,
+                )
+            }
             SignalEncoding::String => {
                 debug_assert!(self.data_bytes.is_empty());
                 Signal::new_var_len(self.id, self.time_indices, self.strings)

@@ -187,6 +187,10 @@ where
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
             let signal_value = match value {
                 FstSignalValue::String(value) => match tpe {
+                    SignalEncoding::Event => {
+                        debug_assert!(value.is_empty(), "events do not carry data");
+                        SignalValue::Event
+                    }
                     SignalEncoding::String => {
                         maybe_str = Some(String::from_utf8_lossy(value));
                         SignalValue::String(maybe_str.as_ref().unwrap())
@@ -245,6 +249,10 @@ where
             let time = self.time.unwrap();
             self.buf.clear();
             let signal_value = match tpe {
+                SignalEncoding::Event => {
+                    debug_assert!(value.is_empty(), "event changes should not carry a value");
+                    SignalValue::Event
+                }
                 &SignalEncoding::BitVector(len) => {
                     let (data, states) = decode_vcd_bit_vec_change(len, value);
 

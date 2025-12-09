@@ -18,6 +18,7 @@ pub type NonZeroTimeTableIdx = NonZeroU32;
 
 #[derive(Debug, Clone, Copy)]
 pub enum SignalValue<'a> {
+    Event,
     Binary(&'a [u8], u32),
     FourValue(&'a [u8], u32),
     NineValue(&'a [u8], u32),
@@ -28,6 +29,7 @@ pub enum SignalValue<'a> {
 impl Display for SignalValue<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
+            SignalValue::Event => write!(f, "Event"),
             SignalValue::Binary(data, bits) => {
                 write!(f, "{}", two_state_to_bit_string(data, *bits))
             }
@@ -66,6 +68,7 @@ impl SignalValue<'_> {
     /// Returns the number of bits in the signal value. Returns None if the value is a real or string.
     pub fn bits(&self) -> Option<u32> {
         match self {
+            SignalValue::Event => Some(0),
             SignalValue::Binary(_, bits) => Some(*bits),
             SignalValue::FourValue(_, bits) => Some(*bits),
             SignalValue::NineValue(_, bits) => Some(*bits),
@@ -166,6 +169,8 @@ pub enum FixedWidthEncoding {
     },
     /// Each value is encoded as an 8-byte f64 in little endian.
     Real,
+    /// No values, just the timetable to indicate when the event occurred.
+    Event,
 }
 
 impl FixedWidthEncoding {
@@ -175,6 +180,7 @@ impl FixedWidthEncoding {
                 SignalEncoding::BitVector(NonZeroU32::new(*bits).unwrap())
             }
             FixedWidthEncoding::Real => SignalEncoding::Real,
+            FixedWidthEncoding::Event => SignalEncoding::Event,
         }
     }
 }
@@ -653,6 +659,7 @@ impl SignalChangeData {
                 let start = offset * (*width as usize);
                 let raw_data = &bytes[start..(start + (*width as usize))];
                 match encoding {
+                    FixedWidthEncoding::Event => SignalValue::Event,
                     FixedWidthEncoding::BitVector {
                         max_states,
                         bits,

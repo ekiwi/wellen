@@ -160,6 +160,9 @@ pub(crate) fn load_compressed_signal(
         };
 
         match tpe {
+            SignalEncoding::Event => {
+                todo!()
+            }
             SignalEncoding::String => {
                 load_signal_strings(
                     &mut data.as_ref(),
@@ -194,6 +197,11 @@ pub(crate) fn load_compressed_signal(
         SignalEncoding::String => {
             debug_assert!(data_bytes.is_empty());
             Signal::new_var_len(id, time_indices, strings)
+        }
+        SignalEncoding::Event => {
+            debug_assert!(data_bytes.is_empty());
+            debug_assert!(strings.is_empty());
+            Signal::new_fixed_len(id, time_indices, FixedWidthEncoding::Event, 0, data_bytes)
         }
         SignalEncoding::BitVector(len) => {
             debug_assert!(strings.is_empty());
@@ -805,6 +813,11 @@ impl SignalEncoder {
     fn add_vcd_change(&mut self, time_index: TimeTableIdx, value: &[u8]) {
         let time_idx_delta = time_index - self.prev_time_idx;
         match self.tpe {
+            SignalEncoding::Event => {
+                debug_assert!(value.is_empty(), "event changes do not carry a value");
+                // just write down the time idx delta
+                leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
+            }
             SignalEncoding::BitVector(len) => {
                 let (data, states) = decode_vcd_bit_vec_change(len, value);
                 self.max_states = States::join(self.max_states, states);
