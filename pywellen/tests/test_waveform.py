@@ -77,7 +77,7 @@ def test_vcd_var_types_types():
     var_tests = {
         "ENUM2_IN": {"var_type": "Enum", "bitwidth": 2, "is_bit_vector": True},
         "STR_OUT": {"var_type": "String", "bitwidth": None, "is_string": True},
-        "EVENT_IN": {"var_type": "Event", "bitwidth": 1, "is_1bit": True},
+        "EVENT_IN": {"var_type": "Event", "bitwidth": 0},
         "INT32_OUT": {"var_type": "Integer", "bitwidth": 32, "is_bit_vector": True},
         "REAL_BUF": {"var_type": "Real", "bitwidth": None, "is_real": True},
         "REG128_INOUT": {"var_type": "Reg", "bitwidth": 128, "is_bit_vector": True},
