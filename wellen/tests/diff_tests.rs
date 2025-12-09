@@ -334,7 +334,7 @@ fn diff_signals<R: BufRead>(
                 let signal_ref = id_map[&id];
                 let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
                 // for events, the actual value does not matter
-                if !matches!(our_value, SignalValue::Event) {
+                if !our_value.is_event() {
                     let our_value_str = our_value.to_bit_string().unwrap();
                     assert_eq!(
                         our_value_str,

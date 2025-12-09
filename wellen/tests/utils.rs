@@ -142,11 +142,15 @@ pub fn diff_signal_value(
             assert_eq!(a_real, b_real, "{signal:?} @ {time}");
         }
         (g_value, f_value) => {
-            assert_eq!(
-                g_value.to_bit_string(),
-                f_value.to_bit_string(),
-                "{signal:?} @ {time}"
-            );
+            if g_value.is_event() {
+                assert!(f_value.is_event())
+            } else {
+                assert_eq!(
+                    g_value.to_bit_string(),
+                    f_value.to_bit_string(),
+                    "{signal:?} @ {time}"
+                );
+            }
         }
     }
 }

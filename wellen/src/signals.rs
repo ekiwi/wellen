@@ -56,6 +56,10 @@ impl PartialEq for SignalValue<'_> {
 }
 
 impl SignalValue<'_> {
+    pub fn is_event(&self) -> bool {
+        matches!(self, SignalValue::Event)
+    }
+
     pub fn to_bit_string(&self) -> Option<String> {
         match &self {
             SignalValue::Binary(data, bits) => Some(two_state_to_bit_string(data, *bits)),
