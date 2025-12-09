@@ -10,8 +10,6 @@ use crate::stream::{Filter, StreamEncoder};
 use crate::viewers::ProgressCount;
 use crate::wavemem::{Encoder, States, bit_char_to_num, check_states};
 use crate::{FileFormat, LoadOptions, SignalValue, Time, TimeTable};
-use fst_reader::{FstVhdlDataType, FstVhdlVarType};
-use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -183,10 +181,13 @@ fn parse_attribute(
             }
             let type_name = std::str::from_utf8(tokens[2])?.to_string();
             let arg = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
-            let var_type =
-                FstVhdlVarType::try_from_primitive((arg >> FST_SUP_VAR_DATA_TYPE_BITS) as u8)?;
-            let data_type =
-                FstVhdlDataType::try_from_primitive((arg & FST_SUP_VAR_DATA_TYPE_MASK) as u8)?;
+            use num_enum::TryFromPrimitive;
+            let var_type = fst_reader::FstVhdlVarType::try_from_primitive(
+                (arg >> FST_SUP_VAR_DATA_TYPE_BITS) as u8,
+            )?;
+            let data_type = fst_reader::FstVhdlDataType::try_from_primitive(
+                (arg & FST_SUP_VAR_DATA_TYPE_MASK) as u8,
+            )?;
             Ok(Some(Attribute::VhdlTypeInfo(
                 type_name, var_type, data_type,
             )))
@@ -959,7 +960,7 @@ fn read_command<'a>(input: &mut impl BufRead, buf: &'a mut Vec<u8>) -> Result<(V
 
 #[inline]
 fn find_tokens(line: &[u8]) -> Vec<&[u8]> {
-    line.split(|c| matches!(*c, b' '))
+    line.split(|c| matches!(*c, b' ' | b'\t' | b'\n'))
         .filter(|e| !e.is_empty())
         .collect()
 }
@@ -1666,6 +1667,52 @@ x%i"
         assert!(body_1.is_empty());
     }
 
+    #[test]
+    fn test_read_var_command() {
+        let mut buf = Vec::with_capacity(128);
+        let inp_0 = b"$var wire 1 ! CLK $end";
+        let (cmd_0, body_0) = read_command(&mut inp_0.as_slice(), &mut buf).unwrap();
+        assert_eq!(cmd_0, VcdCmd::Var);
+        assert_eq!(std::str::from_utf8(body_0).unwrap(), "wire 1 ! CLK");
+
+        // with more whitespace
+        buf.clear();
+        let inp_1 = b"$var wire\t1\t!\nCLK $end";
+        let (cmd_1, body_1) = read_command(&mut inp_1.as_slice(), &mut buf).unwrap();
+        assert_eq!(cmd_1, VcdCmd::Var);
+        assert_eq!(std::str::from_utf8(body_1).unwrap(), "wire\t1\t!\nCLK");
+    }
+
+    #[test]
+    fn test_find_tokens() {
+        assert_eq!(
+            find_tokens(&b"wire  1    !   CLK".as_slice()),
+            [
+                b"wire".as_slice(),
+                b"1".as_slice(),
+                b"!".as_slice(),
+                b"CLK".as_slice()
+            ]
+        );
+        assert_eq!(
+            find_tokens(&b"wire\t1\t!\nCLK".as_slice()),
+            [
+                b"wire".as_slice(),
+                b"1".as_slice(),
+                b"!".as_slice(),
+                b"CLK".as_slice()
+            ]
+        );
+        assert_eq!(
+            find_tokens(&b"wire\t\t\t\t1   \t!\nCLK".as_slice()),
+            [
+                b"wire".as_slice(),
+                b"1".as_slice(),
+                b"!".as_slice(),
+                b"CLK".as_slice()
+            ]
+        );
+    }
     #[test]
     fn test_id_to_int() {
         assert_eq!(id_to_int(b""), None);
