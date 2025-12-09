@@ -265,13 +265,15 @@ fn diff_hierarchy_item(
                 ref_var.var_type.to_string(),
                 waveform_var_type_to_string(our_var.var_type())
             );
-            match our_var.length() {
-                None => {} // nothing to check
-                Some(size) => {
-                    if ref_var.size == 0 {
-                        assert_eq!(1, size)
-                    } else {
-                        assert_eq!(ref_var.size, size)
+            if !matches!(our_var.var_type(), VarType::Event) {
+                match our_var.length() {
+                    None => {} // nothing to check
+                    Some(size) => {
+                        if ref_var.size == 0 {
+                            assert_eq!(1, size)
+                        } else {
+                            assert_eq!(ref_var.size, size)
+                        }
                     }
                 }
             }
@@ -331,18 +333,21 @@ fn diff_signals<R: BufRead>(
             ::vcd::Command::ChangeScalar(id, value) => {
                 let signal_ref = id_map[&id];
                 let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
-                let our_value_str = our_value.to_bit_string().unwrap();
-                assert_eq!(
-                    our_value_str,
-                    value.to_string(),
-                    "{} ({:?}) = {} @ {} (idx: {}) ({})",
-                    id,
-                    signal_ref,
-                    value,
-                    current_time.unwrap_or(0),
-                    time_table_idx,
-                    our_value_str
-                );
+                // for events, the actual value does not matter
+                if !matches!(our_value, SignalValue::Event) {
+                    let our_value_str = our_value.to_bit_string().unwrap();
+                    assert_eq!(
+                        our_value_str,
+                        value.to_string(),
+                        "{} ({:?}) = {} @ {} (idx: {}) ({})",
+                        id,
+                        signal_ref,
+                        value,
+                        current_time.unwrap_or(0),
+                        time_table_idx,
+                        our_value_str
+                    );
+                }
             }
             ::vcd::Command::ChangeVector(id, value) => {
                 let signal_ref = id_map[&id];

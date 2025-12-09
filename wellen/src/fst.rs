@@ -163,7 +163,10 @@ impl SignalWriter {
         match value {
             FstSignalValue::String(value) => match self.tpe {
                 SignalEncoding::Event => {
-                    debug_assert!(value.is_empty(), "events should not carry any data!");
+                    debug_assert!(
+                        value.len() <= 1,
+                        "event changes carry no value, or a 1-bit value"
+                    );
                     // all we do is note the time of the event, there is no data to save
                     self.time_indices.push(time_idx);
                 }
@@ -660,6 +663,7 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                     | FstVarType::RealTime
                     | FstVarType::RealParameter
                     | FstVarType::ShortReal => SignalEncoding::Real,
+                    FstVarType::Event => SignalEncoding::Event,
                     _ => SignalEncoding::bit_vec_of_len(length),
                 };
                 h.add_array_scopes(scopes);

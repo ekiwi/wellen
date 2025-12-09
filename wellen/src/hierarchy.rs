@@ -731,14 +731,14 @@ impl Hierarchy {
         Some(scope)
     }
 
-    pub fn lookup_var<N: AsRef<str>>(&self, path: &[N], name: &N) -> Option<VarRef> {
+    pub fn lookup_var<N: AsRef<str>>(&self, path: &[N], name: N) -> Option<VarRef> {
         self.lookup_var_with_index(path, name, &None)
     }
 
     pub fn lookup_var_with_index<N: AsRef<str>>(
         &self,
         path: &[N],
-        name: &N,
+        name: N,
         index: &Option<VarIndex>,
     ) -> Option<VarRef> {
         match path {

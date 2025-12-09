@@ -250,7 +250,10 @@ where
             self.buf.clear();
             let signal_value = match tpe {
                 SignalEncoding::Event => {
-                    debug_assert!(value.is_empty(), "event changes should not carry a value");
+                    debug_assert!(
+                        value.len() <= 1,
+                        "event changes carry no value, or a 1-bit value"
+                    );
                     SignalValue::Event
                 }
                 &SignalEncoding::BitVector(len) => {

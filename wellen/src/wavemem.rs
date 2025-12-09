@@ -161,7 +161,7 @@ pub(crate) fn load_compressed_signal(
 
         match tpe {
             SignalEncoding::Event => {
-                todo!()
+                load_events(&mut data.as_ref(), time_idx_offset, &mut time_indices);
             }
             SignalEncoding::String => {
                 load_signal_strings(
@@ -232,6 +232,17 @@ pub(crate) struct SignalMetaData<'a> {
     pub(crate) max_states: States,
     /// For every block that contains the signal: time_idx_offset, data and meta-data
     pub(crate) blocks: Vec<(u32, &'a [u8], SignalEncodingMetaData)>,
+}
+
+/// Events do not have data, only leb128 encoded time idx deltas.
+#[inline]
+fn load_events(data: &mut impl Read, time_idx_offset: u32, time_indices: &mut Vec<TimeTableIdx>) {
+    let mut last_time_idx = time_idx_offset;
+    while let Ok(value) = leb128::read::unsigned(data) {
+        let time_idx_delta = value as u32;
+        last_time_idx += time_idx_delta;
+        time_indices.push(last_time_idx)
+    }
 }
 
 #[inline]
@@ -814,7 +825,10 @@ impl SignalEncoder {
         let time_idx_delta = time_index - self.prev_time_idx;
         match self.tpe {
             SignalEncoding::Event => {
-                debug_assert!(value.is_empty(), "event changes do not carry a value");
+                debug_assert!(
+                    value.len() <= 1,
+                    "event changes carry no value, or a 1-bit value"
+                );
                 // just write down the time idx delta
                 leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
             }
