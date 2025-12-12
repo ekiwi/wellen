@@ -433,7 +433,9 @@ fn read_hierarchy_inner(
             // we derive the signal type from the vcd var directly, the VHDL type should never factor in!
             let signal_tpe = match raw_vcd_var_tpe {
                 VarType::String => SignalEncoding::String,
-                VarType::Real | VarType::RealTime | VarType::ShortReal => SignalEncoding::Real,
+                VarType::Real | VarType::RealTime | VarType::ShortReal | VarType::RealParameter => {
+                    SignalEncoding::Real
+                }
                 VarType::Event => {
                     debug_assert!(
                         length == 0 || length == 1,
@@ -703,7 +705,7 @@ fn convert_var_tpe(tpe: &[u8]) -> Result<VarType> {
         b"string" => Ok(VarType::String),
         b"event" => Ok(VarType::Event),
         b"real" => Ok(VarType::Real),
-        b"real_parameter" => Ok(VarType::Parameter),
+        b"real_parameter" => Ok(VarType::RealParameter),
         b"supply0" => Ok(VarType::Supply0),
         b"supply1" => Ok(VarType::Supply1),
         b"time" => Ok(VarType::Time),

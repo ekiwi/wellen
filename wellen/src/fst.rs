@@ -422,7 +422,7 @@ fn convert_var_tpe(tpe: FstVarType) -> VarType {
         FstVarType::Integer => VarType::Integer,
         FstVarType::Parameter => VarType::Parameter,
         FstVarType::Real => VarType::Real,
-        FstVarType::RealParameter => VarType::Parameter,
+        FstVarType::RealParameter => VarType::RealParameter,
         FstVarType::Reg => VarType::Reg,
         FstVarType::Supply0 => VarType::Supply0,
         FstVarType::Supply1 => VarType::Supply1,

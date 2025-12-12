@@ -180,6 +180,7 @@ pub enum VarType {
     Port,
     SparseArray,
     RealTime,
+    RealParameter,
     // System Verilog
     Bit,
     Logic,
