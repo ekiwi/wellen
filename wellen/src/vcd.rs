@@ -727,7 +727,7 @@ fn convert_var_tpe(tpe: &[u8]) -> Result<VarType> {
         b"longint" => Ok(VarType::LongInt),
         b"byte" => Ok(VarType::Byte),
         b"enum" => Ok(VarType::Enum),
-        b"shortread" => Ok(VarType::ShortReal),
+        b"shortreal" => Ok(VarType::ShortReal),
         _ => Err(VcdParseError::VcdUnknownVarType(
             String::from_utf8_lossy(tpe).to_string(),
         )),
