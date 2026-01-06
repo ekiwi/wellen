@@ -1,9 +1,9 @@
 // Copyright 2024 The Regents of the University of California
-// Copyright 2024-2025 Cornell University
+// Copyright 2024-2026 Cornell University
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 //
-// test fst specific meta data
+// test ghw specific meta data
 
 use wellen::simple::*;
 use wellen::*;
@@ -265,4 +265,11 @@ fn test_issue_53_array_range_ordering() {
 
     // Check that they are the same
     assert_eq!(values, values2);
+}
+
+#[test]
+fn test_wellen_issue_84_ghdl_p32_type() {
+    let filename = "inputs/ghdl/wellen_issue_84/ghdl2.ghw";
+    let wave = read(filename).expect("failed to parse");
+    let _h = wave.hierarchy();
 }
