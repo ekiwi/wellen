@@ -6,6 +6,7 @@
 use crate::FileFormat;
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
+use std::fmt::{Display, Formatter};
 use std::num::{NonZeroI32, NonZeroU16, NonZeroU32};
 use std::ops::Index;
 
@@ -822,6 +823,104 @@ impl Index<HierarchyStringId> for Hierarchy {
 
     fn index(&self, index: HierarchyStringId) -> &Self::Output {
         &self.strings[index.index()]
+    }
+}
+
+const HIERARCHY_INDENT: &str = " ";
+
+impl Display for Hierarchy {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut todo: Vec<_> = self.items().map(Some).collect();
+        todo.reverse();
+        let mut prefix = "| ".to_string();
+
+        while let Some(entry) = todo.pop() {
+            if let Some(item) = entry {
+                write!(f, "{}", prefix)?;
+                match &item.deref(self) {
+                    ScopeOrVar::Scope(scope) => {
+                        fmt_scope(scope, self, f)?;
+                        writeln!(f)?;
+                        // push dedent and children to stack
+                        todo.push(None);
+                        let mut children: Vec<_> = scope.items(self).map(Some).collect();
+                        children.reverse();
+                        todo.append(&mut children);
+                        // indent
+                        prefix.pop().unwrap();
+                        prefix.pop().unwrap();
+                        prefix += HIERARCHY_INDENT;
+                        prefix.push('|');
+                        prefix.push(' ');
+                    }
+                    ScopeOrVar::Var(var) => {
+                        fmt_var(var, self, f)?;
+                        writeln!(f)?;
+                    }
+                }
+            } else {
+                // dedent
+                prefix.pop().unwrap();
+                prefix.pop().unwrap();
+                for _ in 0..HIERARCHY_INDENT.len() {
+                    prefix.pop().unwrap();
+                }
+                prefix.push('|');
+                prefix.push(' ');
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn fmt_scope(scope: &Scope, h: &Hierarchy, f: &mut Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{} ({:?}", scope.name(h), scope.tpe)?;
+    if let Some(cmp) = scope.component(h) {
+        write!(f, ", {cmp}")?;
+    }
+    write!(f, ")")
+}
+
+fn fmt_var(var: &Var, h: &Hierarchy, f: &mut Formatter<'_>) -> std::fmt::Result {
+    let dir_str = dir_to_str(var.direction());
+    if !dir_str.is_empty() {
+        write!(f, "{dir_str} ")?;
+    }
+    write!(f, "{} ", var.name(h))?;
+    if let Some(index) = var.index() {
+        if index.length() == 1 {
+            debug_assert_eq!(index.lsb(), index.msb());
+            write!(f, "[{}] ", index.msb())?;
+        } else {
+            write!(f, "[{}:{}] ", index.msb(), index.lsb())?;
+        }
+    }
+    write!(f, "({:?}", var.var_type())?;
+    if let Some(tpe) = var.vhdl_type_name(h) {
+        write!(f, ", {tpe}")?;
+    }
+    if let Some((name, encoding)) = var.enum_type(h) {
+        write!(f, ", {name}: ")?;
+        for (ii, (key, value)) in encoding.iter().enumerate() {
+            if ii > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{key}->{value}")?;
+        }
+    }
+    write!(f, ")")
+}
+
+fn dir_to_str(dir: VarDirection) -> &'static str {
+    match dir {
+        VarDirection::Unknown => "",
+        VarDirection::Implicit => "",
+        VarDirection::Input => "I",
+        VarDirection::Output => "O",
+        VarDirection::InOut => "IO",
+        VarDirection::Buffer => "",
+        VarDirection::Linkage => "",
     }
 }
 
