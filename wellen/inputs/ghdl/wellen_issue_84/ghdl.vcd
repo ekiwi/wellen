@@ -1,0 +1,94 @@
+$date
+  Sat Jan  3 12:24:42 2026
+$end
+$version
+  GHDL v0
+$end
+$timescale
+  1 fs
+$end
+$scope module standard $end
+$upscope $end
+$scope module std_logic_1164 $end
+$upscope $end
+$scope module numeric_std $end
+$upscope $end
+$scope module std_logic_arith $end
+$upscope $end
+$scope module std_logic_unsigned $end
+$upscope $end
+$scope module comprehensive_tb $end
+$var reg 1 ! sl_signal $end
+$var reg 8 " slv_signal[7:0] $end
+$var reg 1 # bool_signal $end
+$var integer 32 $ int_signal $end
+$var integer 32 % nat_signal $end
+$var integer 32 & pos_signal $end
+$var real 64 ' real_signal $end
+$comment char_signal is not handled $end
+$comment time_signal is not handled $end
+$var reg 8 ( signed_signal[7:0] $end
+$var reg 8 ) unsigned_signal[7:0] $end
+$var reg 1 * bit_signal $end
+$var reg 4 + bitvec_signal[3:0] $end
+$comment state_signal is not handled $end
+$comment array_signal is not handled $end
+$comment record_signal is not handled $end
+$upscope $end
+$enddefinitions $end
+#0
+0!
+b00000000 "
+0#
+b0 $
+b0 %
+b1 &
+r0.0 '
+b00000000 (
+b00000000 )
+0*
+b0000 +
+#50000000
+#100000000
+1!
+b10101010 "
+1#
+b101010 $
+b1100100 %
+b111 &
+r3.14159 '
+#150000000
+#200000000
+b11100111 (
+b11001000 )
+1*
+b1010 +
+#250000000
+#300000000
+b11110000 "
+#350000000
+#400000000
+#450000000
+#500000000
+b11111111111111111111111110000000 $
+#550000000
+#600000000
+b11111111111111111111111100000000 $
+r6.28318 '
+b11110001 (
+b10010110 )
+#650000000
+#700000000
+b00001111 "
+0#
+#750000000
+#800000000
+b11110000 "
+b11000100 (
+b01001011 )
+#850000000
+#900000000
+b11111111 "
+#950000000
+#1000000000
+#1050000000

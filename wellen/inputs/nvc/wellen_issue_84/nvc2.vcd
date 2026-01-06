@@ -1,0 +1,186 @@
+$date
+	Sat Jan  3 12:51:53 2026
+
+$end
+$version
+	nvc 1.13-devel
+$end
+$timescale
+	1fs
+$end
+$attrbegin misc 03 /home/oscar/vhdltypes/manytypes2.vhdl 1 $end
+$attrbegin misc 04 1 9 $end
+$scope vhdl_architecture comprehensive2_tb $end
+$attrbegin misc 02 STD_LOGIC 1030 $end
+$var logic 1 ! sl_signal $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 8 " slv_signal[7:0] $end
+$attrbegin misc 02 BOOLEAN 1025 $end
+$var string 0 # bool_signal $end
+$attrbegin misc 02 INTEGER 1034 $end
+$var integer 32 $ int_signal $end
+$attrbegin misc 02 NATURAL 1036 $end
+$var integer 32 % nat_signal $end
+$attrbegin misc 02 POSITIVE 1037 $end
+$var integer 32 & pos_signal $end
+$attrbegin misc 02 REAL 1035 $end
+$var real 64 ' real_signal $end
+$attrbegin misc 02 CHARACTER 1039 $end
+$var string 0 ( char_signal $end
+$attrbegin misc 02 TIME 1024 $end
+$var string 0 ) time_signal $end
+$attrbegin misc 02 SIGNED 1028 $end
+$var logic 8 * signed_signal[7:0] $end
+$attrbegin misc 02 UNSIGNED 1028 $end
+$var logic 8 + unsigned_signal[7:0] $end
+$attrbegin misc 02 BIT 1026 $end
+$var logic 1 , bit_signal $end
+$attrbegin misc 02 BIT_VECTOR 1026 $end
+$var logic 4 - bitvec_signal[3:0] $end
+$attrbegin misc 02 STATE_TYPE 1024 $end
+$var string 0 . state_signal $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 8 / array_signal[0][7:0] $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 8 0 array_signal[1][7:0] $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 8 1 array_signal[2][7:0] $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 8 2 array_signal[3][7:0] $end
+$attrend $end
+$scope vhdl_record record_signal $end
+$attrbegin misc 02 STD_LOGIC 1030 $end
+$var logic 1 3 valid $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 16 4 data[15:0] $end
+$attrbegin misc 02 INTEGER 1034 $end
+$var integer 32 5 count $end
+$upscope $end
+$scope vhdl_record rec_array_signal[0] $end
+$attrbegin misc 02 STD_LOGIC 1030 $end
+$var logic 1 6 valid $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 16 7 data[15:0] $end
+$attrbegin misc 02 INTEGER 1034 $end
+$var integer 32 8 count $end
+$upscope $end
+$scope vhdl_record rec_array_signal[1] $end
+$attrbegin misc 02 STD_LOGIC 1030 $end
+$var logic 1 9 valid $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 16 : data[15:0] $end
+$attrbegin misc 02 INTEGER 1034 $end
+$var integer 32 ; count $end
+$upscope $end
+$scope vhdl_record rec_array_signal[2] $end
+$attrbegin misc 02 STD_LOGIC 1030 $end
+$var logic 1 < valid $end
+$attrbegin misc 02 STD_LOGIC_VECTOR 1029 $end
+$var logic 16 = data[15:0] $end
+$attrbegin misc 02 INTEGER 1034 $end
+$var integer 32 > count $end
+$upscope $end
+$attrbegin misc 02 VOLTAGE 1024 $end
+$var string 0 ? voltage_signal $end
+$attrbegin misc 02 STRING 1040 $end
+$var string 0 @ string_signal[1:10] $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+sINIT_STATE @
+s0\040V ?
+b00000000000000000000000000000000 >
+b0000000000000000 =
+0<
+b00000000000000000000000000000000 ;
+b0000000000000000 :
+09
+b00000000000000000000000000000000 8
+b0000000000000000 7
+06
+b00000000000000000000000000000000 5
+b0000000000000000 4
+03
+b00000000 2
+b00000000 1
+b00000000 0
+b00000000 /
+sidle .
+b0000 -
+0,
+b00000000 +
+b00000000 *
+s0\040HR )
+s\'a\' (
+r0 '
+b00000000000000000000000000000001 &
+b00000000000000000000000000000000 %
+b00000000000000000000000000000000 $
+sfalse #
+b00000000 "
+0!
+$end
+#100000000
+1!
+b10101010 "
+strue #
+b00000000000000000000000000101010 $
+b00000000000000000000000001100100 %
+b00000000000000000000000000000111 &
+r3.14159 '
+s\'z\' (
+s50\040NS )
+#200000000
+b11100111 *
+b11001000 +
+1,
+b1010 -
+#300000000
+b11110000 "
+srunning .
+#400000000
+spaused .
+b00001111 /
+b11110000 0
+b10101010 1
+b01010101 2
+#500000000
+b11111111111111111111111110000000 $
+13
+b1100101011111110 4
+b00000000000000000000000011111111 5
+s300\040MV ?
+sRUNNING_OK @
+#600000000
+b11111111111111111111111100000000 $
+b10010110 +
+b11110001 *
+r6.28318 '
+16
+b0001001000110100 7
+b00000000000000000000000000001010 8
+19
+b0101011001111000 :
+b00000000000000000000000000010100 ;
+b1010101111001101 =
+b00000000000000000000000000011110 >
+#700000000
+sSTOPPED\040\040\040 @
+s2\040V ?
+sstopped .
+b00001111 "
+sfalse #
+#800000000
+b11110000 "
+s1\040V ?
+b00000000000000000000000000011001 ;
+b11000100 *
+b01001011 +
+#900000000
+b11111111 "
+sidle .
+sCOMPLETED! @
+b00000000000000000000000100000000 5
+03
+#1050000000
