@@ -262,3 +262,9 @@ fn test_nvc_issue_77() {
         signal_trace
     );
 }
+
+#[test]
+fn test_wellen_issue_84_nvc_todos() {
+    let waves = read("inputs/nvc/wellen_issue_84/nvc.fst").unwrap();
+    let _h = waves.hierarchy();
+}
