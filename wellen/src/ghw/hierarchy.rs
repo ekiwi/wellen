@@ -369,12 +369,19 @@ fn read_type_section(
             GhwRtik::TypeI32 => VhdlType::I32(name, None),
             GhwRtik::TypeI64 => VhdlType::I64(name, None),
             GhwRtik::TypeF64 => VhdlType::F64(name, None),
+            GhwRtik::TypeP32 => {
+                let units = match header.version {
+                    0 => vec![],
+                    _ => read_unit_vec(input)?,
+                };
+                VhdlType::Physical(name, None, units)
+            }
             GhwRtik::TypeP64 => {
                 let units = match header.version {
                     0 => vec![],
                     _ => read_unit_vec(input)?,
                 };
-                VhdlType::P64(name, None, units)
+                VhdlType::Physical(name, None, units)
             }
             GhwRtik::SubtypeScalar => {
                 let base = read_type_id(input)?;
@@ -529,7 +536,7 @@ enum VhdlType {
     /// Float type with possible upper and lower bounds.
     F64(StringId, Option<FloatRange>),
     /// Physical unit type, with upper and lower bounds.
-    P64(StringId, Option<IntRange>, Vec<(StringId, i64)>),
+    Physical(StringId, Option<IntRange>, Vec<(StringId, i64)>),
     /// Record with fields.
     Record(StringId, Vec<(StringId, TypeId)>),
     /// An enum that was not detected to be a 9-value bit. The last entry is a unique ID, starting at 0.
@@ -680,13 +687,13 @@ impl VhdlType {
                     todo!("actual sub enum!")
                 }
             }
-            (VhdlType::P64(_, maybe_base_range, units), Range::Int(int_range)) => {
+            (VhdlType::Physical(_, maybe_base_range, units), Range::Int(int_range)) => {
                 let base_range = IntRange::from_i64_option(*maybe_base_range);
                 debug_assert!(
                     int_range.is_subset_of(&base_range),
                     "{int_range:?} {base_range:?}"
                 );
-                VhdlType::P64(name, Some(int_range), units.clone())
+                VhdlType::Physical(name, Some(int_range), units.clone())
             }
             (VhdlType::I32(_, maybe_base_range), Range::Int(int_range)) => {
                 let base_range = IntRange::from_i32_option(*maybe_base_range);
@@ -718,7 +725,7 @@ impl VhdlType {
             VhdlType::I32(name, _) => *name,
             VhdlType::I64(name, _) => *name,
             VhdlType::F64(name, _) => *name,
-            VhdlType::P64(name, _, _) => *name,
+            VhdlType::Physical(name, _, _) => *name,
             VhdlType::Record(name, _) => *name,
             VhdlType::Enum(name, _, _) => *name,
             VhdlType::Array(name, _, _) => *name,
@@ -731,7 +738,7 @@ impl VhdlType {
             VhdlType::NineValueBit(_) => Some(IntRange(RangeDir::To, 0, 8)),
             VhdlType::I32(_, range) => *range,
             VhdlType::I64(_, range) => *range,
-            VhdlType::P64(_, range, _) => *range,
+            VhdlType::Physical(_, range, _) => *range,
             VhdlType::Enum(_, lits, _) => Some(IntRange(RangeDir::To, 0, lits.len() as i64)),
             VhdlType::NineValueVec(_, range) => *range,
             VhdlType::BitVec(_, range) => *range,
@@ -769,8 +776,8 @@ impl VhdlType {
             VhdlType::I64(_, Some(_)) => true,
             VhdlType::F64(_, None) => false,
             VhdlType::F64(_, Some(_)) => true,
-            VhdlType::P64(_, None, _) => false,
-            VhdlType::P64(_, Some(_), _) => true,
+            VhdlType::Physical(_, None, _) => false,
+            VhdlType::Physical(_, Some(_), _) => true,
             VhdlType::Record(_, fields) => fields.iter().all(|&(_, f)| Self::is_finite(f, types)),
             VhdlType::Enum(_, _, _) => true,
             VhdlType::Array(_, _, None) => false,
@@ -1321,7 +1328,7 @@ fn add_var(
                 Some(tpe_name),
             );
         }
-        VhdlType::P64(_, maybe_range, _) => {
+        VhdlType::Physical(_, maybe_range, _) => {
             // Tentatively treat them as normal integers
             let _range = IntRange::from_i64_option(*maybe_range);
             let bits = 64;
