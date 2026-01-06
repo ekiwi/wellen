@@ -76,8 +76,15 @@ fn diff_hierarchy_item(
                     assert!(
                         g.var_type() == VarType::StdULogic || g.var_type() == VarType::StdLogic
                     );
+                } else if f.var_type() == VarType::Logic {
+                    // GHDL sometimes just provides "Logic" instead of StdLogic
+                    assert!(
+                        g.var_type() == VarType::StdULogic
+                            || g.var_type() == VarType::StdLogic
+                            || g.var_type() == VarType::Logic
+                    );
                 } else {
-                    assert_eq!(g.var_type(), f.var_type(), "{}", g.full_name(ghw));
+                    assert_eq!(g.var_type(), f.var_type(), "signal: {}", g.full_name(ghw));
                 }
                 assert_eq!(g.length(), f.length());
             }
@@ -120,4 +127,13 @@ fn as_fs(timescale: Timescale) -> u64 {
 #[test]
 fn diff_ghdl_oscar_test() {
     run_diff_test("inputs/ghdl/oscar/test.ghw", "inputs/ghdl/oscar/vhdl3.fst");
+}
+
+#[ignore] // TODO: does it actually make sense to try and diff FST and GHW? GHDL excludes some info from FST.
+#[test]
+fn diff_ghdl_wellen_issue_84_ghdl_2() {
+    run_diff_test(
+        "inputs/ghdl/wellen_issue_84/ghdl2.ghw",
+        "inputs/ghdl/wellen_issue_84/ghdl2.fst",
+    );
 }
