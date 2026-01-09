@@ -292,7 +292,7 @@ impl VecBuffer {
 
     fn process_changed_signals(&mut self, mut callback: impl FnMut(SignalRef, &[u8], States)) {
         let change_list = std::mem::take(&mut self.change_list);
-        for vec_id in change_list.into_iter() {
+        for vec_id in change_list {
             if self.has_signal_changed(vec_id) {
                 let states = self.info[vec_id.index()].states;
                 let signal_ref = self.info[vec_id.index()].signal_ref;

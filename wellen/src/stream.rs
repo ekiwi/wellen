@@ -157,7 +157,7 @@ where
             Some(signals) => {
                 let max_index = signals.iter().map(|r| r.index()).max().unwrap();
                 let mut enc = vec![None; max_index + 1];
-                for &signal in signals.iter() {
+                for &signal in signals {
                     enc[signal.index()] = hierarchy.get_signal_tpe(signal);
                 }
                 enc

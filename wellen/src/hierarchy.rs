@@ -688,7 +688,7 @@ impl Hierarchy {
     /// The value will be None if there is no var pointing to the given handle.
     pub fn get_unique_signals_vars(&self) -> Vec<Option<Var>> {
         let mut out = Vec::with_capacity(self.signal_idx_to_var.len());
-        for maybe_var_id in self.signal_idx_to_var.iter() {
+        for maybe_var_id in &self.signal_idx_to_var {
             if let Some(var_id) = maybe_var_id {
                 out.push(Some((self[*var_id]).clone()));
             } else {

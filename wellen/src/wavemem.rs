@@ -98,7 +98,7 @@ impl Reader {
         let mut time_idx_offset = 0;
         let mut block_meta_data = Vec::with_capacity(self.blocks.len());
         let mut prev_end_time = None;
-        for block in self.blocks.iter() {
+        for block in &self.blocks {
             // adjust time index offset to take overlapping blocks into account
             let end_time = *block.time_table.last().unwrap();
             debug_assert_eq!(*block.time_table.first().unwrap(), block.start_time);
@@ -150,7 +150,7 @@ pub(crate) fn load_compressed_signal(
     let mut time_indices: Vec<TimeTableIdx> = Vec::new();
     let mut data_bytes: Vec<u8> = Vec::new();
     let mut strings: Vec<String> = Vec::new();
-    for (time_idx_offset, data_block, meta_data) in meta.blocks.into_iter() {
+    for (time_idx_offset, data_block, meta_data) in meta.blocks {
         let data = match meta_data.compression {
             Compression::Lz4(uncompressed_len) => {
                 let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
@@ -572,7 +572,7 @@ impl Encoder {
         let max_len = blocks.iter().map(|b| b.time_table.len()).sum::<usize>();
         let mut table = Vec::with_capacity(max_len);
         let mut prev_end_time = None;
-        for block in blocks.iter() {
+        for block in blocks {
             if let Some(prev_end_time) = prev_end_time {
                 let start_time = block.time_table[0];
                 debug_assert!(prev_end_time <= start_time);
@@ -628,7 +628,7 @@ impl Encoder {
         let signal_count = self.signals.len();
         let mut offsets = Vec::with_capacity(signal_count);
         let mut data: Vec<u8> = Vec::with_capacity(128);
-        for signal in self.signals.iter_mut() {
+        for signal in &mut self.signals {
             if let Some((mut signal_data, is_compressed)) = signal.finish() {
                 let offset = SignalDataOffset::new(data.len());
                 offsets.push(Some(offset));
@@ -1021,7 +1021,7 @@ fn check_min_state(value: &[u8], states: States) -> States {
     }
 
     let mut union = 0;
-    for v in value.iter() {
+    for v in value {
         for ii in 0..states.bits_in_a_byte() {
             union |= ((*v) >> (ii * states.bits())) & states.mask();
         }
@@ -1074,7 +1074,7 @@ fn compress_template(
 #[inline]
 pub fn check_states(value: &[u8]) -> Option<States> {
     let mut union = 0;
-    for cc in value.iter() {
+    for cc in value {
         union |= bit_char_to_num(*cc)?;
     }
     Some(States::from_value(union))

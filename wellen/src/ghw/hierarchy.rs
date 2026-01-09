@@ -152,7 +152,7 @@ pub fn read_hierarchy(
 
                 // we should have already inferred the correct well know types, so we just check
                 // that we did so correctly
-                for (type_id, wkt) in wkts.into_iter() {
+                for (type_id, wkt) in wkts {
                     let tpe = &tables.types[type_id.index()];
                     match wkt {
                         GhwWellKnownType::Unknown => {} // does not matter
@@ -207,7 +207,7 @@ fn add_enums_to_wellen_hierarchy(
 ) -> Result<Vec<EnumTypeId>> {
     let mut string_cache: FxHashMap<(u16, u16), HierarchyStringId> = FxHashMap::default();
     let mut out = Vec::new();
-    for tpe in tables.types.iter() {
+    for tpe in &tables.types {
         if let VhdlType::Enum(name, lits, enum_id) = tpe {
             let bits = get_enum_bits(lits) as u16;
             let literals: Vec<_> = lits
@@ -941,7 +941,7 @@ fn read_hierarchy_section(
     }
 
     let (decode_info, aliases) = signal_info.into_decode_info();
-    for alias in aliases.into_iter() {
+    for alias in aliases {
         h.add_slice(alias.signal_ref, alias.msb, alias.lsb, alias.sliced_signal);
     }
 
@@ -1404,7 +1404,7 @@ fn add_var(
         }
         VhdlType::Record(_, fields) => {
             h.add_scope(name, None, ScopeType::VhdlRecord, None, None, false);
-            for (field_name, field_type) in fields.iter() {
+            for (field_name, field_type) in fields {
                 add_var(
                     tables,
                     input,
