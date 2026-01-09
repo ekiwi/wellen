@@ -88,7 +88,7 @@ pub fn try_read_directory(
         } else {
             // note: the "tailer" section does not contain the normal 4 zeros
             let directory_offset = header.read_u32(&mut &tailer[8..12])?;
-            input.seek(SeekFrom::Start(directory_offset as u64))?;
+            input.seek(SeekFrom::Start(u64::from(directory_offset)))?;
 
             // check directory marker
             let mut mark = [0u8; 4];
@@ -306,7 +306,7 @@ fn read_range(input: &mut impl BufRead) -> Result<Range> {
         GhwRtik::TypeE8 | GhwRtik::TypeB2 => {
             let mut buf = [0u8; 2];
             input.read_exact(&mut buf)?;
-            Range::Int(IntRange(dir, buf[0] as i64, buf[1] as i64))
+            Range::Int(IntRange(dir, i64::from(buf[0]), i64::from(buf[1])))
         }
         GhwRtik::TypeI32 | GhwRtik::TypeP32 | GhwRtik::TypeI64 | GhwRtik::TypeP64 => {
             let left = leb128::read::signed(input)?;
@@ -1536,7 +1536,7 @@ impl IntRange {
     }
 
     fn from_i32_option(opt: Option<Self>) -> Self {
-        opt.unwrap_or(Self(RangeDir::To, i32::MIN as i64, i32::MAX as i64))
+        opt.unwrap_or(Self(RangeDir::To, i64::from(i32::MIN), i64::from(i32::MAX)))
     }
 
     fn start(&self) -> i64 {

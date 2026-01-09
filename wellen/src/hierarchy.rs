@@ -241,7 +241,7 @@ impl VarIndex {
         if self.width == DEFAULT_ZERO_REPLACEMENT {
             self.lsb()
         } else {
-            self.width.get() as i64 + self.lsb()
+            i64::from(self.width.get()) + self.lsb()
         }
     }
 

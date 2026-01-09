@@ -521,7 +521,7 @@ fn extract_suffix_index(value: &[u8]) -> (&[u8], Option<VarIndex>) {
             }
             St::ParsingLsb(end, num, factor) => {
                 if cc.is_ascii_digit() {
-                    let digit = (*cc - b'0') as i64;
+                    let digit = i64::from(*cc - b'0');
                     St::ParsingLsb(end, num + digit * factor, factor * 10)
                 } else if *cc == b'-' {
                     St::ParsingLsb(end, -num, factor)
@@ -536,7 +536,7 @@ fn extract_suffix_index(value: &[u8]) -> (&[u8], Option<VarIndex>) {
             }
             St::ParsingMsb(end, lsb, num, factor) => {
                 if cc.is_ascii_digit() {
-                    let digit = (*cc - b'0') as i64;
+                    let digit = i64::from(*cc - b'0');
                     St::ParsingMsb(end, lsb, num + digit * factor, factor * 10)
                 } else if *cc == b'-' {
                     St::ParsingMsb(end, lsb, -num, factor)
@@ -748,7 +748,7 @@ fn id_to_int(id: &[u8]) -> Option<u64> {
         if !(ID_CHAR_MIN..=ID_CHAR_MAX).contains(&i) {
             return None;
         }
-        let c = ((i - ID_CHAR_MIN) as u64) + 1;
+        let c = u64::from(i - ID_CHAR_MIN) + 1;
         result = result
             .checked_mul(NUM_ID_CHARS)
             .and_then(|x| x.checked_add(c))?;
