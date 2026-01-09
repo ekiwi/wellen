@@ -169,7 +169,7 @@ impl HeaderData {
         if ii >= 0 {
             Ok(ii as u32)
         } else {
-            Err(GhwParseError::ExpectedPositiveInteger(ii as i64))
+            Err(GhwParseError::ExpectedPositiveInteger(i64::from(ii)))
         }
     }
 
@@ -194,7 +194,7 @@ pub struct GhwSignalInfo {
 
 impl GhwSignalInfo {
     pub fn new(tpe: SignalType, signal_ref: SignalRef, vector: Option<usize>) -> Self {
-        let raw_tpe = ((tpe as u8) as u32) + 1;
+        let raw_tpe = u32::from(tpe as u8) + 1;
         debug_assert_eq!(raw_tpe & 0x7, raw_tpe);
         let tpe_and_vec = if let Some(vector) = vector {
             let raw_vector_id = (vector as u32) + 1;
@@ -260,7 +260,7 @@ impl GhwVecId {
         Self(NonZeroU32::new(pos_id as u32).unwrap())
     }
 
-    pub fn index(&self) -> usize {
+    pub fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
@@ -270,7 +270,7 @@ pub struct GhwSignalId(NonZeroU32);
 
 impl GhwSignalId {
     #[inline]
-    pub fn index(&self) -> usize {
+    pub fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
     pub fn new(pos_id: u32) -> Self {

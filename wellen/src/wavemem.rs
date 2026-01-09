@@ -98,14 +98,14 @@ impl Reader {
         let mut time_idx_offset = 0;
         let mut block_meta_data = Vec::with_capacity(self.blocks.len());
         let mut prev_end_time = None;
-        for block in self.blocks.iter() {
+        for block in &self.blocks {
             // adjust time index offset to take overlapping blocks into account
             let end_time = *block.time_table.last().unwrap();
             debug_assert_eq!(*block.time_table.first().unwrap(), block.start_time);
-            if let Some(prev_end_time) = prev_end_time {
-                if block.start_time == prev_end_time {
-                    time_idx_offset -= 1;
-                }
+            if let Some(prev_end_time) = prev_end_time
+                && block.start_time == prev_end_time
+            {
+                time_idx_offset -= 1;
             }
             prev_end_time = Some(end_time);
 
@@ -150,7 +150,7 @@ pub(crate) fn load_compressed_signal(
     let mut time_indices: Vec<TimeTableIdx> = Vec::new();
     let mut data_bytes: Vec<u8> = Vec::new();
     let mut strings: Vec<String> = Vec::new();
-    for (time_idx_offset, data_block, meta_data) in meta.blocks.into_iter() {
+    for (time_idx_offset, data_block, meta_data) in meta.blocks {
         let data = match meta_data.compression {
             Compression::Lz4(uncompressed_len) => {
                 let data = lz4_flex::decompress(data_block, uncompressed_len).unwrap();
@@ -390,7 +390,7 @@ fn load_signal_strings(
         let str_value = String::from_utf8_lossy(&buf).to_string();
 
         // check to see if the value actually changed
-        let changed = out.last().map(|prev| prev != &str_value).unwrap_or(true);
+        let changed = out.last() != Some(&str_value);
         if changed {
             out.push(str_value);
             time_indices.push(last_time_idx);
@@ -434,8 +434,7 @@ impl Block {
             .iter()
             .skip(id.index() + 1)
             .find(|o| o.is_some())
-            .map(|o| o.unwrap().get_index())
-            .unwrap_or(self.data.len());
+            .map_or(self.data.len(), |o| o.unwrap().get_index());
         Some((offset, next_offset - offset))
     }
 }
@@ -448,7 +447,7 @@ impl SignalDataOffset {
     fn new(index: usize) -> Self {
         SignalDataOffset(NonZeroU32::new((index as u32) + 1).unwrap())
     }
-    fn get_index(&self) -> usize {
+    fn get_index(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
@@ -573,7 +572,7 @@ impl Encoder {
         let max_len = blocks.iter().map(|b| b.time_table.len()).sum::<usize>();
         let mut table = Vec::with_capacity(max_len);
         let mut prev_end_time = None;
-        for block in blocks.iter() {
+        for block in blocks {
             if let Some(prev_end_time) = prev_end_time {
                 let start_time = block.time_table[0];
                 debug_assert!(prev_end_time <= start_time);
@@ -629,7 +628,7 @@ impl Encoder {
         let signal_count = self.signals.len();
         let mut offsets = Vec::with_capacity(signal_count);
         let mut data: Vec<u8> = Vec::with_capacity(128);
-        for signal in self.signals.iter_mut() {
+        for signal in &mut self.signals {
             if let Some((mut signal_data, is_compressed)) = signal.finish() {
                 let offset = SignalDataOffset::new(data.len());
                 offsets.push(Some(offset));
@@ -693,7 +692,7 @@ impl SignalEncodingMetaData {
         let max_states = States::try_from_primitive((data & 3) as u8).unwrap();
         let is_compressed = (data >> 2) & 1 == 1;
         let compression = if is_compressed {
-            let decompressed_len_bits = ((data >> 3) & u32::MAX as u64) as u32;
+            let decompressed_len_bits = ((data >> 3) & u64::from(u32::MAX)) as u32;
             let decompressed_len = decompressed_len_bits * SIGNAL_DECOMPRESSED_LEN_DIV;
             Compression::Lz4(decompressed_len as usize)
         } else {
@@ -710,7 +709,7 @@ impl SignalEncodingMetaData {
                 let decompressed_len_bits =
                     ((*decompressed_len) as u32).div_ceil(SIGNAL_DECOMPRESSED_LEN_DIV);
 
-                ((decompressed_len_bits as u64) << 3) | (1 << 2) | (self.max_states as u64)
+                (u64::from(decompressed_len_bits) << 3) | (1 << 2) | (self.max_states as u64)
             }
             Compression::None => self.max_states as u64,
         }
@@ -758,7 +757,7 @@ impl SignalEncoder {
                     debug_assert_eq!(value.len(), 1);
                     let value = value[0];
                     debug_assert_eq!(value & 0xf, value, "leading bits are not zero: {value:x}");
-                    let write_value = ((time_idx_delta as u64) << 4) + value as u64;
+                    let write_value = (u64::from(time_idx_delta) << 4) + u64::from(value);
                     leb128::write::unsigned(&mut self.data, write_value).unwrap();
                 } else {
                     // sometimes we might include some leading zeros that are not necessary
@@ -769,7 +768,7 @@ impl SignalEncoder {
                     // we automatically compress the signal to its minimum states encoding
                     let min_states = check_min_state(value, states);
                     // write time and meta data
-                    let time_and_meta = (time_idx_delta as u64) << 2 | (min_states as u64);
+                    let time_and_meta = u64::from(time_idx_delta) << 2 | (min_states as u64);
                     leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
                     let data_start_index = self.data.len();
                     if min_states == states {
@@ -801,7 +800,7 @@ impl SignalEncoder {
         let time_idx_delta = time_index - self.prev_time_idx;
 
         // write var-length time index + fixed little endian float bytes
-        leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
+        leb128::write::unsigned(&mut self.data, u64::from(time_idx_delta)).unwrap();
         self.data.extend_from_slice(&value.to_le_bytes());
 
         // update time index to calculate next delta
@@ -812,7 +811,7 @@ impl SignalEncoder {
         let time_idx_delta = time_index - self.prev_time_idx;
 
         // string: var-length time index + var-len length + content
-        leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
+        leb128::write::unsigned(&mut self.data, u64::from(time_idx_delta)).unwrap();
         leb128::write::unsigned(&mut self.data, value.len() as u64).unwrap();
         self.data.extend_from_slice(value.as_bytes());
 
@@ -830,7 +829,7 @@ impl SignalEncoder {
                     "event changes carry no value, or a 1-bit value"
                 );
                 // just write down the time idx delta
-                leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
+                leb128::write::unsigned(&mut self.data, u64::from(time_idx_delta)).unwrap();
             }
             SignalEncoding::BitVector(len) => {
                 let (data, states) = decode_vcd_bit_vec_change(len, value);
@@ -838,12 +837,12 @@ impl SignalEncoder {
 
                 match data {
                     VcdBitVecChange::SingleBit(bit_value) => {
-                        let write_value = ((time_idx_delta as u64) << 4) + bit_value as u64;
+                        let write_value = (u64::from(time_idx_delta) << 4) + u64::from(bit_value);
                         leb128::write::unsigned(&mut self.data, write_value).unwrap();
                     }
                     VcdBitVecChange::MultiBit(data_to_write) => {
                         // write time delta + num-states meta-data
-                        let time_and_meta = (time_idx_delta as u64) << 2 | (states as u64);
+                        let time_and_meta = u64::from(time_idx_delta) << 2 | (states as u64);
                         leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
                         write_n_state(states, &data_to_write, &mut self.data, None);
                     }
@@ -856,7 +855,7 @@ impl SignalEncoder {
                     String::from_utf8_lossy(value)
                 );
                 // string: var-length time index + var-len length + content
-                leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
+                leb128::write::unsigned(&mut self.data, u64::from(time_idx_delta)).unwrap();
                 leb128::write::unsigned(&mut self.data, (value.len() - 1) as u64).unwrap();
                 self.data.extend_from_slice(&value[1..]);
             }
@@ -872,7 +871,7 @@ impl SignalEncoder {
                     .parse::<Real>()
                     .unwrap();
                 // write var-length time index + fixed little endian float bytes
-                leb128::write::unsigned(&mut self.data, time_idx_delta as u64).unwrap();
+                leb128::write::unsigned(&mut self.data, u64::from(time_idx_delta)).unwrap();
                 self.data.extend_from_slice(&float_value.to_le_bytes());
             }
         }
@@ -962,7 +961,7 @@ impl States {
     }
     /// Returns how many bits are needed in order to encode one bit of state.
     #[inline]
-    pub fn bits(&self) -> usize {
+    pub fn bits(self) -> usize {
         match self {
             States::Two => 1,
             States::Four => 2,
@@ -971,7 +970,7 @@ impl States {
     }
 
     #[inline]
-    pub fn mask(&self) -> u8 {
+    pub fn mask(self) -> u8 {
         match self {
             States::Two => 0x1,
             States::Four => 0x3,
@@ -981,26 +980,26 @@ impl States {
 
     /// Returns how many signal bits can be encoded in a u8.
     #[inline]
-    pub fn bits_in_a_byte(&self) -> usize {
+    pub fn bits_in_a_byte(self) -> usize {
         8 / self.bits()
     }
 
     /// Returns how many bits the first byte would contain.
     #[inline]
-    fn bits_in_first_byte(&self, bits: u32) -> u32 {
+    fn bits_in_first_byte(self, bits: u32) -> u32 {
         (bits * self.bits() as u32) % u8::BITS
     }
 
     /// Creates a mask that will only leave the relevant bits in the first byte.
     #[inline]
-    pub(crate) fn first_byte_mask(&self, bits: u32) -> u8 {
+    pub(crate) fn first_byte_mask(self, bits: u32) -> u8 {
         let n = self.bits_in_first_byte(bits);
         if n > 0 { (1u8 << n) - 1 } else { u8::MAX }
     }
 
     /// Returns how many bytes are required to store bits.
     #[inline]
-    pub fn bytes_required(&self, bits: usize) -> usize {
+    pub fn bytes_required(self, bits: usize) -> usize {
         // (bits as usize).div_ceil(self.bits_in_a_byte())
         match self {
             States::Two => (bits + 7) >> 3,
@@ -1022,7 +1021,7 @@ fn check_min_state(value: &[u8], states: States) -> States {
     }
 
     let mut union = 0;
-    for v in value.iter() {
+    for v in value {
         for ii in 0..states.bits_in_a_byte() {
             union |= ((*v) >> (ii * states.bits())) & states.mask();
         }
@@ -1075,7 +1074,7 @@ fn compress_template(
 #[inline]
 pub fn check_states(value: &[u8]) -> Option<States> {
     let mut union = 0;
-    for cc in value.iter() {
+    for cc in value {
         union |= bit_char_to_num(*cc)?;
     }
     Some(States::from_value(union))
@@ -1113,7 +1112,7 @@ pub fn write_n_state(states: States, value: &[u8], data: &mut Vec<u8>, meta_data
         // Is there old data to push?
         // we use the bit_id here instead of just testing ii % bits_in_a_byte == 0
         // because for e.g. a 7-bit signal, the push needs to happen after 3 iterations!
-        if bit_id % 8 == 0 {
+        if bit_id.is_multiple_of(8) {
             // this allows us to add some meta-data to the first byte.
             if let Some(meta_data) = meta_data {
                 debug_assert_eq!(meta_data & (0b11 << 6), meta_data);

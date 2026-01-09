@@ -157,7 +157,7 @@ where
             Some(signals) => {
                 let max_index = signals.iter().map(|r| r.index()).max().unwrap();
                 let mut enc = vec![None; max_index + 1];
-                for &signal in signals.iter() {
+                for &signal in signals {
                     enc[signal.index()] = hierarchy.get_signal_tpe(signal);
                 }
                 enc
@@ -173,7 +173,7 @@ where
         }
     }
 
-    pub(crate) fn fst_value_change(&mut self, time: u64, id: u64, value: FstSignalValue) {
+    pub(crate) fn fst_value_change(&mut self, time: u64, id: u64, value: &FstSignalValue) {
         debug_assert!(
             !self.skipping_time_step,
             "fst reader should filter out time steps"
@@ -230,7 +230,7 @@ where
                 },
                 FstSignalValue::Real(value) => {
                     debug_assert_eq!(tpe, SignalEncoding::Real);
-                    SignalValue::Real(value)
+                    SignalValue::Real(*value)
                 }
             };
 

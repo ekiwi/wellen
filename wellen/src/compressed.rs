@@ -78,7 +78,7 @@ impl CompressedTimeTable {
         let mut prev = 0;
         let mut tmp = vec![];
         leb128::write::unsigned(&mut tmp, table.len() as u64).unwrap();
-        for &time in table.iter() {
+        for &time in table {
             debug_assert!(time >= prev);
             let delta = time - prev;
             prev = time;

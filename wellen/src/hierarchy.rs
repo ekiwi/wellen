@@ -241,7 +241,7 @@ impl VarIndex {
         if self.width == DEFAULT_ZERO_REPLACEMENT {
             self.lsb()
         } else {
-            self.width.get() as i64 + self.lsb()
+            i64::from(self.width.get()) + self.lsb()
         }
     }
 
@@ -575,7 +575,7 @@ impl SourceLocId {
     }
 
     #[inline]
-    fn index(&self) -> usize {
+    fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
@@ -600,7 +600,7 @@ impl EnumTypeId {
     }
 
     #[inline]
-    fn index(&self) -> usize {
+    fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
@@ -688,7 +688,7 @@ impl Hierarchy {
     /// The value will be None if there is no var pointing to the given handle.
     pub fn get_unique_signals_vars(&self) -> Vec<Option<Var>> {
         let mut out = Vec::with_capacity(self.signal_idx_to_var.len());
-        for maybe_var_id in self.signal_idx_to_var.iter() {
+        for maybe_var_id in &self.signal_idx_to_var {
             if let Some(var_id) = maybe_var_id {
                 out.push(Some((self[*var_id]).clone()));
             } else {

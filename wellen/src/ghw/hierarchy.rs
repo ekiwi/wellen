@@ -88,7 +88,7 @@ pub fn try_read_directory(
         } else {
             // note: the "tailer" section does not contain the normal 4 zeros
             let directory_offset = header.read_u32(&mut &tailer[8..12])?;
-            input.seek(SeekFrom::Start(directory_offset as u64))?;
+            input.seek(SeekFrom::Start(u64::from(directory_offset)))?;
 
             // check directory marker
             let mut mark = [0u8; 4];
@@ -152,7 +152,7 @@ pub fn read_hierarchy(
 
                 // we should have already inferred the correct well know types, so we just check
                 // that we did so correctly
-                for (type_id, wkt) in wkts.into_iter() {
+                for (type_id, wkt) in wkts {
                     let tpe = &tables.types[type_id.index()];
                     match wkt {
                         GhwWellKnownType::Unknown => {} // does not matter
@@ -207,7 +207,7 @@ fn add_enums_to_wellen_hierarchy(
 ) -> Result<Vec<EnumTypeId>> {
     let mut string_cache: FxHashMap<(u16, u16), HierarchyStringId> = FxHashMap::default();
     let mut out = Vec::new();
-    for tpe in tables.types.iter() {
+    for tpe in &tables.types {
         if let VhdlType::Enum(name, lits, enum_id) = tpe {
             let bits = get_enum_bits(lits) as u16;
             let literals: Vec<_> = lits
@@ -306,7 +306,7 @@ fn read_range(input: &mut impl BufRead) -> Result<Range> {
         GhwRtik::TypeE8 | GhwRtik::TypeB2 => {
             let mut buf = [0u8; 2];
             input.read_exact(&mut buf)?;
-            Range::Int(IntRange(dir, buf[0] as i64, buf[1] as i64))
+            Range::Int(IntRange(dir, i64::from(buf[0]), i64::from(buf[1])))
         }
         GhwRtik::TypeI32 | GhwRtik::TypeP32 | GhwRtik::TypeI64 | GhwRtik::TypeP64 => {
             let left = leb128::read::signed(input)?;
@@ -941,7 +941,7 @@ fn read_hierarchy_section(
     }
 
     let (decode_info, aliases) = signal_info.into_decode_info();
-    for alias in aliases.into_iter() {
+    for alias in aliases {
         h.add_slice(alias.signal_ref, alias.msb, alias.lsb, alias.sliced_signal);
     }
 
@@ -1404,7 +1404,7 @@ fn add_var(
         }
         VhdlType::Record(_, fields) => {
             h.add_scope(name, None, ScopeType::VhdlRecord, None, None, false);
-            for (field_name, field_type) in fields.iter() {
+            for (field_name, field_type) in fields {
                 add_var(
                     tables,
                     input,
@@ -1488,7 +1488,7 @@ impl StringId {
 struct TypeId(NonZeroU32);
 
 impl TypeId {
-    fn index(&self) -> usize {
+    fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
     fn from_index(index: usize) -> Self {
@@ -1536,7 +1536,7 @@ impl IntRange {
     }
 
     fn from_i32_option(opt: Option<Self>) -> Self {
-        opt.unwrap_or(Self(RangeDir::To, i32::MIN as i64, i32::MAX as i64))
+        opt.unwrap_or(Self(RangeDir::To, i64::from(i32::MIN), i64::from(i32::MAX)))
     }
 
     fn start(&self) -> i64 {

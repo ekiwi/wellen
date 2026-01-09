@@ -90,7 +90,7 @@ impl Waveform {
         let res = self
             .source
             .load_signals(&filtered_ids, &self.hierarchy, multi_threaded);
-        for (id, signal) in res.into_iter() {
+        for (id, signal) in res {
             self.signals.insert(id, signal);
         }
     }
@@ -104,7 +104,7 @@ impl Waveform {
     }
 
     pub fn unload_signals(&mut self, ids: &[SignalRef]) {
-        for id in ids.iter() {
+        for id in ids {
             self.signals.remove(id);
         }
     }
