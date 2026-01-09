@@ -173,11 +173,7 @@ impl SignalWriter {
                 SignalEncoding::String => {
                     let str_value = String::from_utf8_lossy(value).to_string();
                     // check to see if the value actually changed
-                    let changed = self
-                        .strings
-                        .last()
-                        .map(|prev| prev != &str_value)
-                        .unwrap_or(true);
+                    let changed = self.strings.last() != Some(&str_value);
                     if changed {
                         self.strings.push(str_value);
                         self.time_indices.push(time_idx);
@@ -317,7 +313,8 @@ impl SignalWriter {
 #[inline]
 pub fn get_len_and_meta(states: States, bits: u32) -> (usize, bool) {
     let len = states.bytes_required(bits as usize);
-    let has_meta = (states != States::Two) && ((bits as usize) % states.bits_in_a_byte() == 0);
+    let has_meta =
+        (states != States::Two) && (bits as usize).is_multiple_of(states.bits_in_a_byte());
     (len, has_meta)
 }
 

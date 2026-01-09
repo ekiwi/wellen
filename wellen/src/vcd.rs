@@ -324,8 +324,7 @@ impl IdTracker {
             // check to see if new increase is monotonic
             let is_monotonic = self
                 .min_max_id
-                .map(|(_, old_max)| old_max < id_value)
-                .unwrap_or(true);
+                .is_none_or(|(_, old_max)| old_max < id_value);
             self.not_monotonic_inc = !is_monotonic;
         }
         let (min_id, max_id) = match self.min_max_id {

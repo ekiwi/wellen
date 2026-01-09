@@ -328,7 +328,7 @@ impl VecBuffer {
 
         // check changes
         let changes = &self.bit_change[info.change_range()];
-        let skip = if info.bits % 8 == 0 { 0 } else { 1 };
+        let skip = if info.bits.is_multiple_of(8) { 0 } else { 1 };
         for e in changes.iter().skip(skip) {
             if *e != 0xff {
                 return false;

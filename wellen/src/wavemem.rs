@@ -102,10 +102,10 @@ impl Reader {
             // adjust time index offset to take overlapping blocks into account
             let end_time = *block.time_table.last().unwrap();
             debug_assert_eq!(*block.time_table.first().unwrap(), block.start_time);
-            if let Some(prev_end_time) = prev_end_time {
-                if block.start_time == prev_end_time {
-                    time_idx_offset -= 1;
-                }
+            if let Some(prev_end_time) = prev_end_time
+                && block.start_time == prev_end_time
+            {
+                time_idx_offset -= 1;
             }
             prev_end_time = Some(end_time);
 
@@ -390,7 +390,7 @@ fn load_signal_strings(
         let str_value = String::from_utf8_lossy(&buf).to_string();
 
         // check to see if the value actually changed
-        let changed = out.last().map(|prev| prev != &str_value).unwrap_or(true);
+        let changed = out.last() != Some(&str_value);
         if changed {
             out.push(str_value);
             time_indices.push(last_time_idx);
@@ -434,8 +434,7 @@ impl Block {
             .iter()
             .skip(id.index() + 1)
             .find(|o| o.is_some())
-            .map(|o| o.unwrap().get_index())
-            .unwrap_or(self.data.len());
+            .map_or(self.data.len(), |o| o.unwrap().get_index());
         Some((offset, next_offset - offset))
     }
 }
@@ -1113,7 +1112,7 @@ pub fn write_n_state(states: States, value: &[u8], data: &mut Vec<u8>, meta_data
         // Is there old data to push?
         // we use the bit_id here instead of just testing ii % bits_in_a_byte == 0
         // because for e.g. a 7-bit signal, the push needs to happen after 3 iterations!
-        if bit_id % 8 == 0 {
+        if bit_id.is_multiple_of(8) {
             // this allows us to add some meta-data to the first byte.
             if let Some(meta_data) = meta_data {
                 debug_assert_eq!(meta_data & (0b11 << 6), meta_data);
