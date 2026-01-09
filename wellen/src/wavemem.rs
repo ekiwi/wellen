@@ -447,7 +447,7 @@ impl SignalDataOffset {
     fn new(index: usize) -> Self {
         SignalDataOffset(NonZeroU32::new((index as u32) + 1).unwrap())
     }
-    fn get_index(&self) -> usize {
+    fn get_index(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
@@ -961,7 +961,7 @@ impl States {
     }
     /// Returns how many bits are needed in order to encode one bit of state.
     #[inline]
-    pub fn bits(&self) -> usize {
+    pub fn bits(self) -> usize {
         match self {
             States::Two => 1,
             States::Four => 2,
@@ -970,7 +970,7 @@ impl States {
     }
 
     #[inline]
-    pub fn mask(&self) -> u8 {
+    pub fn mask(self) -> u8 {
         match self {
             States::Two => 0x1,
             States::Four => 0x3,
@@ -980,26 +980,26 @@ impl States {
 
     /// Returns how many signal bits can be encoded in a u8.
     #[inline]
-    pub fn bits_in_a_byte(&self) -> usize {
+    pub fn bits_in_a_byte(self) -> usize {
         8 / self.bits()
     }
 
     /// Returns how many bits the first byte would contain.
     #[inline]
-    fn bits_in_first_byte(&self, bits: u32) -> u32 {
+    fn bits_in_first_byte(self, bits: u32) -> u32 {
         (bits * self.bits() as u32) % u8::BITS
     }
 
     /// Creates a mask that will only leave the relevant bits in the first byte.
     #[inline]
-    pub(crate) fn first_byte_mask(&self, bits: u32) -> u8 {
+    pub(crate) fn first_byte_mask(self, bits: u32) -> u8 {
         let n = self.bits_in_first_byte(bits);
         if n > 0 { (1u8 << n) - 1 } else { u8::MAX }
     }
 
     /// Returns how many bytes are required to store bits.
     #[inline]
-    pub fn bytes_required(&self, bits: usize) -> usize {
+    pub fn bytes_required(self, bits: usize) -> usize {
         // (bits as usize).div_ceil(self.bits_in_a_byte())
         match self {
             States::Two => (bits + 7) >> 3,

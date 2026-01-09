@@ -165,7 +165,7 @@ const FST_SUP_VAR_DATA_TYPE_MASK: u64 = (1 << FST_SUP_VAR_DATA_TYPE_BITS) - 1;
 
 // VCD attributes are a GTKWave extension which is also used by nvc
 fn parse_attribute(
-    tokens: Vec<&[u8]>,
+    tokens: &[&[u8]],
     path_names: &mut FxHashMap<u64, HierarchyStringId>,
     enums: &mut FxHashMap<u64, EnumTypeId>,
     h: &mut HierarchyBuilder,
@@ -177,7 +177,7 @@ fn parse_attribute(
         b"02" => {
             // FstHierarchyEntry::VhdlVarInfo
             if tokens.len() != 4 {
-                return Err(unexpected_n_tokens("attribute", &tokens));
+                return Err(unexpected_n_tokens("attribute", tokens));
             }
             let type_name = std::str::from_utf8(tokens[2])?.to_string();
             let arg = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
@@ -195,7 +195,7 @@ fn parse_attribute(
         b"03" => {
             // FstHierarchyEntry::PathName
             if tokens.len() != 4 {
-                return Err(unexpected_n_tokens("attribute", &tokens));
+                return Err(unexpected_n_tokens("attribute", tokens));
             }
             let path = std::str::from_utf8(tokens[2])?;
             let id = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
@@ -205,11 +205,11 @@ fn parse_attribute(
         }
         b"04" => {
             // FstHierarchyEntry::SourceStem
-            parse_source_stem(&tokens, path_names, false)
+            parse_source_stem(tokens, path_names, false)
         }
         b"05" => {
             // FstHierarchyEntry::SourceInstantiationStem
-            parse_source_stem(&tokens, path_names, true)
+            parse_source_stem(tokens, path_names, true)
         }
         b"06" => Err(VcdParseError::VcdUnsupportedAttributeType(
             "ValueList".to_string(),
@@ -218,14 +218,14 @@ fn parse_attribute(
             // FstHierarchyEntry::EnumTable
             if tokens.len() < 4 {
                 // we need at least 4 tokens
-                return Err(unexpected_n_tokens("attribute", &tokens));
+                return Err(unexpected_n_tokens("attribute", tokens));
             }
 
             let name = tokens[2];
             if name == b"\"\"" {
                 // empty name => reference
                 if tokens.len() > 4 {
-                    Err(unexpected_n_tokens("attribute", &tokens))
+                    Err(unexpected_n_tokens("attribute", tokens))
                 } else {
                     let handle = std::str::from_utf8(tokens[3])?.parse::<u64>()?;
                     Ok(Some(Attribute::Enum(enums[&handle])))
@@ -237,7 +237,7 @@ fn parse_attribute(
                 // "misc" + "07" + name + length + two token per entry + id
                 let expected_tokens = 2 + 2 + 2 * num_entries + 1;
                 if tokens.len() != expected_tokens {
-                    return Err(unexpected_n_tokens("attribute", &tokens));
+                    return Err(unexpected_n_tokens("attribute", tokens));
                 }
 
                 let handle = std::str::from_utf8(tokens.last().unwrap())?.parse::<u64>()?;
@@ -484,7 +484,7 @@ fn read_hierarchy_inner(
             Ok(())
         }
         HeaderCmd::MiscAttribute(tokens) => {
-            if let Some(attr) = parse_attribute(tokens, &mut path_names, &mut enums, &mut h)? {
+            if let Some(attr) = parse_attribute(&tokens, &mut path_names, &mut enums, &mut h)? {
                 attributes.push(attr);
             }
             Ok(())

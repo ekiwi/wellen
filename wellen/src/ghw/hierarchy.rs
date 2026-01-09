@@ -1488,7 +1488,7 @@ impl StringId {
 struct TypeId(NonZeroU32);
 
 impl TypeId {
-    fn index(&self) -> usize {
+    fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
     fn from_index(index: usize) -> Self {

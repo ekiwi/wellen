@@ -260,7 +260,7 @@ impl GhwVecId {
         Self(NonZeroU32::new(pos_id as u32).unwrap())
     }
 
-    pub fn index(&self) -> usize {
+    pub fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
@@ -270,7 +270,7 @@ pub struct GhwSignalId(NonZeroU32);
 
 impl GhwSignalId {
     #[inline]
-    pub fn index(&self) -> usize {
+    pub fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
     pub fn new(pos_id: u32) -> Self {

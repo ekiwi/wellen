@@ -575,7 +575,7 @@ impl SourceLocId {
     }
 
     #[inline]
-    fn index(&self) -> usize {
+    fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
@@ -600,7 +600,7 @@ impl EnumTypeId {
     }
 
     #[inline]
-    fn index(&self) -> usize {
+    fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }

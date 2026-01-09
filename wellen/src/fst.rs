@@ -115,7 +115,7 @@ impl<R: BufRead + Seek + Sync + Send> SignalSourceImplementation for FstWaveData
             let time_idx = index_and_time.0 as TimeTableIdx;
             debug_assert_eq!(*index_and_time.1, time);
             let signal_pos = idx_to_pos[&handle.get_index()];
-            signals[signal_pos].add_change(time_idx, handle, value);
+            signals[signal_pos].add_change(time_idx, &handle, &value);
         };
 
         self.reader.read_signals(&filter, callback).unwrap();
@@ -153,10 +153,10 @@ impl SignalWriter {
     fn add_change(
         &mut self,
         time_idx: TimeTableIdx,
-        handle: FstSignalHandle,
-        value: FstSignalValue,
+        handle: &FstSignalHandle,
+        value: &FstSignalValue,
     ) {
-        debug_assert_eq!(handle, self.handle);
+        debug_assert_eq!(*handle, self.handle);
         if let Some(prev_idx) = self.time_indices.last() {
             debug_assert!(*prev_idx <= time_idx);
         }
@@ -756,7 +756,7 @@ pub fn stream_body<R: BufRead + Seek>(
     // map fst callback to wellen callback
     let fst_callback = |time: u64, handle: FstSignalHandle, value: FstSignalValue| {
         let signal_id = handle.get_index() as u64;
-        enc.fst_value_change(time, signal_id, value);
+        enc.fst_value_change(time, signal_id, &value);
     };
 
     reader.read_signals(&fst_filter, fst_callback)?;
