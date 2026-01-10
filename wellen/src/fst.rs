@@ -171,7 +171,12 @@ impl SignalWriter {
                     self.time_indices.push(time_idx);
                 }
                 SignalEncoding::String => {
-                    let str_value = String::from_utf8_lossy(value).to_string();
+                    // map characters from ISO-8859-1 to UTF-8 by casting each byte to a char.
+                    let str_value = value
+                        .iter()
+                        .map(|b| *b as char)
+                        .collect::<String>()
+                        .to_string();
                     // check to see if the value actually changed
                     let changed = self.strings.last() != Some(&str_value);
                     if changed {
