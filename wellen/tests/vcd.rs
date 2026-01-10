@@ -274,3 +274,34 @@ fn vcd_delta_cycle_at_zero() {
     // TODO: the problem is that because of multi threading, we get two different time table indices
     //       for time zero, that needs to be avoided!
 }
+
+/// Conversion of escaped character sequences in VCD string values to proper UTF-8 strings.
+#[test]
+fn vcd_character_encoding() {
+    let filename = "inputs/nvc/shortstring.vcd";
+    let mut waves = read(filename).expect("failed to parse");
+    let data = {
+        let test_scope = &waves.hierarchy()[waves
+            .hierarchy()
+            .lookup_scope(&["string_test", "test_string"])
+            .expect("failed to find string_test.test_string")];
+        waves.hierarchy()[test_scope.vars(waves.hierarchy()).next().unwrap()].clone()
+    };
+    waves.load_signals(&[data.signal_ref()]);
+    let signal = waves.get_signal(data.signal_ref()).unwrap();
+    let offset = signal.get_offset(0).unwrap();
+    assert_eq!(
+        signal.get_value_at(&offset, 1),
+        SignalValue::String("En lång röd räv                                   ")
+    );
+    let offset = signal.get_offset(1).unwrap();
+    assert_eq!(
+        signal.get_value_at(&offset, 0),
+        SignalValue::String("Viel \"spaß\" und überraschung¡                     ")
+    );
+    let offset = signal.get_offset(2).unwrap();
+    assert_eq!(
+        signal.get_value_at(&offset, 0),
+        SignalValue::String("3±0.3°C and ½×¾ cup of sugar                      ")
+    );
+}
