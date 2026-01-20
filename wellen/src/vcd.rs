@@ -1243,7 +1243,12 @@ impl ParseBodyOutput for VcdEncoder<'_> {
                 },
                 Some(lookup) => lookup[id].index() as u64,
             };
-            self.enc.vcd_value_change(num_id, value);
+            // Substitute escape sequences as defined in libfst: "\\XXX" octal escapes and simple single-character escapes.
+            // See https://github.com/gtkwave/libfst/blob/6a52070cd62ec65c29832bc95e7db493504aa7ac/src/fstapi.c#L6774
+            // As well as hex escapes "\xHH" which pyvcd (used by Amaranth) produces.
+            // See https://github.com/SanDisk-Open-Source/pyvcd/blob/0890733e2fd77cc3483ddddac8f44053e902a2ef/vcd/writer.py#L605
+            let escaped = unescape_vcd_value(value);
+            self.enc.vcd_value_change(num_id, escaped.as_ref());
         }
         Ok(())
     }
@@ -1492,8 +1497,128 @@ where
             },
             Some(lookup) => lookup[id].index() as u64,
         };
-        self.enc.vcd_value_change(num_id, value);
+
+        // Substitute escape sequences as defined in libfst: "\\XXX" octal escapes and simple single-character escapes.
+        // See https://github.com/gtkwave/libfst/blob/6a52070cd62ec65c29832bc95e7db493504aa7ac/src/fstapi.c#L6774
+        // As well as hex escapes "\xHH" which pyvcd (used by Amaranth) produces.
+        // See https://github.com/SanDisk-Open-Source/pyvcd/blob/0890733e2fd77cc3483ddddac8f44053e902a2ef/vcd/writer.py#L605
+        let escaped = unescape_vcd_value(value);
+        self.enc.vcd_value_change(num_id, escaped.as_ref());
         Ok(())
+    }
+}
+
+#[inline]
+fn is_octal_digit(b: u8) -> bool {
+    (b'0'..=b'7').contains(&b)
+}
+
+#[inline]
+fn map_single_escape(ch: u8) -> Option<u8> {
+    // These are the escaped characters supported by libfst and therefore fst2vcd which e.g. NVC relies on.
+    match ch {
+        b'a' => Some(b'\x07'), // Bell/alert
+        b'b' => Some(b'\x08'), // Backspace
+        b'f' => Some(b'\x0C'), // Formfeed
+        b'n' => Some(b'\n'),   // Newline
+        b'r' => Some(b'\r'),   // Carriage return
+        b't' => Some(b'\t'),   // Horizontal tab
+        b'v' => Some(b'\x0B'), // Vertical tab
+        b'"' => Some(b'"'),    // Double quote
+        b'\'' => Some(b'\''),  // Single quote
+        b'\\' => Some(b'\\'),  // Backslash
+        b'?' => Some(b'\x3F'), // Question mark
+        _ => None,
+    }
+}
+
+#[inline]
+fn hex_digit_to_value(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+#[inline]
+fn unescape_vcd_value(value: &[u8]) -> Cow<'_, [u8]> {
+    let mut substituted: Option<Vec<u8>> = None;
+    let mut i = 0;
+
+    while i < value.len() {
+        if value[i] == b'\\' {
+            // Hex escape: \xHH where H are hex digits
+            if i + 4 <= value.len()
+                && value[i + 1] == b'x'
+                && let Some(hi) = hex_digit_to_value(value[i + 2])
+                && let Some(lo) = hex_digit_to_value(value[i + 3])
+            {
+                let code = (hi << 4) | lo;
+                substituted
+                    .get_or_insert_with(|| {
+                        let mut buf = Vec::with_capacity(value.len());
+                        buf.extend_from_slice(&value[..i]);
+                        buf
+                    })
+                    .push(code);
+                i += 4;
+                continue;
+            }
+
+            // Octal escape: \XYZ where X,Y,Z are 0-7; skip if not valid octal.
+            if i + 4 <= value.len()
+                && is_octal_digit(value[i + 1])
+                && is_octal_digit(value[i + 2])
+                && is_octal_digit(value[i + 3])
+            {
+                let code = ((value[i + 1] - b'0') << 6)
+                    + ((value[i + 2] - b'0') << 3)
+                    + (value[i + 3] - b'0');
+                substituted
+                    .get_or_insert_with(|| {
+                        let mut buf = Vec::with_capacity(value.len());
+                        buf.extend_from_slice(&value[..i]);
+                        buf
+                    })
+                    .push(code);
+                i += 4;
+                continue;
+            }
+
+            // Simple single-character escapes, e.g. \' and \\
+            if i + 2 <= value.len()
+                && let Some(mapped) = map_single_escape(value[i + 1])
+            {
+                substituted
+                    .get_or_insert_with(|| {
+                        let mut buf = Vec::with_capacity(value.len());
+                        buf.extend_from_slice(&value[..i]);
+                        buf
+                    })
+                    .push(mapped);
+                i += 2;
+                continue;
+            }
+        }
+
+        if let Some(ref mut buf) = substituted {
+            buf.push(value[i]);
+        }
+        i += 1;
+    }
+
+    match substituted {
+        Some(buf) => Cow::Owned(
+            // Convert ISO-8859-1 bytes to UTF-8 by mapping each byte to a char
+            buf.iter()
+                .map(|b| *b as char)
+                .collect::<String>()
+                .as_bytes()
+                .to_vec(),
+        ),
+        None => Cow::Borrowed(value),
     }
 }
 
@@ -1738,6 +1863,31 @@ x%i"
         assert_eq!(find_last(b"1234", b'1'), Some(0));
         assert_eq!(find_last(b"1234", b'5'), None);
         assert_eq!(find_last(b"12341", b'1'), Some(4));
+    }
+
+    #[test]
+    fn test_unescape_vcd_value() {
+        assert_eq!(
+            unescape_vcd_value(br"foo\040bar\'baz\\qux").as_ref(),
+            b"foo bar'baz\\qux"
+        );
+        assert_eq!(
+            unescape_vcd_value(br"line1\nline2\tbell\a").as_ref(),
+            b"line1\nline2\tbell\x07"
+        );
+        assert_eq!(unescape_vcd_value(br"\12not\xyz").as_ref(), br"\12not\xyz");
+        assert_eq!(unescape_vcd_value(br"\128oops").as_ref(), br"\128oops");
+        assert_eq!(unescape_vcd_value(br"hex\x20space").as_ref(), b"hex space");
+    }
+
+    #[test]
+    fn test_unescape_borrowed_when_no_escapes() {
+        let input = b"plain";
+        let out = unescape_vcd_value(input);
+        match out {
+            Cow::Borrowed(ptr) => assert!(std::ptr::eq(ptr, input)),
+            Cow::Owned(_) => panic!("expected borrowed slice"),
+        }
     }
 
     fn do_test_parse_name(
