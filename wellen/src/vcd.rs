@@ -14,7 +14,7 @@ use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::fmt::Debug;
-use std::io::{BufRead, Read, Seek, SeekFrom};
+use std::io::{BufRead, Read, Seek, SeekFrom, Write};
 use std::num::NonZeroU32;
 use std::sync::atomic::Ordering;
 
@@ -1542,13 +1542,15 @@ fn hex_digit_to_value(b: u8) -> Option<u8> {
     }
 }
 
+
+/// Returns `true` if a substitution happened.
 #[inline]
-fn unescape_vcd_value(value: &[u8]) -> Cow<'_, [u8]> {
-    let mut substituted: Option<Vec<u8>> = None;
+fn unescape_vcd_value(value: &[u8], out: &mut impl Write) -> bool {
+    let mut substituted = false;
     let mut i = 0;
 
-    while i < value.len() {
-        if value[i] == b'\\' {
+    for (ii, &cc) in value.iter().enumerate() {
+        if cc == b'\\' {
             // Hex escape: \xHH where H are hex digits
             if i + 4 <= value.len()
                 && value[i + 1] == b'x'

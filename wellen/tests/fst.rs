@@ -263,7 +263,6 @@ fn test_nvc_issue_77() {
     );
 }
 
-
 /// Conversion of escaped character sequences in FST string values to proper UTF-8 strings.
 #[test]
 fn fst_character_encoding() {

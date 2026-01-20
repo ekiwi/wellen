@@ -283,6 +283,9 @@ where
                         String::from_utf8_lossy(value)
                     );
                     let characters = &value[1..];
+
+                    todo!("escape!");
+
                     SignalValue::String(std::str::from_utf8(characters).unwrap())
                 }
                 SignalEncoding::Real => {

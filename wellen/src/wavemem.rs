@@ -857,6 +857,7 @@ impl SignalEncoder {
                 // string: var-length time index + var-len length + content
                 leb128::write::unsigned(&mut self.data, u64::from(time_idx_delta)).unwrap();
                 leb128::write::unsigned(&mut self.data, (value.len() - 1) as u64).unwrap();
+                todo!("escape!")
                 self.data.extend_from_slice(&value[1..]);
             }
             SignalEncoding::Real => {
