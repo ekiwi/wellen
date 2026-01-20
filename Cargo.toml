@@ -20,7 +20,7 @@ keywords = ["vcd", "fst", "waveform", "wavedump"]
 
 
 [workspace.dependencies]
-fst-reader = "0.14.1"
+fst-reader = "0.14.3"
 leb128 = "0.2.5"
 lz4_flex = "0.12.0"
 memmap2 = "0.9.9"
@@ -29,14 +29,14 @@ num_enum = "0.7.5"
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 rustc-hash = "2.1"
-miniz_oxide = "0.8.9"
-indexmap = "2.12.0"
+miniz_oxide = "0.9"
+indexmap = "2.13"
 
 # dev dependencies
 itertools = "0.14.0"
 vcd = "0.7.0"
 clap = { version = "4.5", features = ["derive"] }
-criterion = "0.7"
+criterion = "0.8"
 indicatif = "0.18"
 proptest = "1.9"
 wellen = { path = "wellen" }
