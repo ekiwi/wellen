@@ -38,8 +38,7 @@ clap.workspace = true
 criterion.workspace = true
 indicatif.workspace = true
 proptest.workspace = true
-bytesize = "2.0"
-bincode = "2.0"
+bytesize = "2.3"
 
 
 [[bench]]
