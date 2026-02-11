@@ -677,6 +677,7 @@ fn convert_scope_tpe(tpe: &[u8]) -> Result<ScopeType> {
         b"interface" => Ok(ScopeType::Interface),
         b"package" => Ok(ScopeType::Package),
         b"program" => Ok(ScopeType::Program),
+        // VHDL
         b"vhdl_architecture" => Ok(ScopeType::VhdlArchitecture),
         b"vhdl_procedure" => Ok(ScopeType::VhdlProcedure),
         b"vhdl_function" => Ok(ScopeType::VhdlFunction),
@@ -689,6 +690,8 @@ fn convert_scope_tpe(tpe: &[u8]) -> Result<ScopeType> {
         b"vhdl_package" => Ok(ScopeType::VhdlPackage),
         // questa sim produces "unknown" scopes
         b"unknown" => Ok(ScopeType::Unknown),
+        // SystemVerilog
+        b"clocking" => Ok(ScopeType::Clocking),
         _ => Err(VcdParseError::VcdUnknownScopeType(
             String::from_utf8_lossy(tpe).to_string(),
         )),

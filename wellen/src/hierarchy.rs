@@ -153,6 +153,8 @@ pub enum ScopeType {
     VhdlArray,
     // for questa sim
     Unknown,
+    // SystemVerilog
+    Clocking,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

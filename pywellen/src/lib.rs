@@ -126,6 +126,7 @@ impl Scope {
             ScopeType::GhwGeneric => "ghw_generic",
             ScopeType::VhdlArray => "vhdl_array",
             ScopeType::Unknown => "unknown",
+            ScopeType::Clocking => "clocking",
             _ => "unknown", // `ScopeType` is marked as non-exhaustive
         }
         .to_string()
