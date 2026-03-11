@@ -692,6 +692,7 @@ fn convert_scope_tpe(tpe: &[u8]) -> Result<ScopeType> {
         b"unknown" => Ok(ScopeType::Unknown),
         // SystemVerilog
         b"clocking" => Ok(ScopeType::Clocking),
+        b"sv_array" => Ok(ScopeType::SvArray),
         _ => Err(VcdParseError::VcdUnknownScopeType(
             String::from_utf8_lossy(tpe).to_string(),
         )),

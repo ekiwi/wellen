@@ -155,6 +155,7 @@ pub enum ScopeType {
     Unknown,
     // SystemVerilog
     Clocking,
+    SvArray,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
