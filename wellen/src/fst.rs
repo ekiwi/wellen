@@ -410,6 +410,7 @@ fn convert_scope_tpe(tpe: FstScopeType) -> ScopeType {
         FstScopeType::VhdlIfGenerate => ScopeType::VhdlIfGenerate,
         FstScopeType::VhdlGenerate => ScopeType::VhdlGenerate,
         FstScopeType::VhdlPackage => ScopeType::VhdlPackage,
+        FstScopeType::SvArray => ScopeType::SvArray,
         FstScopeType::AttributeBegin
         | FstScopeType::AttributeEnd
         | FstScopeType::VcdScope
