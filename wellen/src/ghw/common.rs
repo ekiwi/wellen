@@ -28,19 +28,19 @@ pub enum GhwParseError {
     #[error("[ghw] float range has no length: {0} .. {1}")]
     #[allow(dead_code)]
     FloatRangeLen(f64, f64),
-    #[error("[ghw] failed to parse GHDL RTIK.")]
+    #[error("[ghw] failed to parse GHDL RTIK: {0}.")]
     FailedToParseGhdlRtik(#[from] num_enum::TryFromPrimitiveError<GhwRtik>),
-    #[error("[ghw] failed to parse well known type.")]
+    #[error("[ghw] failed to parse well known type: {0}.")]
     FailedToParseWellKnownType(#[from] num_enum::TryFromPrimitiveError<GhwWellKnownType>),
-    #[error("[ghw] failed to parse hierarchy kind.")]
+    #[error("[ghw] failed to parse hierarchy kind: {0}.")]
     FailedToParseHierarchyKind(#[from] num_enum::TryFromPrimitiveError<GhwHierarchyKind>),
-    #[error("[ghw] failed to parse a leb128 encoded number")]
+    #[error("[ghw] failed to parse a leb128 encoded number: {0}.")]
     FailedToParsLeb128(#[from] leb128::read::Error),
-    #[error("[ghw] failed to decode string")]
+    #[error("[ghw] failed to decode string: {0}.")]
     Utf8(#[from] std::str::Utf8Error),
-    #[error("[ghw] failed to parse an integer")]
+    #[error("[ghw] failed to parse an integer: {0}.")]
     ParseInt(#[from] std::num::ParseIntError),
-    #[error("[ghw] I/O operation failed")]
+    #[error("[ghw] I/O operation failed: {0}.")]
     Io(#[from] std::io::Error),
 }
 
