@@ -22,7 +22,7 @@ keywords = ["vcd", "fst", "waveform", "wavedump"]
 [workspace.dependencies]
 fst-reader = "0.15"
 leb128 = "0.2.5"
-lz4_flex = "0.12.0"
+lz4_flex = "0.13.0"
 memmap2 = "0.9.9"
 rayon = "1.11.0"
 num_enum = "0.7.5"
