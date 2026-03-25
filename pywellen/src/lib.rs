@@ -34,7 +34,7 @@ fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct Hierarchy(pub(crate) Arc<wellen::Hierarchy>);
 
@@ -247,7 +247,7 @@ impl VarIter {
     }
 }
 
-#[pyclass(name = "TimescaleUnit")]
+#[pyclass(from_py_object, name = "TimescaleUnit")]
 #[derive(Clone)]
 struct TimescaleUnit(pub(crate) wellen::TimescaleUnit);
 
@@ -276,7 +276,7 @@ impl TimescaleUnit {
     }
 }
 
-#[pyclass(name = "Timescale")]
+#[pyclass(from_py_object, name = "Timescale")]
 #[derive(Clone)]
 struct Timescale(pub(crate) wellen::Timescale);
 
@@ -305,7 +305,7 @@ impl Timescale {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct TimeTable(Arc<wellen::TimeTable>);
 
@@ -408,7 +408,7 @@ impl Waveform {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct Signal {
     signal: Arc<wellen::Signal>,

@@ -12,5 +12,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 num-bigint = "0.4.6"
-pyo3 = { version = "0.27.1", features = ["num-bigint"] }
+pyo3 = { version = "0.28.2", features = ["num-bigint"] }
 wellen = { workspace = true }
