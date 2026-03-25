@@ -494,14 +494,8 @@ pub fn merge_vhdl_data_and_var_type(vcd: VarType, vhdl: FstVhdlDataType) -> VarT
         }
         FstVhdlDataType::Integer => VarType::Integer,
         FstVhdlDataType::Real => VarType::Real,
-        FstVhdlDataType::Natural => {
-            println!("TODO: handle {vcd:?} {vhdl:?} better!");
-            vcd
-        }
-        FstVhdlDataType::Positive => {
-            println!("TODO: handle {vcd:?} {vhdl:?} better!");
-            vcd
-        }
+        FstVhdlDataType::Natural => VarType::Integer,
+        FstVhdlDataType::Positive => VarType::Integer,
         FstVhdlDataType::Time => VarType::Time,
         FstVhdlDataType::Character => {
             println!("TODO: handle {vcd:?} {vhdl:?} better!");

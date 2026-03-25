@@ -815,3 +815,8 @@ fn diff_scope_with_comment() {
 fn diff_yosys_smtbmc_surfer_issue_315() {
     run_diff_test_vcd_only("inputs/yosys_smtbmc/surfer_issue_315.vcd");
 }
+
+#[test]
+fn diff_nvc_manytypes2() {
+    run_diff_test("inputs/nvc/manytypes2.vcd", "inputs/nvc/manytypes2.fst");
+}
