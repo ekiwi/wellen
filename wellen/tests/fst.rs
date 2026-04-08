@@ -293,3 +293,9 @@ fn fst_character_encoding() {
         SignalValue::String("3±0.3°C and ½×¾ cup of sugar                      ")
     );
 }
+
+#[test]
+fn test_new_verilator_fst_attributes() {
+    let filename = "inputs/verilator/verilator-pull-7255-t_trace_complex_structs_cc_fst.fst";
+    let _waves = read(filename).expect("failed to parse");
+}
