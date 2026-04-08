@@ -994,6 +994,7 @@ fn read_hierarchy_scope(
         name,
         None, // TODO: do we know, e.g., the name of a module if we have an instance?
         convert_scope_type(kind),
+        None, // TODO: we currently do not encode pack type
         None, // no source info in GHW
         None, // no source info in GHW
         false,
@@ -1403,7 +1404,7 @@ fn add_var(
             );
         }
         VhdlType::Record(_, fields) => {
-            h.add_scope(name, None, ScopeType::VhdlRecord, None, None, false);
+            h.add_scope(name, None, ScopeType::VhdlRecord, None, None, None, false);
             for (field_name, field_type) in fields {
                 add_var(
                     tables,
@@ -1421,7 +1422,7 @@ fn add_var(
         // we treat arrays like records
         VhdlType::Array(_, element_tpe, maybe_range) => {
             let range = IntRange::from_i32_option(*maybe_range);
-            h.add_scope(name, None, ScopeType::VhdlArray, None, None, false);
+            h.add_scope(name, None, ScopeType::VhdlArray, None, None, None, false);
             for element_id in range.range() {
                 let name = get_index_string(index_string_cache, h, element_id);
                 add_var(

@@ -400,13 +400,15 @@ fn read_hierarchy_inner(
     let callback = |cmd: HeaderCmd| match cmd {
         HeaderCmd::Scope(tpe, name) => {
             let flatten = options.remove_scopes_with_empty_name && name.is_empty();
-            let (declaration_source, instance_source) =
+            let tpe = convert_scope_tpe(tpe)?;
+            let (declaration_source, instance_source, pack) =
                 parse_scope_attributes(&mut attributes, &mut h)?;
             let name = h.add_string(std::str::from_utf8(name)?.into());
             h.add_scope(
                 name,
                 None, // VCDs do not contain component names
-                convert_scope_tpe(tpe)?,
+                tpe,
+                pack,
                 declaration_source,
                 instance_source,
                 flatten,

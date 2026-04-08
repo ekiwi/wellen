@@ -158,6 +158,16 @@ pub enum ScopeType {
     SvArray,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
+pub enum ScopePackInfo {
+    Packed,
+    Unpacked,
+    Sparse,
+    TaggedPacked,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub enum VarType {
@@ -444,6 +454,7 @@ pub struct Scope {
     /// Some wave formats supply the name of the component, e.g., of the module that was instantiated.
     component: Option<HierarchyStringId>,
     tpe: ScopeType,
+    pack: Option<ScopePackInfo>,
     declaration_source: Option<SourceLocId>,
     instance_source: Option<SourceLocId>,
     child: Option<ScopeOrVarRef>,
@@ -481,6 +492,10 @@ impl Scope {
 
     pub fn scope_type(&self) -> ScopeType {
         self.tpe
+    }
+
+    pub fn pack_info(&self) -> Option<ScopePackInfo> {
+        self.pack
     }
 
     pub fn source_loc<'a>(&self, hierarchy: &'a Hierarchy) -> Option<(&'a str, u64)> {
@@ -870,6 +885,7 @@ impl HierarchyBuilder {
             name: EMPTY_STRING,
             component: None,
             tpe: ScopeType::Module,
+            pack: None,
             declaration_source: None,
             instance_source: None,
             child: None,
@@ -1037,11 +1053,13 @@ impl HierarchyBuilder {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_scope(
         &mut self,
         name: HierarchyStringId,
         component: Option<HierarchyStringId>,
         tpe: ScopeType,
+        pack: Option<ScopePackInfo>,
         declaration_source: Option<SourceLocId>,
         instance_source: Option<SourceLocId>,
         flatten: bool,
@@ -1084,6 +1102,7 @@ impl HierarchyBuilder {
                 name,
                 component,
                 tpe,
+                pack,
                 declaration_source,
                 instance_source,
             };
@@ -1151,7 +1170,7 @@ impl HierarchyBuilder {
     pub fn add_array_scopes(&mut self, names: Vec<std::borrow::Cow<str>>) {
         for name in names {
             let name_id = self.add_string(name);
-            self.add_scope(name_id, None, ScopeType::VhdlArray, None, None, false);
+            self.add_scope(name_id, None, ScopeType::VhdlArray, None, None, None, false);
         }
     }
 
@@ -1316,12 +1335,13 @@ mod tests {
             std::mem::size_of::<HierarchyStringId>() // name
                 + std::mem::size_of::<HierarchyStringId>() // component name
                 + 1 // tpe
+                + 1 // packed info
                 + 4 // source info
                 + 4 // source info
                 + std::mem::size_of::<ScopeOrVarRef>() // child
                 + std::mem::size_of::<ScopeRef>() // parent
                 + std::mem::size_of::<ScopeOrVarRef>() // next
-                + 3 // padding
+                + 2 // padding
         );
         // currently this all comes out to 40 bytes (= 5x 64-bit pointers)
         assert_eq!(std::mem::size_of::<Scope>(), 40);
