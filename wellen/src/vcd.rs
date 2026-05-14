@@ -1404,8 +1404,8 @@ fn parse_body(
 
     // we reached the end of the file
     match state {
-        BodyState::ParsingFirstToken => {
-            if !first.is_empty() {
+        BodyState::ParsingFirstToken
+            if !first.is_empty() => {
                 match parse_first_token(&first)? {
                     FirstTokenResult::Time(value) => {
                         out.time(value)?;
@@ -1416,7 +1416,6 @@ fn parse_body(
                     _ => {} // nothing to do
                 };
             }
-        }
         BodyState::ParsingIdToken => {
             out.value(first.as_slice(), id.as_slice())?;
         }
@@ -1825,7 +1824,7 @@ x%i"
     #[test]
     fn test_find_tokens() {
         assert_eq!(
-            find_tokens(&b"wire  1    !   CLK".as_slice()),
+            find_tokens(b"wire  1    !   CLK".as_slice()),
             [
                 b"wire".as_slice(),
                 b"1".as_slice(),
@@ -1834,7 +1833,7 @@ x%i"
             ]
         );
         assert_eq!(
-            find_tokens(&b"wire\t1\t!\nCLK".as_slice()),
+            find_tokens(b"wire\t1\t!\nCLK".as_slice()),
             [
                 b"wire".as_slice(),
                 b"1".as_slice(),
@@ -1843,7 +1842,7 @@ x%i"
             ]
         );
         assert_eq!(
-            find_tokens(&b"wire\t\t\t\t1   \t!\nCLK".as_slice()),
+            find_tokens(b"wire\t\t\t\t1   \t!\nCLK".as_slice()),
             [
                 b"wire".as_slice(),
                 b"1".as_slice(),

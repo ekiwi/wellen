@@ -248,7 +248,7 @@ fn test_nvc_issue_77() {
     let scope_parts: Vec<_> = scope_name.split("/").collect();
     let var_ref = waves
         .hierarchy()
-        .lookup_var(&scope_parts, &var_name)
+        .lookup_var(&scope_parts, var_name)
         .unwrap();
     let signal_ref = waves.hierarchy()[var_ref].signal_ref();
     waves.load_signals(&[signal_ref]);

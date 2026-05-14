@@ -80,7 +80,7 @@ fn test_issue_12_regression() {
 
     let var_id = wave
         .hierarchy()
-        .lookup_var(&["test_rom_tb", "soc_inst", "core_inst"], &"state")
+        .lookup_var(&["test_rom_tb", "soc_inst", "core_inst"], "state")
         .unwrap();
     let signal_ref = wave.hierarchy()[var_id].signal_ref();
     wave.load_signals(&[signal_ref]);
@@ -113,7 +113,7 @@ fn test_issue_32_ghw_subtype_record() {
     // check that all fields have been converted into signals
     let spi_signals = ["sclk", "mosi", "miso", "cs_n"];
     for signal in spi_signals {
-        let var_id = h.lookup_var(&scope, &signal).unwrap();
+        let var_id = h.lookup_var(&scope, signal).unwrap();
         assert_eq!(
             h[var_id].full_name(h),
             format!("wellen_32.spisub_s.{signal}")
@@ -151,20 +151,20 @@ fn test_issue_34_ghw_unconstrained_subtype_record() {
     // check record fields
     let p = ["wellen_34", "constrained_s"];
 
-    let datavalid = &h[h.lookup_var(&p, &"datavalid").unwrap()];
+    let datavalid = &h[h.lookup_var(&p, "datavalid").unwrap()];
     assert!(datavalid.is_1bit());
     assert!(datavalid.is_bit_vector());
     assert_eq!(datavalid.var_type(), VarType::StdLogic);
     assert_eq!(datavalid.vhdl_type_name(h), Some("std_logic"));
 
-    let data = &h[h.lookup_var(&p, &"data").unwrap()];
+    let data = &h[h.lookup_var(&p, "data").unwrap()];
     assert_eq!(data.length().unwrap(), 33);
     assert_eq!(data.index().unwrap().lsb(), 0);
     assert_eq!(data.index().unwrap().msb(), 32);
     assert_eq!(data.var_type(), VarType::StdLogicVector);
     assert_eq!(data.vhdl_type_name(h), Some("std_logic_vector"));
 
-    let address = &h[h.lookup_var(&p, &"address").unwrap()];
+    let address = &h[h.lookup_var(&p, "address").unwrap()];
     assert_eq!(address.length().unwrap(), 8);
     assert_eq!(address.index().unwrap().lsb(), 0);
     assert_eq!(address.index().unwrap().msb(), 7);
@@ -243,7 +243,7 @@ fn test_issue_53_array_range_ordering() {
 
     // Extract values for decimals[0]
     let var_id = h
-        .lookup_var(&["bcd_counter_debug_tb", "decimals"], &"[0]")
+        .lookup_var(&["bcd_counter_debug_tb", "decimals"], "[0]")
         .unwrap();
     let signal_ref = h[var_id].signal_ref();
 
@@ -254,7 +254,7 @@ fn test_issue_53_array_range_ordering() {
     }
 
     // Extract values for dec0
-    let var_id = h.lookup_var(&["bcd_counter_debug_tb"], &"dec0").unwrap();
+    let var_id = h.lookup_var(&["bcd_counter_debug_tb"], "dec0").unwrap();
     let signal_ref = h[var_id].signal_ref();
 
     let signal = wave.get_signal(signal_ref).unwrap();

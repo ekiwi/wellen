@@ -164,7 +164,7 @@ fn amaranth_array_support_issue_36() {
     let waves = read(filename).expect("failed to parse");
     let h = waves.hierarchy();
     let o_md_0_0 = &h[h
-        .lookup_var(&["bench", "top", "\\o_md", "[0]"], &"[0]")
+        .lookup_var(&["bench", "top", "\\o_md", "[0]"], "[0]")
         .expect("failed to find bench.top.o_md.[0].[0]")];
     assert!(o_md_0_0.index().is_none());
     assert_eq!(o_md_0_0.length(), Some(32));
@@ -223,7 +223,7 @@ fn enum_definitions_from_vcd_issue_43() {
     let waves = read(filename).expect("failed to parse");
     let h = waves.hierarchy();
     let swap_var = h
-        .lookup_var(&["ve_manual_tb", "memreg_c_i"], &"swap")
+        .lookup_var(&["ve_manual_tb", "memreg_c_i"], "swap")
         .expect("failed to find variable");
     let (swap_enum_name, swap_enum_map) = h[swap_var].enum_type(h).expect("enum type is missing");
     assert_eq!(swap_enum_name, "swap_t");
@@ -250,7 +250,7 @@ fn vcd_delta_cycle_at_zero() {
 
     let mut wave =
         wellen::simple::read_with_options("inputs/pymtl3/CGRA.vcd", &single_thread).unwrap();
-    let clk = wave.hierarchy().lookup_var(&["top"], &"clk").unwrap();
+    let clk = wave.hierarchy().lookup_var(&["top"], "clk").unwrap();
     let clk_signal_ref = wave.hierarchy()[clk].signal_ref();
     wave.load_signals(&[clk_signal_ref]);
     let clk_signal = wave.get_signal(clk_signal_ref).unwrap();

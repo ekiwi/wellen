@@ -770,7 +770,7 @@ impl SignalSource {
         for ((id, is_alias), signal) in orig_ids
             .iter()
             .zip(is_alias.iter())
-            .zip(signals.into_iter())
+            .zip(signals)
         {
             if *is_alias {
                 let slice = hierarchy.get_slice_info(*id).unwrap();
