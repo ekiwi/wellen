@@ -38,7 +38,7 @@ impl BitVectorBuilder {
     }
 
     fn add_change(&mut self, time_idx: TimeTableIdx, value: SignalValueRef) {
-        debug_assert_eq!(value.bits().unwrap(), self.bits);
+        debug_assert_eq!(value.width().unwrap(), self.bits);
         let local_encoding = value.states().unwrap();
         debug_assert!(local_encoding.bits() >= self.max_states.bits());
         if self.bits == 1 {
@@ -127,36 +127,15 @@ fn slice_bit_vector(
     for (time_idx, value) in signal.iter_changes() {
         let out_value = match value {
             SignalValueRef::Binary(data, in_bits) => {
-                slice_n_states(
-                    States::Two,
-                    data,
-                    &mut buf,
-                    msb as usize,
-                    lsb as usize,
-                    in_bits as usize,
-                );
+                slice_n_states(States::Two, data, &mut buf, msb, lsb, in_bits);
                 SignalValueRef::Binary(&buf, result_bits)
             }
             SignalValueRef::FourValue(data, in_bits) => {
-                slice_n_states(
-                    States::Four,
-                    data,
-                    &mut buf,
-                    msb as usize,
-                    lsb as usize,
-                    in_bits as usize,
-                );
+                slice_n_states(States::Four, data, &mut buf, msb, lsb, in_bits);
                 SignalValueRef::FourValue(&buf, result_bits)
             }
             SignalValueRef::NineValue(data, in_bits) => {
-                slice_n_states(
-                    States::Nine,
-                    data,
-                    &mut buf,
-                    msb as usize,
-                    lsb as usize,
-                    in_bits as usize,
-                );
+                slice_n_states(States::Nine, data, &mut buf, msb, lsb, in_bits);
                 SignalValueRef::NineValue(&buf, result_bits)
             }
             _ => unreachable!("expected a bit vector"),
@@ -172,21 +151,21 @@ fn slice_n_states(
     states: States,
     data: &[u8],
     out: &mut Vec<u8>,
-    msb: usize,
-    lsb: usize,
-    in_bits: usize,
+    msb: u32,
+    lsb: u32,
+    in_bits: u32,
 ) {
     let out_bits = msb - lsb + 1;
     debug_assert!(in_bits > out_bits);
     let mut working_byte = 0u8;
     for (out_bit, in_bit) in (lsb..(msb + 1)).enumerate().rev() {
         let rev_in_bit = in_bits - in_bit - 1;
-        let in_byte = data[rev_in_bit / states.bits_in_a_byte()];
+        let in_byte = data[(rev_in_bit / states.bits_in_a_byte()) as usize];
         let in_value =
             (in_byte >> ((in_bit % states.bits_in_a_byte()) * states.bits())) & states.mask();
 
         working_byte = (working_byte << states.bits()) + in_value;
-        if out_bit % states.bits_in_a_byte() == 0 {
+        if out_bit as u32 % states.bits_in_a_byte() == 0 {
             out.push(working_byte);
             working_byte = 0;
         }

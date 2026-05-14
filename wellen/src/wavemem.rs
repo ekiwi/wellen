@@ -309,7 +309,7 @@ fn load_fixed_len_signal(
                 // the lower 2 bits of the time idx delta encode how many state bits are encoded in the local signal
                 let local_encoding =
                     States::try_from_primitive((time_idx_delta_raw & 0x3) as u8).unwrap();
-                let num_bytes = local_encoding.bytes_required(other_len as usize);
+                let num_bytes = local_encoding.bytes_required(other_len);
                 let mut buf = vec![0u8; num_bytes];
                 data.read_exact(buf.as_mut()).unwrap();
                 let (local_len, local_has_meta) = get_len_and_meta(local_encoding, bits);
@@ -761,7 +761,7 @@ impl SignalEncoder {
                     leb128::write::unsigned(&mut self.data, write_value).unwrap();
                 } else {
                     // sometimes we might include some leading zeros that are not necessary
-                    let required_bytes = states.bytes_required(bits as usize);
+                    let required_bytes = states.bytes_required(bits);
                     debug_assert!(value.len() >= required_bytes);
                     let value = &value[(value.len() - required_bytes)..];
 
@@ -775,7 +775,7 @@ impl SignalEncoder {
                         // raw data
                         self.data.extend_from_slice(value);
                     } else {
-                        compress(value, states, min_states, bits as usize, &mut self.data);
+                        compress(value, states, min_states, bits, &mut self.data);
                     }
 
                     // make sure the leading bits are 0
@@ -956,7 +956,7 @@ fn check_min_state(value: &[u8], states: States) -> States {
 }
 
 /// picks a specialized compress implementation
-fn compress(value: &[u8], in_states: States, out_states: States, bits: usize, out: &mut Vec<u8>) {
+fn compress(value: &[u8], in_states: States, out_states: States, bits: u32, out: &mut Vec<u8>) {
     match (in_states, out_states) {
         (States::Nine, States::Two) => {
             compress_template(value, States::Nine, States::Two, bits, out)
@@ -976,15 +976,15 @@ fn compress_template(
     value: &[u8],
     in_states: States,
     out_states: States,
-    bits: usize,
+    bits: u32,
     out: &mut Vec<u8>,
 ) {
     debug_assert!(in_states.bits_in_a_byte() < out_states.bits_in_a_byte());
     let mut working_byte = 0u8;
-    let max_bits = value.len() * in_states.bits_in_a_byte();
+    let max_bits = value.len() as u32 * in_states.bits_in_a_byte();
     for bit in (0..bits).rev() {
         let rev_bit = max_bits - bit - 1;
-        let in_byte = value[rev_bit / in_states.bits_in_a_byte()];
+        let in_byte = value[(rev_bit / in_states.bits_in_a_byte()) as usize];
         let in_value =
             (in_byte >> ((bit % in_states.bits_in_a_byte()) * in_states.bits())) & in_states.mask();
         debug_assert!(in_value <= out_states.mask(), "{in_value:?}");
@@ -1001,12 +1001,12 @@ fn compress_template(
 pub fn write_n_state(states: States, value: &[u8], data: &mut Vec<u8>, meta_data: Option<u8>) {
     let states_bits = states.bits();
     debug_assert!(states_bits == 1 || states_bits == 2 || states_bits == 4);
-    let bits = value.len() * states_bits;
+    let bits = value.len() as u32 * states_bits;
     let bit_values = value.iter().map(|b| bit_char_to_num(*b).unwrap());
     let mut working_byte = 0u8;
     let mut first_push = true;
     for (ii, value) in bit_values.enumerate() {
-        let bit_id = bits - (ii * states_bits) - states_bits;
+        let bit_id = bits - (ii as u32 * states_bits) - states_bits;
         working_byte = (working_byte << states_bits) + value;
         // Is there old data to push?
         // we use the bit_id here instead of just testing ii % bits_in_a_byte == 0
@@ -1124,7 +1124,7 @@ mod tests {
 
     fn do_test_compress(value: String, max_states: States) {
         let min_states = States::from_ascii(value.as_bytes()).unwrap();
-        let bits = value.len();
+        let bits = value.len() as u32;
         // convert string to bit vector
         let max_value = convert_to_bits(max_states, &value);
         // compress

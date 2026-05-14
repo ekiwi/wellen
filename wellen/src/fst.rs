@@ -319,9 +319,8 @@ impl SignalWriter {
 
 #[inline]
 pub fn get_len_and_meta(states: States, bits: u32) -> (usize, bool) {
-    let len = states.bytes_required(bits as usize);
-    let has_meta =
-        (states != States::Two) && (bits as usize).is_multiple_of(states.bits_in_a_byte());
+    let len = states.bytes_required(bits);
+    let has_meta = (states != States::Two) && (bits).is_multiple_of(states.bits_in_a_byte());
     (len, has_meta)
 }
 

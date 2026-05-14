@@ -58,7 +58,7 @@ impl SignalValueRef<'_> {
     }
 
     /// Returns the number of bits in the signal value. Returns None if the value is a real or string.
-    pub fn bits(&self) -> Option<u32> {
+    pub fn width(&self) -> Option<u32> {
         match self {
             SignalValueRef::Event => Some(0),
             SignalValueRef::Binary(_, bits) => Some(*bits),
@@ -78,18 +78,26 @@ impl SignalValueRef<'_> {
         }
     }
 
-    /// Returns a reference to the raw data and a mask. Returns None if the value is a real or string.
-    pub(crate) fn data_and_mask(&self) -> Option<(&[u8], u8)> {
+    /// Iterate over bits, starting with the most significant bit.
+    pub fn iter_bits_msb_to_lsb(&self) -> Option<impl Iterator<Item = u8> + '_> {
+        let (data, bits, states) = self.data_bits_and_states()?;
+        Some((0..bits).rev().map(move |bit| states.get_bit(data, bit)))
+    }
+
+    /// Returns a reference to the raw data, bits and states
+    pub(crate) fn data_bits_and_states(&self) -> Option<(&[u8], u32, States)> {
         match self {
-            SignalValueRef::Binary(data, bits) => Some((*data, States::Two.first_byte_mask(*bits))),
-            SignalValueRef::FourValue(data, bits) => {
-                Some((*data, States::Four.first_byte_mask(*bits)))
-            }
-            SignalValueRef::NineValue(data, bits) => {
-                Some((*data, States::Nine.first_byte_mask(*bits)))
-            }
+            SignalValueRef::Binary(data, bits) => Some((*data, *bits, States::Two)),
+            SignalValueRef::FourValue(data, bits) => Some((*data, *bits, States::Four)),
+            SignalValueRef::NineValue(data, bits) => Some((*data, *bits, States::Nine)),
             _ => None,
         }
+    }
+
+    /// Returns a reference to the raw data and a mask. Returns None if the value is a real or string.
+    pub(crate) fn data_and_mask(&self) -> Option<(&[u8], u8)> {
+        let (data, bits, states) = self.data_bits_and_states()?;
+        Some((data, states.first_byte_mask(bits)))
     }
 }
 
@@ -144,8 +152,6 @@ impl Display for SignalValue {
     }
 }
 
-const TWO_STATE_LOOKUP: [char; 2] = ['0', '1'];
-const FOUR_STATE_LOOKUP: [char; 4] = ['0', '1', 'x', 'z'];
 const NINE_STATE_LOOKUP: [char; 9] = ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-'];
 
 #[repr(u8)]
@@ -191,7 +197,7 @@ impl States {
     }
     /// Returns how many bits are needed in order to encode one bit of state.
     #[inline]
-    pub fn bits(self) -> usize {
+    pub fn bits(self) -> u32 {
         match self {
             States::Two => 1,
             States::Four => 2,
@@ -210,7 +216,7 @@ impl States {
 
     /// Returns how many signal bits can be encoded in a u8.
     #[inline]
-    pub fn bits_in_a_byte(self) -> usize {
+    pub fn bits_in_a_byte(self) -> u32 {
         8 / self.bits()
     }
 
@@ -229,13 +235,24 @@ impl States {
 
     /// Returns how many bytes are required to store bits.
     #[inline]
-    pub fn bytes_required(self, bits: usize) -> usize {
+    pub fn bytes_required(self, bits: u32) -> usize {
         // (bits as usize).div_ceil(self.bits_in_a_byte())
         match self {
-            States::Two => (bits + 7) >> 3,
-            States::Four => (bits + 3) >> 2,
-            States::Nine => (bits + 1) >> 1,
+            States::Two => (bits as usize + 7) >> 3,
+            States::Four => (bits as usize + 3) >> 2,
+            States::Nine => (bits as usize + 1) >> 1,
         }
+    }
+
+    /// Extracts a single bit from a n-state encoding.
+    #[inline]
+    pub fn get_bit(&self, data: &[u8], bit: u32) -> u8 {
+        debug_assert_eq!(data.len(), self.bytes_required(bit));
+        let bit_in_byte = bit % self.bits_in_a_byte();
+        let little_endian_byte_index = (bit / self.bits_in_a_byte()) as usize;
+        let big_endian_byte_index = data.len() - 1 - little_endian_byte_index;
+        let byte = data[big_endian_byte_index];
+        self.mask() & (byte >> (bit_in_byte * self.bits()))
     }
 }
 
@@ -257,6 +274,11 @@ pub fn bit_char_to_num(value: u8) -> Option<u8> {
     }
 }
 
+#[inline]
+fn bit_num_to_char(num: u8) -> Option<char> {
+    NINE_STATE_LOOKUP.get(num as usize).cloned()
+}
+
 fn two_state_to_bit_string(data: &[u8], bits: u32) -> String {
     n_state_to_bit_string(States::Two, data, bits)
 }
@@ -271,11 +293,6 @@ fn nine_state_to_bit_string(data: &[u8], bits: u32) -> String {
 
 #[inline]
 fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
-    let lookup = match states {
-        States::Two => TWO_STATE_LOOKUP.as_slice(),
-        States::Four => FOUR_STATE_LOOKUP.as_slice(),
-        States::Nine => NINE_STATE_LOOKUP.as_slice(),
-    };
     let bits_per_byte = states.bits_in_a_byte() as u32;
     let states_bits = states.bits() as u32;
     let mask = states.mask();
@@ -292,34 +309,17 @@ fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
         let byte0 = data[0];
         for ii in (0..byte0_bits).rev() {
             let value = (byte0 >> (ii * states_bits)) & mask;
-            let char = lookup[value as usize];
-            out.push(char);
+            out.push(bit_num_to_char(value).unwrap());
         }
     }
 
     for byte in data.iter().skip(if byte0_is_special { 1 } else { 0 }) {
         for ii in (0..bits_per_byte).rev() {
             let value = (byte >> (ii * states_bits)) & mask;
-            let char = lookup[value as usize];
-            out.push(char);
+            out.push(bit_num_to_char(value).unwrap());
         }
     }
     out
-}
-
-struct BitIter<'a> {
-    states: States,
-    data: &'a [u8],
-    bits: u32,
-    ii: u32,
-}
-
-impl<'a> Iterator for BitIter<'a> {
-    type Item = u8;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-    }
 }
 
 #[cfg(test)]

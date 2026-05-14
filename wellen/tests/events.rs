@@ -33,7 +33,7 @@ fn collect_events(w: &Waveform, s: &Signal) -> Vec<Time> {
                 matches!(value, SignalValueRef::Event),
                 "{value:?} is not an event"
             );
-            assert_eq!(value.bits().unwrap(), 0);
+            assert_eq!(value.width().unwrap(), 0);
             w.time_table()[time_idx as usize]
         })
         .collect()
