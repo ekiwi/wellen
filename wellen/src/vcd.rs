@@ -5,10 +5,10 @@
 
 use crate::fst::{Attribute, parse_scope_attributes, parse_var_attributes};
 use crate::hierarchy::*;
-use crate::signal::SignalSource;
+use crate::signal::{SignalSource, States};
 use crate::stream::{Filter, StreamEncoder};
 use crate::viewers::ProgressCount;
-use crate::wavemem::{Encoder, States, bit_char_to_num, check_states};
+use crate::wavemem::Encoder;
 use crate::{FileFormat, LoadOptions, SignalValueRef, Time, TimeTable};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -1642,13 +1642,12 @@ pub fn decode_vcd_bit_vec_change(len: NonZeroU32, value: &[u8]) -> (VcdBitVecCha
             Some(v) => *v,
         };
 
-        let bit_value = bit_char_to_num(value_char).unwrap_or_else(|| {
+        let (states, bit_value) = States::from_ascii_bit(value_char).unwrap_or_else(|| {
             panic!(
                 "Failed to parse four state value: {} for signal of size 1",
                 String::from_utf8_lossy(value)
             )
         });
-        let states = States::from_value(bit_value);
         (VcdBitVecChange::SingleBit(bit_value), states)
     } else {
         let value_bits: &[u8] = match value[0] {
@@ -1664,7 +1663,7 @@ pub fn decode_vcd_bit_vec_change(len: NonZeroU32, value: &[u8]) -> (VcdBitVecCha
                 _ => value_bits,
             }
         };
-        let states = check_states(value_bits).unwrap_or_else(|| {
+        let states = States::from_ascii(value_bits).unwrap_or_else(|| {
             panic!(
                 "Bit-vector contains invalid character. Only 2-, 4-, and 9-state signals are supported: {}",
                 String::from_utf8_lossy(value)

@@ -3,7 +3,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use crate::wavemem::States;
+use num_enum::TryFromPrimitive;
 use std::fmt::{Display, Formatter};
 
 pub type Real = f64;
@@ -22,14 +22,10 @@ impl Display for SignalValueRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
             SignalValueRef::Event => write!(f, "Event"),
-            SignalValueRef::Binary(data, bits) => {
-                write!(f, "{}", two_state_to_bit_string(data, *bits))
-            }
-            SignalValueRef::FourValue(data, bits) => {
-                write!(f, "{}", four_state_to_bit_string(data, *bits))
-            }
-            SignalValueRef::NineValue(data, bits) => {
-                write!(f, "{}", nine_state_to_bit_string(data, *bits))
+            SignalValueRef::Binary(..)
+            | SignalValueRef::FourValue(..)
+            | SignalValueRef::NineValue(..) => {
+                write!(f, "{}", self.to_bit_string().unwrap())
             }
             SignalValueRef::String(value) => write!(f, "{value}"),
             SignalValueRef::Real(value) => write!(f, "{value}"),
@@ -124,9 +120,142 @@ impl<'a> From<&'a SignalValue> for SignalValueRef<'a> {
     }
 }
 
+impl<'a> From<SignalValueRef<'a>> for SignalValue {
+    fn from(value: SignalValueRef<'a>) -> Self {
+        Self(match value {
+            SignalValueRef::Event => SignalValueKind::Event,
+            SignalValueRef::Binary(data, bits) => SignalValueKind::Binary(data.to_vec(), bits),
+            SignalValueRef::FourValue(data, bits) => {
+                SignalValueKind::FourValue(data.to_vec(), bits)
+            }
+            SignalValueRef::NineValue(data, bits) => {
+                SignalValueKind::NineValue(data.to_vec(), bits)
+            }
+            SignalValueRef::String(data) => SignalValueKind::String(data.to_string()),
+            SignalValueRef::Real(data) => SignalValueKind::Real(data),
+        })
+    }
+}
+
+impl Display for SignalValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let sig_ref: SignalValueRef = self.into();
+        sig_ref.fmt(f)
+    }
+}
+
 const TWO_STATE_LOOKUP: [char; 2] = ['0', '1'];
 const FOUR_STATE_LOOKUP: [char; 4] = ['0', '1', 'x', 'z'];
 const NINE_STATE_LOOKUP: [char; 9] = ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-'];
+
+#[repr(u8)]
+#[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
+pub enum States {
+    #[default]
+    Two = 0,
+    Four = 1,
+    Nine = 2,
+}
+
+impl States {
+    pub fn from_value(value: u8) -> Option<Self> {
+        if value <= 1 {
+            Some(States::Two)
+        } else if value <= 3 {
+            Some(States::Four)
+        } else if value <= 15 {
+            Some(States::Nine)
+        } else {
+            None
+        }
+    }
+
+    pub fn from_ascii_bit(bit: u8) -> Option<(Self, u8)> {
+        let num = bit_char_to_num(bit)?;
+        Some((Self::from_value(num).unwrap(), num))
+    }
+
+    pub fn from_ascii(string: &[u8]) -> Option<Self> {
+        let mut union = 0;
+        for cc in string {
+            union |= bit_char_to_num(*cc)?;
+        }
+        Self::from_value(union)
+    }
+
+    pub fn join(a: Self, b: Self) -> Self {
+        let num = std::cmp::max(a as u8, b as u8);
+        Self::try_from_primitive(num).unwrap()
+    }
+    /// Returns how many bits are needed in order to encode one bit of state.
+    #[inline]
+    pub fn bits(self) -> usize {
+        match self {
+            States::Two => 1,
+            States::Four => 2,
+            States::Nine => 4,
+        }
+    }
+
+    #[inline]
+    pub fn mask(self) -> u8 {
+        match self {
+            States::Two => 0x1,
+            States::Four => 0x3,
+            States::Nine => 0xf,
+        }
+    }
+
+    /// Returns how many signal bits can be encoded in a u8.
+    #[inline]
+    pub fn bits_in_a_byte(self) -> usize {
+        8 / self.bits()
+    }
+
+    /// Returns how many bits the first byte would contain.
+    #[inline]
+    fn bits_in_first_byte(self, bits: u32) -> u32 {
+        (bits * self.bits() as u32) % u8::BITS
+    }
+
+    /// Creates a mask that will only leave the relevant bits in the first byte.
+    #[inline]
+    pub(crate) fn first_byte_mask(self, bits: u32) -> u8 {
+        let n = self.bits_in_first_byte(bits);
+        if n > 0 { (1u8 << n) - 1 } else { u8::MAX }
+    }
+
+    /// Returns how many bytes are required to store bits.
+    #[inline]
+    pub fn bytes_required(self, bits: usize) -> usize {
+        // (bits as usize).div_ceil(self.bits_in_a_byte())
+        match self {
+            States::Two => (bits + 7) >> 3,
+            States::Four => (bits + 3) >> 2,
+            States::Nine => (bits + 1) >> 1,
+        }
+    }
+}
+
+#[inline]
+pub fn bit_char_to_num(value: u8) -> Option<u8> {
+    match value {
+        // Value shared with 2 and 4-state logic
+        b'0' | b'1' => Some(value - b'0'), // strong 0 / strong 1
+        // Values shared with Verilog 4-state logic
+        b'x' | b'X' => Some(2), // strong o or 1 (unknown)
+        b'z' | b'Z' => Some(3), // high impedance
+        // Values unique to the IEEE Standard Logic Type
+        b'h' | b'H' => Some(4), // weak 1
+        b'u' | b'U' => Some(5), // uninitialized
+        b'w' | b'W' => Some(6), // weak 0 or 1 (unknown)
+        b'l' | b'L' => Some(7), // weak 1
+        b'-' => Some(8),        // don't care
+        _ => None,
+    }
+}
 
 fn two_state_to_bit_string(data: &[u8], bits: u32) -> String {
     n_state_to_bit_string(States::Two, data, bits)
@@ -176,6 +305,21 @@ fn n_state_to_bit_string(states: States, data: &[u8], bits: u32) -> String {
         }
     }
     out
+}
+
+struct BitIter<'a> {
+    states: States,
+    data: &'a [u8],
+    bits: u32,
+    ii: u32,
+}
+
+impl<'a> Iterator for BitIter<'a> {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
 }
 
 #[cfg(test)]

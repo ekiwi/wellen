@@ -3,7 +3,6 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use crate::wavemem::States;
 use crate::{SignalEncoding, SignalRef};
 use num_enum::TryFromPrimitive;
 use std::fmt::{Debug, Formatter};
@@ -11,9 +10,8 @@ use std::num::NonZeroU32;
 
 mod compressed;
 pub use compressed::{CompressedSignal, CompressedTimeTable, Compression};
-mod signals;
 mod value;
-pub use value::{Real, SignalValueRef};
+pub use value::{Real, SignalValueRef, States, bit_char_to_num};
 mod source;
 mod transform;
 pub use source::{SignalSource, SignalSourceImplementation};

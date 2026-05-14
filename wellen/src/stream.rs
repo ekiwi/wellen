@@ -5,8 +5,9 @@
 //! This interface is useful when you want to batch process waveform data instead
 //! of displaying it in a waveform viewer.
 
+use crate::signal::States;
 use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
-use crate::wavemem::{States, check_states, write_n_state};
+use crate::wavemem::write_n_state;
 use crate::{
     FileFormat, Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValueRef,
     Time, WellenError, viewers,
@@ -214,7 +215,7 @@ where
                             String::from_utf8_lossy(value)
                         );
 
-                        let states = check_states(value).unwrap_or_else(|| {
+                        let states = States::from_ascii(value).unwrap_or_else(|| {
                             panic!(
                                 "Unexpected signal value: {}",
                                 String::from_utf8_lossy(value)

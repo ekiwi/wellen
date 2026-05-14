@@ -5,11 +5,11 @@
 
 use crate::hierarchy::*;
 use crate::signal::{
-    FixedWidthEncoding, Signal, SignalSource, SignalSourceImplementation, TimeTableIdx,
+    FixedWidthEncoding, Signal, SignalSource, SignalSourceImplementation, States, TimeTableIdx,
 };
 use crate::stream::{Filter, StreamEncoder};
 use crate::vcd::parse_name;
-use crate::wavemem::{States, check_if_changed_and_truncate, check_states, write_n_state};
+use crate::wavemem::{check_if_changed_and_truncate, write_n_state};
 use crate::{FileFormat, LoadOptions, TimeTable, WellenError};
 use fst_reader::*;
 use rustc_hash::FxHashMap;
@@ -193,7 +193,7 @@ impl SignalWriter {
                         "{}",
                         String::from_utf8_lossy(value)
                     );
-                    let local_encoding = check_states(value).unwrap_or_else(|| {
+                    let local_encoding = States::from_ascii(value).unwrap_or_else(|| {
                         panic!(
                             "Unexpected signal value: {}",
                             String::from_utf8_lossy(value)

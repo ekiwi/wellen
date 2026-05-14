@@ -3,9 +3,10 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
+use super::States;
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::signal::{FixedWidthEncoding, SignalChangeData};
-use crate::wavemem::{States, check_if_changed_and_truncate};
+use crate::wavemem::check_if_changed_and_truncate;
 use crate::{Signal, SignalRef, SignalValueRef, TimeTableIdx};
 
 pub struct BitVectorBuilder {

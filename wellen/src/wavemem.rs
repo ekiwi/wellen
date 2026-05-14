@@ -9,7 +9,8 @@ use crate::Compression;
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::hierarchy::{Hierarchy, SignalRef};
 use crate::signal::{
-    FixedWidthEncoding, Real, Signal, SignalSource, SignalSourceImplementation, Time, TimeTableIdx,
+    FixedWidthEncoding, Real, Signal, SignalSource, SignalSourceImplementation, States, Time,
+    TimeTableIdx, bit_char_to_num,
 };
 use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
 use crate::{SignalEncoding, SignalValueRef, TimeTable};
@@ -297,7 +298,8 @@ fn load_fixed_len_signal(
         let time_idx_delta = match bits {
             1 => {
                 let value = (time_idx_delta_raw & 0xf) as u8;
-                let states = States::from_value(value);
+                // unwrap cannot fail because of prior masking
+                let states = States::from_value(value).unwrap();
                 let meta_data = (states as u8) << 6;
                 out.push(value | meta_data);
                 // time delta is encoded together with the value
@@ -933,81 +935,6 @@ pub(crate) fn compress_signal(signal: &Signal) -> Option<(Vec<u8>, SignalEncodin
     enc.finish()
 }
 
-#[repr(u8)]
-#[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Default)]
-pub enum States {
-    #[default]
-    Two = 0,
-    Four = 1,
-    Nine = 2,
-}
-
-impl States {
-    pub fn from_value(value: u8) -> Self {
-        if value <= 1 {
-            States::Two
-        } else if value <= 3 {
-            States::Four
-        } else {
-            States::Nine
-        }
-    }
-    pub fn join(a: Self, b: Self) -> Self {
-        let num = std::cmp::max(a as u8, b as u8);
-        Self::try_from_primitive(num).unwrap()
-    }
-    /// Returns how many bits are needed in order to encode one bit of state.
-    #[inline]
-    pub fn bits(self) -> usize {
-        match self {
-            States::Two => 1,
-            States::Four => 2,
-            States::Nine => 4,
-        }
-    }
-
-    #[inline]
-    pub fn mask(self) -> u8 {
-        match self {
-            States::Two => 0x1,
-            States::Four => 0x3,
-            States::Nine => 0xf,
-        }
-    }
-
-    /// Returns how many signal bits can be encoded in a u8.
-    #[inline]
-    pub fn bits_in_a_byte(self) -> usize {
-        8 / self.bits()
-    }
-
-    /// Returns how many bits the first byte would contain.
-    #[inline]
-    fn bits_in_first_byte(self, bits: u32) -> u32 {
-        (bits * self.bits() as u32) % u8::BITS
-    }
-
-    /// Creates a mask that will only leave the relevant bits in the first byte.
-    #[inline]
-    pub(crate) fn first_byte_mask(self, bits: u32) -> u8 {
-        let n = self.bits_in_first_byte(bits);
-        if n > 0 { (1u8 << n) - 1 } else { u8::MAX }
-    }
-
-    /// Returns how many bytes are required to store bits.
-    #[inline]
-    pub fn bytes_required(self, bits: usize) -> usize {
-        // (bits as usize).div_ceil(self.bits_in_a_byte())
-        match self {
-            States::Two => (bits + 7) >> 3,
-            States::Four => (bits + 3) >> 2,
-            States::Nine => (bits + 1) >> 1,
-        }
-    }
-}
-
 #[cfg(feature = "benchmark")]
 pub fn check_states_pub(value: &[u8]) -> Option<usize> {
     check_states(value).map(|s| s.bits())
@@ -1025,7 +952,7 @@ fn check_min_state(value: &[u8], states: States) -> States {
             union |= ((*v) >> (ii * states.bits())) & states.mask();
         }
     }
-    States::from_value(union)
+    States::from_value(union).unwrap()
 }
 
 /// picks a specialized compress implementation
@@ -1067,33 +994,6 @@ fn compress_template(
             out.push(working_byte);
             working_byte = 0;
         }
-    }
-}
-
-#[inline]
-pub fn check_states(value: &[u8]) -> Option<States> {
-    let mut union = 0;
-    for cc in value {
-        union |= bit_char_to_num(*cc)?;
-    }
-    Some(States::from_value(union))
-}
-
-#[inline]
-pub fn bit_char_to_num(value: u8) -> Option<u8> {
-    match value {
-        // Value shared with 2 and 4-state logic
-        b'0' | b'1' => Some(value - b'0'), // strong 0 / strong 1
-        // Values shared with Verilog 4-state logic
-        b'x' | b'X' => Some(2), // strong o or 1 (unknown)
-        b'z' | b'Z' => Some(3), // high impedance
-        // Values unique to the IEEE Standard Logic Type
-        b'h' | b'H' => Some(4), // weak 1
-        b'u' | b'U' => Some(5), // uninitialized
-        b'w' | b'W' => Some(6), // weak 0 or 1 (unknown)
-        b'l' | b'L' => Some(7), // weak 1
-        b'-' => Some(8),        // don't care
-        _ => None,
     }
 }
 
@@ -1201,7 +1101,7 @@ mod tests {
     fn do_test_try_write_4_state(value: &[u8], expected: Option<&[u8]>, is_two_state: bool) {
         let mut out = vec![5u8, 7u8];
         let out_starting_len = out.len();
-        let identified_state = check_states(value).unwrap();
+        let identified_state = States::from_ascii(value).unwrap();
         if is_two_state {
             assert_eq!(identified_state, States::Two);
         }
@@ -1223,7 +1123,7 @@ mod tests {
     }
 
     fn do_test_compress(value: String, max_states: States) {
-        let min_states = check_states(value.as_bytes()).unwrap();
+        let min_states = States::from_ascii(value.as_bytes()).unwrap();
         let bits = value.len();
         // convert string to bit vector
         let max_value = convert_to_bits(max_states, &value);
