@@ -305,3 +305,22 @@ fn vcd_character_encoding() {
         SignalValue::String("3±0.3°C and ½×¾ cup of sugar                      ")
     );
 }
+
+/// QuestaSim splits up bit-vectors into their individual bits in some cases.
+/// We need to undo this split similar to what GTKWave does.
+#[test]
+fn vcd_questa_sim_undo_bit_split() {
+    let filename = "inputs/questa-sim/wellen-issue-57-uart.vcd";
+    let waves = read(filename).expect("failed to parse");
+    let prescale_ref = waves
+        .hierarchy()
+        .lookup_var(&[&"tb_uart", &"dut"], &"prescale")
+        .expect("failed to find prescale!");
+    let prescale = waves.hierarchy()[prescale_ref].clone();
+    assert_eq!(
+        prescale.full_name(waves.hierarchy()),
+        "tb_uart.dut.prescale"
+    );
+    // we expect prescale to be reassembled from the individual bit signals
+    assert_eq!(prescale.length(waves.hierarchy()), Some(16));
+}
