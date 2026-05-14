@@ -157,9 +157,8 @@ fn main() {
     let mut signal_load_times = Vec::new();
     let mut signal_sizes = Vec::new();
     let signal_load_start = std::time::Instant::now();
-    for var in hierarchy.get_unique_signals_vars().iter().flatten() {
-        let _signal_name: String = var.full_name(&hierarchy);
-        let ids = [var.signal_ref(); 1];
+    for signal_ref in hierarchy.signals() {
+        let ids = [signal_ref; 1];
         let start = std::time::Instant::now();
         let loaded = wave_source.load_signals(&ids, &hierarchy, load_opts.multi_thread);
         let load_time = start.elapsed();

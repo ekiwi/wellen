@@ -184,13 +184,7 @@ fn test_nvc_xwb_fofb_shaper_filt_tb() {
 }
 
 fn load_all_signals(waves: &mut Waveform) {
-    let all_signals = waves
-        .hierarchy()
-        .get_unique_signals_vars()
-        .iter()
-        .flatten()
-        .map(|v| v.signal_ref())
-        .collect::<Vec<_>>();
+    let all_signals: Vec<_> = waves.hierarchy().signals().collect();
     waves.load_signals(&all_signals);
 }
 

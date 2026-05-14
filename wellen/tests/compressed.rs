@@ -6,19 +6,13 @@ use wellen::simple::Waveform;
 use wellen::*;
 
 fn test_compression(wave: &mut Waveform) {
-    let all_signals: Vec<(SignalRef, String)> = wave
-        .hierarchy()
-        .get_unique_signals_vars()
-        .iter()
-        .flatten()
-        .map(|v| (v.signal_ref(), v.full_name(wave.hierarchy())))
-        .collect();
-    for (idx, signal_name) in all_signals {
+    let signals: Vec<_> = wave.hierarchy().signals().collect();
+    for idx in signals {
         wave.load_signals(&[idx]);
         let signal = wave.get_signal(idx).expect("signal should be loaded!");
         let compressed = CompressedSignal::compress(signal);
         let uncompressed: Signal = compressed.uncompress();
-        assert_eq!(signal, &uncompressed, "{signal_name}");
+        assert_eq!(signal, &uncompressed);
         wave.unload_signals(&[idx]);
     }
     // test time table compression

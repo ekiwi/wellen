@@ -14,11 +14,7 @@ pub fn load_all_signals(our: &mut Waveform) {
 
 #[allow(dead_code)]
 pub fn get_all_signals(h: &Hierarchy) -> Vec<SignalRef> {
-    h.get_unique_signals_vars()
-        .iter()
-        .flatten()
-        .map(|v| v.signal_ref())
-        .collect()
+    h.signals().collect()
 }
 
 #[allow(dead_code)]
@@ -33,16 +29,9 @@ pub fn diff_signals(a: &mut Waveform, b: &mut Waveform, time_factor: u64) {
     let all_signals_fst = get_all_signals(b.hierarchy());
     assert_eq!(all_signals_ghw, all_signals_fst);
 
-    let a_signal_vars: Vec<_> = a
-        .hierarchy()
-        .get_unique_signals_vars()
-        .iter()
-        .flatten()
-        .cloned()
-        .collect();
+    let a_signals: Vec<_> = a.hierarchy().signals().collect();
 
-    for a_signal_var in a_signal_vars.iter() {
-        let signal = a_signal_var.signal_ref();
+    for signal in a_signals {
         let a_signal = a.get_signal(signal).unwrap();
         let b_signal = b.get_signal(signal).unwrap();
 
@@ -54,14 +43,7 @@ pub fn diff_signals(a: &mut Waveform, b: &mut Waveform, time_factor: u64) {
                     assert_eq!(og.elements, of.elements, "{signal:?} @ {time}");
                     let a_value = a_signal.get_value_at(&og, 0);
                     let b_value = b_signal.get_value_at(&of, 0);
-                    diff_signal_value(
-                        *time,
-                        signal,
-                        a_value,
-                        b_value,
-                        Some(a_signal_var),
-                        a.hierarchy(),
-                    );
+                    diff_signal_value(*time, signal, a_value, b_value, None, a.hierarchy());
                 }
                 _ => assert_eq!(offset_g, offset_f),
             }

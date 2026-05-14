@@ -266,7 +266,7 @@ fn diff_hierarchy_item(
                 waveform_var_type_to_string(our_var.var_type())
             );
             if !matches!(our_var.var_type(), VarType::Event) {
-                match our_var.length() {
+                match our_var.length(our_hier) {
                     None => {} // nothing to check
                     Some(size) => {
                         if ref_var.size == 0 {

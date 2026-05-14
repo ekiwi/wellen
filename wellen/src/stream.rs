@@ -127,7 +127,7 @@ where
     time: Option<Time>,
     skipping_time_step: bool,
     /// contains encoding for all _included_ signals (depending on the [Filter] provided)
-    encoding: Vec<Option<SignalEncoding>>,
+    encoding: Vec<SignalEncoding>,
     buf: Vec<u8>,
 }
 
@@ -139,23 +139,16 @@ where
         // remember encoding information for all included signals
         let encoding = match filter.signals {
             None => {
+                // make sure that we do not have any slices
+                for signal in hierarchy.signals() {
+                    assert!(
+                        hierarchy.get_slice_info(signal).is_none(),
+                        "TODO: support signal slices"
+                    );
+                }
+
                 // all signals
-                hierarchy
-                    .get_unique_signals_vars()
-                    .into_iter()
-                    .map(|var| {
-                        Some(match var {
-                            None => SignalEncoding::String, // we do not know!
-                            Some(var) => {
-                                assert!(
-                                    hierarchy.get_slice_info(var.signal_ref()).is_none(),
-                                    "TODO: support signal slices"
-                                );
-                                var.signal_encoding()
-                            }
-                        })
-                    })
-                    .collect::<Vec<_>>()
+                hierarchy.signal_encodings().into()
             }
             Some([]) => {
                 // nothing
@@ -163,13 +156,13 @@ where
             }
             Some(signals) => {
                 let max_index = signals.iter().map(|r| r.index()).max().unwrap();
-                let mut enc = vec![None; max_index + 1];
+                let mut enc = vec![SignalEncoding::Unknown; max_index + 1];
                 for &signal in signals {
                     assert!(
                         hierarchy.get_slice_info(signal).is_none(),
                         "TODO: support signal slices"
                     );
-                    enc[signal.index()] = hierarchy.get_signal_tpe(signal);
+                    enc[signal.index()] = hierarchy.get_signal_tpe(signal).unwrap();
                 }
                 enc
             }
@@ -191,10 +184,14 @@ where
         );
 
         // check to see if the signal should be included
-        let maybe_tpe = self.encoding.get(id as usize).and_then(|a| a.as_ref());
+        let tpe = self
+            .encoding
+            .get(id as usize)
+            .cloned()
+            .unwrap_or(SignalEncoding::Unknown);
         #[allow(unused_assignments)]
         let mut maybe_str = None;
-        if let Some(tpe) = maybe_tpe.cloned() {
+        if tpe != SignalEncoding::Unknown {
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
             let signal_value = match value {
                 FstSignalValue::String(value) => match tpe {
@@ -255,8 +252,12 @@ where
             return;
         }
         // check to see if the signal should be included
-        let maybe_tpe = self.encoding.get(id as usize).and_then(|a| a.as_ref());
-        if let Some(tpe) = maybe_tpe {
+        let tpe = self
+            .encoding
+            .get(id as usize)
+            .cloned()
+            .unwrap_or(SignalEncoding::Unknown);
+        if tpe != SignalEncoding::Unknown {
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
             let time = self.time.unwrap();
             self.buf.clear();
@@ -268,7 +269,7 @@ where
                     );
                     SignalValue::Event
                 }
-                &SignalEncoding::BitVector(len) => {
+                SignalEncoding::BitVector(len) => {
                     let (data, states) = decode_vcd_bit_vec_change(len, value);
 
                     // put data into buffer

@@ -48,7 +48,7 @@ fn test_ghw_enum_encoding() {
     {
         let (enum_name, enum_lits) = h[ee].enum_type(h).unwrap();
         assert_eq!(enum_name, "e");
-        assert_eq!(h[ee].length().unwrap(), 2);
+        assert_eq!(h[ee].length(h).unwrap(), 2);
         // 2 bits are used for the encoding and thus everything is padded to a width of 2
         assert_eq!(enum_lits, [("00", "foo"), ("01", "bar"), ("10", "tada")]);
     }
@@ -152,20 +152,20 @@ fn test_issue_34_ghw_unconstrained_subtype_record() {
     let p = ["wellen_34", "constrained_s"];
 
     let datavalid = &h[h.lookup_var(&p, "datavalid").unwrap()];
-    assert!(datavalid.is_1bit());
-    assert!(datavalid.is_bit_vector());
+    assert!(datavalid.is_1bit(h));
+    assert!(datavalid.is_bit_vector(h));
     assert_eq!(datavalid.var_type(), VarType::StdLogic);
     assert_eq!(datavalid.vhdl_type_name(h), Some("std_logic"));
 
     let data = &h[h.lookup_var(&p, "data").unwrap()];
-    assert_eq!(data.length().unwrap(), 33);
+    assert_eq!(data.length(h).unwrap(), 33);
     assert_eq!(data.index().unwrap().lsb(), 0);
     assert_eq!(data.index().unwrap().msb(), 32);
     assert_eq!(data.var_type(), VarType::StdLogicVector);
     assert_eq!(data.vhdl_type_name(h), Some("std_logic_vector"));
 
     let address = &h[h.lookup_var(&p, "address").unwrap()];
-    assert_eq!(address.length().unwrap(), 8);
+    assert_eq!(address.length(h).unwrap(), 8);
     assert_eq!(address.index().unwrap().lsb(), 0);
     assert_eq!(address.index().unwrap().msb(), 7);
     assert_eq!(address.var_type(), VarType::StdLogicVector);

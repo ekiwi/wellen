@@ -79,7 +79,7 @@ fn diff_hierarchy_item(
                 } else {
                     assert_eq!(g.var_type(), f.var_type(), "{}", g.full_name(ghw));
                 }
-                assert_eq!(g.length(), f.length());
+                assert_eq!(g.length(ghw), f.length(fst));
             }
             // check to see if signal refs are the same, this is not relly guaranteed, but it makes comparing signals nicer!
             assert_eq!(g.signal_ref(), f.signal_ref());

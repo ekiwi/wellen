@@ -473,13 +473,8 @@ type BlockTimeIdx = u16;
 
 impl Encoder {
     pub fn new(hierarchy: &Hierarchy) -> Self {
-        let unique_signal_vars = hierarchy.get_unique_signals_vars();
-        let mut signals = Vec::with_capacity(unique_signal_vars.len());
-        for var in unique_signal_vars {
-            let tpe = match var {
-                None => SignalEncoding::String, // we do not know!
-                Some(var) => var.signal_encoding(),
-            };
+        let mut signals = Vec::with_capacity(hierarchy.signal_encodings().len());
+        for tpe in hierarchy.signal_encodings().iter().cloned() {
             let pos = signals.len();
             signals.push(SignalEncoder::new(tpe, pos));
         }

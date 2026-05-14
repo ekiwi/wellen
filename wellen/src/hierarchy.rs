@@ -390,9 +390,12 @@ impl Var {
         }
     }
 
+    #[inline]
     pub fn var_type(&self) -> VarType {
         self.var_tpe
     }
+
+    #[inline]
     pub fn enum_type<'a>(
         &self,
         hierarchy: &'a Hierarchy,
@@ -405,32 +408,49 @@ impl Var {
         self.vhdl_type_name.map(|i| &hierarchy[i])
     }
 
+    #[inline]
     pub fn direction(&self) -> VarDirection {
         self.direction
     }
+
+    #[inline]
     pub fn index(&self) -> Option<VarIndex> {
         self.index
     }
+
+    #[inline]
     pub fn signal_ref(&self) -> SignalRef {
         self.signal_idx
     }
-    pub fn length(&self) -> Option<u32> {
-        todo!()
+
+    #[inline]
+    pub fn length(&self, h: &Hierarchy) -> Option<u32> {
+        self.signal_encoding(h).length()
     }
-    pub fn is_real(&self) -> bool {
-        todo!()
+
+    #[inline]
+    pub fn is_real(&self, h: &Hierarchy) -> bool {
+        self.signal_encoding(h).is_real()
     }
-    pub fn is_string(&self) -> bool {
-        todo!()
+
+    #[inline]
+    pub fn is_string(&self, h: &Hierarchy) -> bool {
+        self.signal_encoding(h).is_string()
     }
-    pub fn is_bit_vector(&self) -> bool {
-        todo!()
+
+    #[inline]
+    pub fn is_bit_vector(&self, h: &Hierarchy) -> bool {
+        self.signal_encoding(h).is_bit_vector()
     }
-    pub fn is_1bit(&self) -> bool {
-        todo!()
+
+    #[inline]
+    pub fn is_1bit(&self, h: &Hierarchy) -> bool {
+        self.signal_encoding(h).is_1bit()
     }
-    pub fn signal_encoding(&self) -> SignalEncoding {
-        todo!()
+
+    #[inline]
+    pub fn signal_encoding(&self, h: &Hierarchy) -> SignalEncoding {
+        h[self.signal_idx]
     }
 }
 
@@ -720,10 +740,18 @@ impl Hierarchy {
         self.scopes.get(1)
     }
 
-    /// Returns one variable per unique signal in the order of signal handles.
-    /// The value will be None if there is no var pointing to the given handle.
-    pub fn get_unique_signals_vars(&self) -> Vec<Option<Var>> {
-        todo!("change function to return all signal encodings!")
+    /// Encoding for all signals. The position of a signal encoding can be mapped to a SignalRef.
+    pub fn signal_encodings(&self) -> &[SignalEncoding] {
+        &self.signal_encodings
+    }
+
+    /// Iterate over all signal references with a known type.
+    pub fn signals(&self) -> impl Iterator<Item = SignalRef> {
+        self.signal_encodings()
+            .iter()
+            .enumerate()
+            .filter(|(_, enc)| **enc != SignalEncoding::Unknown)
+            .map(|(ii, _)| SignalRef::from_index(ii).unwrap())
     }
 
     /// Size of the Hierarchy in bytes.
@@ -862,6 +890,14 @@ impl Index<HierarchyStringId> for Hierarchy {
 
     fn index(&self, index: HierarchyStringId) -> &Self::Output {
         &self.strings[index.index()]
+    }
+}
+
+impl Index<SignalRef> for Hierarchy {
+    type Output = SignalEncoding;
+
+    fn index(&self, index: SignalRef) -> &Self::Output {
+        &self.signal_encodings[index.index()]
     }
 }
 

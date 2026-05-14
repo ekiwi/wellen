@@ -167,7 +167,7 @@ fn amaranth_array_support_issue_36() {
         .lookup_var(&["bench", "top", "\\o_md", "[0]"], "[0]")
         .expect("failed to find bench.top.o_md.[0].[0]")];
     assert!(o_md_0_0.index().is_none());
-    assert_eq!(o_md_0_0.length(), Some(32));
+    assert_eq!(o_md_0_0.length(h), Some(32));
 }
 
 #[test]
