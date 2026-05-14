@@ -7,7 +7,7 @@ use crate::FileFormat;
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::num::{NonZeroI32, NonZeroU16, NonZeroU32};
-use std::ops::Index;
+use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
@@ -666,12 +666,12 @@ impl HierarchyMetaData {
 // public implementation
 impl Hierarchy {
     /// Returns an iterator over all variables (at all levels).
-    pub fn iter_vars(&self) -> std::slice::Iter<'_, Var> {
+    pub fn all_vars(&self) -> impl Iterator<Item = &Var> + '_ {
         self.vars.iter()
     }
 
     /// Returns an iterator over all scopes (at all levels).
-    pub fn iter_scopes(&self) -> std::slice::Iter<'_, Scope> {
+    pub fn all_scopes(&self) -> impl Iterator<Item = &Scope> + '_ {
         self.scopes.iter()
     }
 
@@ -777,10 +777,6 @@ impl Hierarchy {
 }
 
 impl Hierarchy {
-    pub fn num_unique_signals(&self) -> usize {
-        self.signal_idx_to_var.len()
-    }
-
     /// Retrieves the length of a signal identified by its id by looking up a
     /// variable that refers to the signal.
     pub fn get_signal_tpe(&self, signal_idx: SignalRef) -> Option<SignalEncoding> {
@@ -827,11 +823,23 @@ impl Index<VarRef> for Hierarchy {
     }
 }
 
+impl IndexMut<VarRef> for Hierarchy {
+    fn index_mut(&mut self, index: VarRef) -> &mut Self::Output {
+        &mut self.vars[index.index()]
+    }
+}
+
 impl Index<ScopeRef> for Hierarchy {
     type Output = Scope;
 
     fn index(&self, index: ScopeRef) -> &Self::Output {
         &self.scopes[index.index()]
+    }
+}
+
+impl IndexMut<ScopeRef> for Hierarchy {
+    fn index_mut(&mut self, index: ScopeRef) -> &mut Self::Output {
+        &mut self.scopes[index.index()]
     }
 }
 

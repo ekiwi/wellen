@@ -29,23 +29,23 @@ struct Args {
 }
 
 fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
-    let total_num_elements = hierarchy.iter_vars().len() + hierarchy.iter_scopes().len();
+    let total_num_elements = hierarchy.all_vars().count() + hierarchy.all_scopes().count();
     let reduced_size = hierarchy
-        .iter_scopes()
+        .all_scopes()
         .map(|s| s.name(hierarchy).len())
         .sum::<usize>()
         + hierarchy
-            .iter_vars()
+            .all_vars()
             .map(|v| v.name(hierarchy).len())
             .sum::<usize>();
     // to compute full names efficiently, we do need to save a 16-bit parent pointer which takes some space
     let _parent_overhead = std::mem::size_of::<u16>() * total_num_elements;
     let full_size = hierarchy
-        .iter_scopes()
+        .all_scopes()
         .map(|s| s.full_name(hierarchy).len())
         .sum::<usize>()
         + hierarchy
-            .iter_vars()
+            .all_vars()
             .map(|v| v.full_name(hierarchy).len())
             .sum::<usize>();
     let string_overhead = std::mem::size_of::<String>() * total_num_elements;

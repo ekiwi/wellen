@@ -180,12 +180,12 @@ fn test_physical_type_parsing() {
 
     let var_names = wave
         .hierarchy()
-        .iter_vars()
+        .all_vars()
         .map(|v| v.name(wave.hierarchy()).to_string())
         .collect::<Vec<_>>();
     let signal_refs = wave
         .hierarchy()
-        .iter_vars()
+        .all_vars()
         .map(|v| v.signal_ref())
         .collect::<Vec<_>>();
     wave.load_signals(&signal_refs);
@@ -225,7 +225,7 @@ fn test_issue_53_array_range_ordering() {
 
     let signal_refs = wave
         .hierarchy()
-        .iter_vars()
+        .all_vars()
         .map(|v| v.signal_ref())
         .collect::<Vec<_>>();
     wave.load_signals(&signal_refs);
