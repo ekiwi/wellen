@@ -8,8 +8,8 @@
 use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
 use crate::wavemem::{States, check_states, write_n_state};
 use crate::{
-    FileFormat, Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValue, Time,
-    WellenError, viewers,
+    FileFormat, Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValueRef,
+    Time, WellenError, viewers,
 };
 use fst_reader::FstSignalValue;
 use std::fmt::{Debug, Formatter};
@@ -101,7 +101,7 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
     pub fn stream(
         &mut self,
         filter: &Filter,
-        callback: impl FnMut(Time, SignalRef, SignalValue<'_>),
+        callback: impl FnMut(Time, SignalRef, SignalValueRef<'_>),
     ) -> Result<()> {
         // ensure that none of the signals are slices
         match &mut self.body {
@@ -121,7 +121,7 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
 /// a wavemem.
 pub(crate) struct StreamEncoder<C>
 where
-    C: FnMut(Time, SignalRef, SignalValue<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
 {
     callback: C,
     time: Option<Time>,
@@ -133,7 +133,7 @@ where
 
 impl<C> StreamEncoder<C>
 where
-    C: FnMut(Time, SignalRef, SignalValue<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
 {
     pub(crate) fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> Self {
         // remember encoding information for all included signals
@@ -197,11 +197,11 @@ where
                 FstSignalValue::String(value) => match tpe {
                     SignalEncoding::Event => {
                         debug_assert!(value.is_empty(), "events do not carry data");
-                        SignalValue::Event
+                        SignalValueRef::Event
                     }
                     SignalEncoding::String => {
                         maybe_str = Some(String::from_utf8_lossy(value));
-                        SignalValue::String(maybe_str.as_ref().unwrap())
+                        SignalValueRef::String(maybe_str.as_ref().unwrap())
                     }
 
                     SignalEncoding::BitVector(len) => {
@@ -226,9 +226,9 @@ where
                         write_n_state(states, value, &mut self.buf, None);
 
                         match states {
-                            States::Two => SignalValue::Binary(&self.buf, bits),
-                            States::Four => SignalValue::FourValue(&self.buf, bits),
-                            States::Nine => SignalValue::NineValue(&self.buf, bits),
+                            States::Two => SignalValueRef::Binary(&self.buf, bits),
+                            States::Four => SignalValueRef::FourValue(&self.buf, bits),
+                            States::Nine => SignalValueRef::NineValue(&self.buf, bits),
                         }
                     }
                     SignalEncoding::Real => panic!(
@@ -239,7 +239,7 @@ where
                 },
                 FstSignalValue::Real(value) => {
                     debug_assert_eq!(tpe, SignalEncoding::Real);
-                    SignalValue::Real(*value)
+                    SignalValueRef::Real(*value)
                 }
             };
 
@@ -267,7 +267,7 @@ where
                         value.len() <= 1,
                         "event changes carry no value, or a 1-bit value"
                     );
-                    SignalValue::Event
+                    SignalValueRef::Event
                 }
                 SignalEncoding::BitVector(len) => {
                     let (data, states) = decode_vcd_bit_vec_change(len, value);
@@ -284,9 +284,9 @@ where
 
                     // construct signal data based on number of states
                     match states {
-                        States::Two => SignalValue::Binary(&self.buf, len.get()),
-                        States::Four => SignalValue::FourValue(&self.buf, len.get()),
-                        States::Nine => SignalValue::NineValue(&self.buf, len.get()),
+                        States::Two => SignalValueRef::Binary(&self.buf, len.get()),
+                        States::Four => SignalValueRef::FourValue(&self.buf, len.get()),
+                        States::Nine => SignalValueRef::NineValue(&self.buf, len.get()),
                     }
                 }
                 SignalEncoding::String => {
@@ -296,7 +296,7 @@ where
                         String::from_utf8_lossy(value)
                     );
                     let characters = &value[1..];
-                    SignalValue::String(std::str::from_utf8(characters).unwrap())
+                    SignalValueRef::String(std::str::from_utf8(characters).unwrap())
                 }
                 SignalEncoding::Real => {
                     assert!(
@@ -309,7 +309,7 @@ where
                         .unwrap()
                         .parse::<Real>()
                         .unwrap();
-                    SignalValue::Real(float_value)
+                    SignalValueRef::Real(float_value)
                 }
                 SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
             };

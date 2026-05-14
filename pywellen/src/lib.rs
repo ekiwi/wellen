@@ -8,7 +8,7 @@ use pyo3::{exceptions::PyRuntimeError, prelude::*};
 
 use wellen::{
     viewers::{self},
-    LoadOptions, ScopeType, SignalValue, TimeTableIdx,
+    LoadOptions, ScopeType, SignalValueRef, TimeTableIdx,
 };
 
 pub trait PyErrExt<T> {
@@ -438,8 +438,8 @@ impl Signal {
             .map(|data_offset| self.signal.get_value_at(&data_offset, 0));
         if let Some(signal) = maybe_signal {
             let output = match signal {
-                SignalValue::Real(inner) => Some(inner.into_pyobject(py).unwrap().into_any()),
-                SignalValue::String(str) => Some(str.into_pyobject(py).unwrap().into_any()),
+                SignalValueRef::Real(inner) => Some(inner.into_pyobject(py).unwrap().into_any()),
+                SignalValueRef::String(str) => Some(str.into_pyobject(py).unwrap().into_any()),
                 _ => match BigUint::try_from_signal(signal) {
                     // If this signal is 2bits, this function will return an int
                     Some(number) => Some(number.into_pyobject(py).unwrap().into_any()),

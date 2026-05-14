@@ -396,7 +396,7 @@ fn diff_signals<R: BufRead>(
                 let signal_ref = id_map[&id];
                 assert_eq!(current_time.unwrap_or(0), time_table[time_table_idx]);
                 let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
-                if let SignalValue::Real(our_real) = our_value {
+                if let SignalValueRef::Real(our_real) = our_value {
                     assert_eq!(our_real, value);
                 } else {
                     panic!("Expected real value, got: {our_value:?}");

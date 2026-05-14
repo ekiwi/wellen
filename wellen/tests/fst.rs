@@ -274,17 +274,17 @@ fn fst_character_encoding() {
     let offset = signal.get_offset(0).unwrap();
     assert_eq!(
         signal.get_value_at(&offset, 1),
-        SignalValue::String("En lång röd räv                                   ")
+        SignalValueRef::String("En lång röd räv                                   ")
     );
     let offset = signal.get_offset(1).unwrap();
     assert_eq!(
         signal.get_value_at(&offset, 0),
-        SignalValue::String("Viel \"spaß\" und überraschung¡                     ")
+        SignalValueRef::String("Viel \"spaß\" und überraschung¡                     ")
     );
     let offset = signal.get_offset(2).unwrap();
     assert_eq!(
         signal.get_value_at(&offset, 0),
-        SignalValue::String("3±0.3°C and ½×¾ cup of sugar                      ")
+        SignalValueRef::String("3±0.3°C and ½×¾ cup of sugar                      ")
     );
 }
 

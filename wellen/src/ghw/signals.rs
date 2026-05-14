@@ -4,7 +4,7 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::ghw::common::*;
-use crate::signals::SignalSource;
+use crate::signal::SignalSource;
 use crate::wavemem::{Encoder, States};
 use crate::{Hierarchy, SignalRef, TimeTable};
 use std::io::BufRead;

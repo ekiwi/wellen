@@ -4,7 +4,7 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::hierarchy::*;
-use crate::signals::{
+use crate::signal::{
     FixedWidthEncoding, Signal, SignalSource, SignalSourceImplementation, TimeTableIdx,
 };
 use crate::stream::{Filter, StreamEncoder};
@@ -825,7 +825,7 @@ pub fn stream_body<R: BufRead + Seek>(
     data: &mut ReadBodyContinuation<R>,
     hierarchy: &Hierarchy,
     filter: &Filter,
-    callback: impl FnMut(crate::Time, SignalRef, crate::SignalValue<'_>),
+    callback: impl FnMut(crate::Time, SignalRef, crate::SignalValueRef<'_>),
 ) -> Result<()> {
     let reader = &mut data.0;
 

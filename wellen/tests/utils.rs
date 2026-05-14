@@ -4,7 +4,7 @@
 
 use rustc_hash::FxHashMap;
 use wellen::simple::Waveform;
-use wellen::{Hierarchy, SignalRef, SignalValue, Time, TimeTableIdx, Var};
+use wellen::{Hierarchy, SignalRef, SignalValueRef, Time, TimeTableIdx, Var};
 
 #[allow(dead_code)]
 pub fn load_all_signals(our: &mut Waveform) {
@@ -57,7 +57,7 @@ pub fn get_value<'a>(
     signal_ref: SignalRef,
     time_table_idx: usize,
     delta_counter: &mut FxHashMap<SignalRef, u16>,
-) -> SignalValue<'a> {
+) -> SignalValueRef<'a> {
     let our_signal = our.get_signal(signal_ref).unwrap();
     let our_offset = our_signal.get_offset(time_table_idx as u32).unwrap();
     // deal with delta cycles
@@ -84,18 +84,18 @@ pub fn get_value<'a>(
 pub fn diff_signal_value(
     time: Time,
     signal: SignalRef,
-    a_value: SignalValue,
-    b_value: SignalValue,
+    a_value: SignalValueRef,
+    b_value: SignalValueRef,
     a_signal_var: Option<&Var>,
     h: &Hierarchy,
 ) {
     ensure_minimal_format(a_value);
     ensure_minimal_format(b_value);
     match (a_value, b_value) {
-        (SignalValue::String(gs), SignalValue::String(fs)) => {
+        (SignalValueRef::String(gs), SignalValueRef::String(fs)) => {
             assert_eq!(gs, fs, "{signal:?} @ {time}");
         }
-        (g_value, SignalValue::String(fs)) => {
+        (g_value, SignalValueRef::String(fs)) => {
             if let Some(signal_var) = a_signal_var {
                 if let Some((_, mapping)) = signal_var.enum_type(h) {
                     // find enum value
@@ -120,7 +120,7 @@ pub fn diff_signal_value(
                 }
             }
         }
-        (SignalValue::Real(a_real), SignalValue::Real(b_real)) => {
+        (SignalValueRef::Real(a_real), SignalValueRef::Real(b_real)) => {
             assert_eq!(a_real, b_real, "{signal:?} @ {time}");
         }
         (g_value, f_value) => {
@@ -139,16 +139,16 @@ pub fn diff_signal_value(
 
 #[allow(dead_code)]
 /// Checks to make sure that 4 and 9 state signals are only used when they are required.
-fn ensure_minimal_format(signal_value: SignalValue) {
+fn ensure_minimal_format(signal_value: SignalValueRef) {
     match signal_value {
-        SignalValue::FourValue(_, _) => {
+        SignalValueRef::FourValue(_, _) => {
             let value_str = signal_value.to_bit_string().unwrap();
             assert!(
                 value_str.contains('x') || value_str.contains('z'),
                 "{value_str} does not need to be represented as a 4-state signal"
             )
         }
-        SignalValue::NineValue(_, _) => {
+        SignalValueRef::NineValue(_, _) => {
             let value_str = signal_value.to_bit_string().unwrap();
             assert!(
                 value_str.contains('h')

@@ -61,7 +61,7 @@ fn test_ghw_enum_encoding() {
         let off = ee_signal.get_offset(id as TimeTableIdx).unwrap();
         let value = ee_signal.get_value_at(&off, 0);
         assert_eq!(value.to_bit_string().unwrap().len(), 2);
-        assert!(matches!(value, SignalValue::Binary(_, 2)));
+        assert!(matches!(value, SignalValueRef::Binary(_, 2)));
     }
 }
 

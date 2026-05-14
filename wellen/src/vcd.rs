@@ -5,11 +5,11 @@
 
 use crate::fst::{Attribute, parse_scope_attributes, parse_var_attributes};
 use crate::hierarchy::*;
-use crate::signals::SignalSource;
+use crate::signal::SignalSource;
 use crate::stream::{Filter, StreamEncoder};
 use crate::viewers::ProgressCount;
 use crate::wavemem::{Encoder, States, bit_char_to_num, check_states};
-use crate::{FileFormat, LoadOptions, SignalValue, Time, TimeTable};
+use crate::{FileFormat, LoadOptions, SignalValueRef, Time, TimeTable};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -1439,7 +1439,7 @@ pub fn stream_body<R: BufRead + Seek>(
     data: &mut ReadBodyContinuation<R>,
     hierarchy: &Hierarchy,
     filter: &Filter,
-    callback: impl FnMut(Time, SignalRef, SignalValue<'_>),
+    callback: impl FnMut(Time, SignalRef, SignalValueRef<'_>),
 ) -> Result<()> {
     let mut disp = VcdStreamDispatcher {
         enc: StreamEncoder::new(hierarchy, filter, callback),
@@ -1467,7 +1467,7 @@ pub fn stream_body<R: BufRead + Seek>(
 
 struct VcdStreamDispatcher<'a, C>
 where
-    C: FnMut(Time, SignalRef, SignalValue<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
 {
     enc: StreamEncoder<C>,
     lookup: &'a IdLookup,
@@ -1475,7 +1475,7 @@ where
 
 impl<C> ParseBodyOutput for VcdStreamDispatcher<'_, C>
 where
-    C: FnMut(Time, SignalRef, SignalValue<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
 {
     #[inline]
     fn time(&mut self, value: u64) -> Result<()> {

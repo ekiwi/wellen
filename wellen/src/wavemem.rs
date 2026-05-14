@@ -1,18 +1,18 @@
 // Copyright 2023-2024 The Regents of the University of California
-// Copyright 2024-2025 Cornell University
+// Copyright 2024-2026 Cornell University
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 //
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
-use crate::compressed::Compression;
+use crate::Compression;
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::hierarchy::{Hierarchy, SignalRef};
-use crate::signals::{
+use crate::signal::{
     FixedWidthEncoding, Real, Signal, SignalSource, SignalSourceImplementation, Time, TimeTableIdx,
 };
 use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
-use crate::{SignalEncoding, SignalValue, TimeTable};
+use crate::{SignalEncoding, SignalValueRef, TimeTable};
 use num_enum::TryFromPrimitive;
 use rayon::prelude::*;
 use std::borrow::Cow;
@@ -922,9 +922,9 @@ pub(crate) fn compress_signal(signal: &Signal) -> Option<(Vec<u8>, SignalEncodin
                 enc.add_n_bit_change(time, &scratch, states);
                 scratch.clear();
             }
-        } else if let SignalValue::Real(data) = value {
+        } else if let SignalValueRef::Real(data) = value {
             enc.add_real_change(time, data);
-        } else if let SignalValue::String(data) = value {
+        } else if let SignalValueRef::String(data) = value {
             enc.add_str_change(time, data);
         } else {
             unreachable!()
