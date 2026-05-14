@@ -767,11 +767,7 @@ impl SignalSource {
         // the signal source must always return the correct number of signals!
         assert_eq!(signals.len(), ids.len());
         let mut out = Vec::with_capacity(orig_ids.len());
-        for ((id, is_alias), signal) in orig_ids
-            .iter()
-            .zip(is_alias.iter())
-            .zip(signals)
-        {
+        for ((id, is_alias), signal) in orig_ids.iter().zip(is_alias.iter()).zip(signals) {
             if *is_alias {
                 let slice = hierarchy.get_slice_info(*id).unwrap();
                 let sliced = slice_signal(*id, &signal, slice.msb, slice.lsb);

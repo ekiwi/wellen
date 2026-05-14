@@ -103,6 +103,7 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
         filter: &Filter,
         callback: impl FnMut(Time, SignalRef, SignalValue<'_>),
     ) -> Result<()> {
+        // ensure that none of the signals are slices
         match &mut self.body {
             viewers::ReadBodyData::Vcd(data) => {
                 crate::vcd::stream_body(data, &self.hierarchy, filter, callback)?
@@ -145,7 +146,13 @@ where
                     .map(|var| {
                         Some(match var {
                             None => SignalEncoding::String, // we do not know!
-                            Some(var) => var.signal_encoding(),
+                            Some(var) => {
+                                assert!(
+                                    hierarchy.get_slice_info(var.signal_ref()).is_none(),
+                                    "TODO: support signal slices"
+                                );
+                                var.signal_encoding()
+                            }
                         })
                     })
                     .collect::<Vec<_>>()
@@ -158,6 +165,10 @@ where
                 let max_index = signals.iter().map(|r| r.index()).max().unwrap();
                 let mut enc = vec![None; max_index + 1];
                 for &signal in signals {
+                    assert!(
+                        hierarchy.get_slice_info(signal).is_none(),
+                        "TODO: support signal slices"
+                    );
                     enc[signal.index()] = hierarchy.get_signal_tpe(signal);
                 }
                 enc

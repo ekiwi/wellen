@@ -1404,18 +1404,17 @@ fn parse_body(
 
     // we reached the end of the file
     match state {
-        BodyState::ParsingFirstToken
-            if !first.is_empty() => {
-                match parse_first_token(&first)? {
-                    FirstTokenResult::Time(value) => {
-                        out.time(value)?;
-                    }
-                    FirstTokenResult::OneBitValue => {
-                        out.value(&first[0..1], &first[1..])?;
-                    }
-                    _ => {} // nothing to do
-                };
-            }
+        BodyState::ParsingFirstToken if !first.is_empty() => {
+            match parse_first_token(&first)? {
+                FirstTokenResult::Time(value) => {
+                    out.time(value)?;
+                }
+                FirstTokenResult::OneBitValue => {
+                    out.value(&first[0..1], &first[1..])?;
+                }
+                _ => {} // nothing to do
+            };
+        }
         BodyState::ParsingIdToken => {
             out.value(first.as_slice(), id.as_slice())?;
         }
