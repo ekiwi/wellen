@@ -9,7 +9,7 @@ use crate::signal::{FixedWidthEncoding, SignalChangeData};
 use crate::wavemem::check_if_changed_and_truncate;
 use crate::{Signal, SignalRef, SignalValueRef, TimeTableIdx};
 
-pub struct BitVectorBuilder {
+struct BitVectorBuilder {
     max_states: States,
     bits: u32,
     len: usize,
