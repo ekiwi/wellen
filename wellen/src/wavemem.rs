@@ -190,6 +190,7 @@ pub(crate) fn load_compressed_signal(
                     &mut data_bytes,
                 );
             }
+            SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
         }
     }
 
@@ -223,6 +224,7 @@ pub(crate) fn load_compressed_signal(
             assert!(strings.is_empty());
             Signal::new_fixed_len(id, time_indices, FixedWidthEncoding::Real, 8, data_bytes)
         }
+        SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
     }
 }
 
@@ -875,6 +877,7 @@ impl SignalEncoder {
                 leb128::write::unsigned(&mut self.data, u64::from(time_idx_delta)).unwrap();
                 self.data.extend_from_slice(&float_value.to_le_bytes());
             }
+            SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
         }
         self.prev_time_idx = time_index;
     }

@@ -257,6 +257,7 @@ impl SignalWriter {
                     "Expecting reals, but got: {}",
                     String::from_utf8_lossy(value)
                 ),
+                SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
             },
             FstSignalValue::Real(value) => {
                 debug_assert_eq!(self.tpe, SignalEncoding::Real);
@@ -311,6 +312,7 @@ impl SignalWriter {
                     self.data_bytes,
                 )
             }
+            SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
         }
     }
 }

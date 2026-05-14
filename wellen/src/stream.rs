@@ -1,4 +1,4 @@
-// Copyright 2025 Cornell University
+// Copyright 2025-26 Cornell University
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 //! # Stream Interface
@@ -238,6 +238,7 @@ where
                         "Expecting reals, but got: {}",
                         String::from_utf8_lossy(value)
                     ),
+                    SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
                 },
                 FstSignalValue::Real(value) => {
                     debug_assert_eq!(tpe, SignalEncoding::Real);
@@ -309,6 +310,7 @@ where
                         .unwrap();
                     SignalValue::Real(float_value)
                 }
+                SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
             };
 
             (self.callback)(time, signal_ref, signal_value);

@@ -1,5 +1,5 @@
 // Copyright 2023-2024 The Regents of the University of California
-// Copyright 2024-2025 Cornell University
+// Copyright 2024-2026 Cornell University
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
@@ -304,6 +304,8 @@ pub enum SignalEncoding {
     BitVector(NonZeroU32),
     /// essentially a bit vector of size 0
     Event,
+    /// the encoding was never supplied
+    Unknown,
 }
 
 impl SignalEncoding {
@@ -314,6 +316,31 @@ impl SignalEncoding {
             Some(value) => SignalEncoding::BitVector(value),
         }
     }
+
+    pub fn length(&self) -> Option<u32> {
+        match &self {
+            SignalEncoding::String | SignalEncoding::Real | SignalEncoding::Unknown => None,
+            SignalEncoding::Event => Some(0),
+            SignalEncoding::BitVector(len) => Some(len.get()),
+        }
+    }
+
+    pub fn is_real(&self) -> bool {
+        matches!(self, SignalEncoding::Real)
+    }
+    pub fn is_string(&self) -> bool {
+        matches!(self, SignalEncoding::String)
+    }
+    pub fn is_bit_vector(&self) -> bool {
+        matches!(self, SignalEncoding::BitVector(_))
+    }
+
+    pub fn is_1bit(&self) -> bool {
+        match self.length() {
+            Some(l) => l == 1,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -322,7 +349,6 @@ pub struct Var {
     name: HierarchyStringId,
     var_tpe: VarType,
     direction: VarDirection,
-    signal_encoding: SignalEncoding,
     index: Option<VarIndex>,
     signal_idx: SignalRef,
     enum_type: Option<EnumTypeId>,
@@ -389,30 +415,22 @@ impl Var {
         self.signal_idx
     }
     pub fn length(&self) -> Option<u32> {
-        match &self.signal_encoding {
-            SignalEncoding::String => None,
-            SignalEncoding::Real => None,
-            SignalEncoding::Event => Some(0),
-            SignalEncoding::BitVector(len) => Some(len.get()),
-        }
+        todo!()
     }
     pub fn is_real(&self) -> bool {
-        matches!(self.signal_encoding, SignalEncoding::Real)
+        todo!()
     }
     pub fn is_string(&self) -> bool {
-        matches!(self.signal_encoding, SignalEncoding::String)
+        todo!()
     }
     pub fn is_bit_vector(&self) -> bool {
-        matches!(self.signal_encoding, SignalEncoding::BitVector(_))
+        todo!()
     }
     pub fn is_1bit(&self) -> bool {
-        match self.length() {
-            Some(l) => l == 1,
-            _ => false,
-        }
+        todo!()
     }
     pub fn signal_encoding(&self) -> SignalEncoding {
-        self.signal_encoding
+        todo!()
     }
 }
 
@@ -637,7 +655,7 @@ pub struct Hierarchy {
     strings: Vec<String>,
     source_locs: Vec<SourceLoc>,
     enums: Vec<EnumType>,
-    signal_idx_to_var: Vec<Option<VarRef>>,
+    signal_encodings: Vec<SignalEncoding>,
     meta: HierarchyMetaData,
     slices: FxHashMap<SignalRef, SignalSlice>,
 }
@@ -705,15 +723,7 @@ impl Hierarchy {
     /// Returns one variable per unique signal in the order of signal handles.
     /// The value will be None if there is no var pointing to the given handle.
     pub fn get_unique_signals_vars(&self) -> Vec<Option<Var>> {
-        let mut out = Vec::with_capacity(self.signal_idx_to_var.len());
-        for maybe_var_id in &self.signal_idx_to_var {
-            if let Some(var_id) = maybe_var_id {
-                out.push(Some((self[*var_id]).clone()));
-            } else {
-                out.push(None)
-            }
-        }
-        out
+        todo!("change function to return all signal encodings!")
     }
 
     /// Size of the Hierarchy in bytes.
@@ -722,8 +732,13 @@ impl Hierarchy {
         let scope_size = self.scopes.capacity() * std::mem::size_of::<Scope>();
         let string_size = self.strings.capacity() * std::mem::size_of::<String>()
             + self.strings.iter().map(|s| s.len()).sum::<usize>();
-        let handle_lookup_size = self.signal_idx_to_var.capacity() * std::mem::size_of::<VarRef>();
-        var_size + scope_size + string_size + handle_lookup_size + std::mem::size_of::<Hierarchy>()
+        let signal_encodings_size =
+            self.signal_encodings.capacity() * std::mem::size_of::<SignalEncoding>();
+        var_size
+            + scope_size
+            + string_size
+            + signal_encodings_size
+            + std::mem::size_of::<Hierarchy>()
     }
 
     pub fn date(&self) -> &str {
@@ -780,8 +795,7 @@ impl Hierarchy {
     /// Retrieves the length of a signal identified by its id by looking up a
     /// variable that refers to the signal.
     pub fn get_signal_tpe(&self, signal_idx: SignalRef) -> Option<SignalEncoding> {
-        let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
-        Some(self[var_id].signal_encoding)
+        self.signal_encodings.get(signal_idx.index()).copied()
     }
 
     pub fn get_slice_info(&self, signal_idx: SignalRef) -> Option<SignalSlice> {
@@ -864,7 +878,7 @@ pub struct HierarchyBuilder {
     scope_stack: Vec<ScopeStackEntry>,
     source_locs: Vec<SourceLoc>,
     enums: Vec<EnumType>,
-    handle_to_node: Vec<Option<VarRef>>,
+    signal_encodings: Vec<SignalEncoding>,
     meta: HierarchyMetaData,
     slices: FxHashMap<SignalRef, SignalSlice>,
     /// used to deduplicate strings
@@ -911,7 +925,7 @@ impl HierarchyBuilder {
             strings,
             source_locs: Vec::default(),
             enums: Vec::default(),
-            handle_to_node: Vec::default(),
+            signal_encodings: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
             slices: FxHashMap::default(),
             scope_child_count: vec![0],
@@ -927,7 +941,7 @@ impl HierarchyBuilder {
         self.strings.shrink_to_fit();
         self.source_locs.shrink_to_fit();
         self.enums.shrink_to_fit();
-        self.handle_to_node.shrink_to_fit();
+        self.signal_encodings.shrink_to_fit();
         self.slices.shrink_to_fit();
         Hierarchy {
             vars: self.vars,
@@ -935,9 +949,9 @@ impl HierarchyBuilder {
             strings: self.strings.into_iter().collect::<Vec<_>>(),
             source_locs: self.source_locs,
             enums: self.enums,
-            signal_idx_to_var: self.handle_to_node,
             meta: self.meta,
             slices: self.slices,
+            signal_encodings: self.signal_encodings,
         }
     }
 
@@ -1198,12 +1212,20 @@ impl HierarchyBuilder {
         let var_id = VarRef::from_index(node_id).unwrap();
         let parent = self.add_to_hierarchy_tree(var_id.into());
 
-        // add lookup
-        let handle_idx = signal_idx.index();
-        if self.handle_to_node.len() <= handle_idx {
-            self.handle_to_node.resize(handle_idx + 1, None);
+        // update signal encoding
+        let ii = signal_idx.index();
+        if self.signal_encodings.len() <= ii {
+            self.signal_encodings
+                .resize(ii + 1, SignalEncoding::Unknown);
         }
-        self.handle_to_node[handle_idx] = Some(var_id);
+        debug_assert!(
+            self.signal_encodings[ii] == SignalEncoding::Unknown
+                || self.signal_encodings[ii] == signal_tpe,
+            "Trying to redefine signal encoding: {:?} -> {:?}",
+            self.signal_encodings[ii],
+            signal_tpe
+        );
+        self.signal_encodings[ii] = signal_tpe;
 
         // now we can build the node data structure and store it
         let node = Var {
@@ -1212,7 +1234,6 @@ impl HierarchyBuilder {
             var_tpe: tpe,
             index,
             direction,
-            signal_encoding: signal_tpe,
             signal_idx,
             enum_type,
             next: None,
@@ -1326,7 +1347,6 @@ mod tests {
             std::mem::size_of::<HierarchyStringId>()        // name
                 + std::mem::size_of::<VarType>()            // var_tpe
                 + std::mem::size_of::<VarDirection>()       // direction
-                + std::mem::size_of::<SignalEncoding>()     // signal_encoding
                 + std::mem::size_of::<Option<VarIndex>>()   // index
                 + std::mem::size_of::<SignalRef>()          // signal_idx
                 + std::mem::size_of::<Option<EnumTypeId>>() // enum type
@@ -1334,8 +1354,8 @@ mod tests {
                 + std::mem::size_of::<Option<ScopeRef>>()   // parent
                 + std::mem::size_of::<ScopeOrVarRef>() // next
         );
-        // currently this all comes out to 48 bytes (~= 6x 64-bit pointers)
-        assert_eq!(std::mem::size_of::<Var>(), 48);
+        // currently this all comes out to 40 bytes (~= 5x 64-bit pointers)
+        assert_eq!(std::mem::size_of::<Var>(), 40);
 
         // Scope
         assert_eq!(
