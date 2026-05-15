@@ -1243,26 +1243,41 @@ impl HierarchyBuilder {
     /// In this case, the two variables are merged into one.
     /// This is important to deal with QuestaSim and ModelSim splitting bit-vectors into
     /// individual bits when generating VCDs.
-    fn check_for_split_var(
-        &mut self,
-        new_name: HierarchyStringId,
-        signal_encoding: SignalEncoding,
-        index: VarIndex,
-    ) -> bool {
+    fn check_for_split_var(&mut self, new_name: HierarchyStringId, index: VarIndex) -> bool {
         // lookup previous item
         let entry_pos = find_parent_scope(&self.scope_stack);
         let entry = &mut self.scope_stack[entry_pos];
         // is it a variable?
         if let Some(ScopeOrVarRef::Var(prev_var_ref)) = entry.last_child {
             let prev_var = &mut self.vars[prev_var_ref.index()];
-            // does the name match?
+            let prev_enc = &mut self.signal_encodings[prev_var.signal_idx.index()];
+            // does the name match? does the variable have an index and a bit-vector length?
             if prev_var.name == new_name
                 && let Some(prev_index) = prev_var.index
+                && let SignalEncoding::BitVector(len) = prev_enc
             {
+                debug_assert_eq!(prev_index.length(), len.get());
                 let new_is_msb = index.lsb() == prev_index.msb() + 1;
                 let new_is_lsb = prev_index.lsb() == index.msb() + 1;
                 if new_is_lsb || new_is_msb {
-                    todo!("we got a match, now combine! {prev_index:?} {index:?}")
+                    // modify existing variable (we assume that the other properties are the same
+                    let new_index = if new_is_msb {
+                        VarIndex::new(index.msb(), prev_index.lsb())
+                    } else {
+                        VarIndex::new(prev_index.msb(), index.lsb())
+                    };
+                    prev_var.index = Some(new_index);
+
+                    // update the signal
+                    print!("old len={}  -- ", len.get());
+                    *len = NonZeroU32::new(new_index.length()).unwrap();
+                    println!(
+                        "TODO: actually make the signal a compound signal (new_len={}, new_index={new_index:?})",
+                        len.get()
+                    );
+
+                    // a merge happened!
+                    return true;
                 }
             }
         }
@@ -1281,10 +1296,13 @@ impl HierarchyBuilder {
         enum_type: Option<EnumTypeId>,
         vhdl_type_name: Option<HierarchyStringId>,
     ) {
+        println!("{} {index:?}", self.strings[name.index()]);
+
         if let Some(ii) = index
-            && self.check_for_split_var(name, signal_tpe, ii)
+            && self.check_for_split_var(name, ii)
         {
-            todo!()
+            // we merged with an existing variable, no need to add a new one
+            return;
         }
 
         let node_id = self.vars.len();
@@ -1300,9 +1318,10 @@ impl HierarchyBuilder {
         debug_assert!(
             self.signal_encodings[ii] == SignalEncoding::Unknown
                 || self.signal_encodings[ii] == signal_tpe,
-            "Trying to redefine signal encoding: {:?} -> {:?}",
+            "Trying to redefine signal encoding: {:?} -> {:?} for {}",
             self.signal_encodings[ii],
-            signal_tpe
+            signal_tpe,
+            self.strings[name.index()],
         );
         self.signal_encodings[ii] = signal_tpe;
 

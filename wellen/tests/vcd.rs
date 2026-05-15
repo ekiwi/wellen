@@ -25,6 +25,22 @@ fn check_no_duplicate_scopes(h: &Hierarchy) {
     }
 }
 
+fn check_no_duplicate_var(h: &Hierarchy) {
+    let mut todo = Vec::from_iter(h.all_scopes());
+    while let Some(scope) = todo.pop() {
+        let mut seen = FxHashSet::default();
+        for child in scope.vars(h) {
+            let name = h[child].name(h);
+            assert!(
+                !seen.contains(name),
+                "Duplicate var of same name `{name}` found in {}",
+                scope.full_name(h)
+            );
+            seen.insert(name.to_string());
+        }
+    }
+}
+
 #[test]
 fn test_vcd_not_starting_at_zero() {
     let filename = "inputs/gameroy/trace_prefix.vcd";
@@ -321,6 +337,10 @@ fn vcd_questa_sim_undo_bit_split() {
         prescale.full_name(waves.hierarchy()),
         "tb_uart.dut.prescale"
     );
+
+    check_no_duplicate_var(waves.hierarchy());
     // we expect prescale to be reassembled from the individual bit signals
     assert_eq!(prescale.length(waves.hierarchy()), Some(16));
+
+    check_no_duplicate_var(waves.hierarchy());
 }
