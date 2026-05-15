@@ -441,10 +441,10 @@ fn set_value(bits: u32, states: States, data: &mut [u8], bit: u32, value: u8) {
 #[inline]
 fn get_data_index(bits: u32, bit: u32, states: States) -> (usize, usize) {
     debug_assert!(bit < bits);
-    let bits_in_a_byte = states.bits_in_a_byte() as u32;
+    let bits_in_a_byte = states.bits_in_a_byte();
     let bytes = bits.div_ceil(bits_in_a_byte);
     let index = bytes - 1 - (bit / bits_in_a_byte);
-    let shift = (bit % bits_in_a_byte) * states.bits() as u32;
+    let shift = (bit % bits_in_a_byte) * states.bits();
     (index as usize, shift as usize)
 }
 

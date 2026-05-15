@@ -113,7 +113,7 @@ impl SignalTransform for DerivedBitVecSignal {
         &self.inputs
     }
 
-    fn on_change(&mut self, time: Time, values: &[Self::SignalRefType]) -> Self::SignalRefType {
+    fn on_change(&mut self, _time: Time, _values: &[Self::SignalRefType]) -> Self::SignalRefType {
         todo!()
     }
 }

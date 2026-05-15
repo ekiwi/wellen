@@ -329,7 +329,7 @@ impl States {
     /// Returns how many bits the first byte would contain.
     #[inline]
     fn bits_in_first_byte(self, width: u32) -> u32 {
-        (width * self.bits() as u32) % u8::BITS
+        (width * self.bits()) % u8::BITS
     }
 
     /// Creates a mask that will only leave the relevant bits in the first byte.

@@ -90,14 +90,14 @@ impl SignalSource {
             .flat_map(|d| d.inputs())
             .cloned()
             .collect();
-        let underlying_signals: FxHashMap<_, _> = self
+        let _underlying_signals: FxHashMap<_, _> = self
             .load_non_derived_signals(underlying_ids, hierarchy, multi_threaded)
             .into_iter()
             .map(|s| (s.idx, s))
             .collect();
         ids.into_iter()
             .zip(transforms)
-            .map(|(s, transform)| todo!("apply transform to signal!"))
+            .map(|(_s, _transform)| todo!("apply transform to signal!"))
             .collect()
     }
 
