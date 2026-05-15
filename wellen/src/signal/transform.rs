@@ -19,6 +19,7 @@ pub trait SignalTransform {
 }
 
 /// Captures a signal which is derived from other bit-vector signals by slice and concat operations.
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct DerivedBitVecSignal {
     width: u32,
     inputs: Vec<SignalRef>,
