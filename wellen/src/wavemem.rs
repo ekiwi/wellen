@@ -533,6 +533,7 @@ impl Encoder {
     }
 
     /// Call with a value that is already encoded in our internal format.
+    /// This is mostly used by the GHW backend.
     pub fn raw_value_change(&mut self, id: SignalRef, value: &[u8], states: States) {
         debug_assert!(
             !self.time_table.is_empty(),
@@ -542,6 +543,11 @@ impl Encoder {
             let time_idx = (self.time_table.len() - 1) as TimeTableIdx;
             let signal = &mut self.signals[id.index()];
             if let SignalEncoding::BitVector(width) = signal.tpe {
+                // sometimes we might include some leading bytes that are not necessary
+                let required_bytes = states.bytes_required(width.get());
+                debug_assert!(value.len() >= required_bytes);
+                let value = &value[(value.len() - required_bytes)..];
+
                 signal.add_n_bit_change(time_idx, BitVecRef::new(states, width.get(), value));
                 self.has_new_data = true;
             }
