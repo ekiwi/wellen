@@ -1243,7 +1243,13 @@ impl HierarchyBuilder {
     /// In this case, the two variables are merged into one.
     /// This is important to deal with QuestaSim and ModelSim splitting bit-vectors into
     /// individual bits when generating VCDs.
-    fn check_for_split_var(&mut self, new_name: HierarchyStringId, index: VarIndex) -> bool {
+    fn check_for_split_var(
+        &mut self,
+        new_name: HierarchyStringId,
+        index: VarIndex,
+        signal_encoding: SignalEncoding,
+        signal_idx: SignalRef,
+    ) -> bool {
         // lookup previous item
         let entry_pos = find_parent_scope(&self.scope_stack);
         let entry = &mut self.scope_stack[entry_pos];
@@ -1251,12 +1257,10 @@ impl HierarchyBuilder {
         if let Some(ScopeOrVarRef::Var(prev_var_ref)) = entry.last_child {
             let prev_var = &mut self.vars[prev_var_ref.index()];
             let prev_enc = &mut self.signal_encodings[prev_var.signal_idx.index()];
-            // does the name match? does the variable have an index and a bit-vector length?
+            // does the name match? does the variable have an index?
             if prev_var.name == new_name
                 && let Some(prev_index) = prev_var.index
-                && let SignalEncoding::BitVector(len) = prev_enc
             {
-                debug_assert_eq!(prev_index.length(), len.get());
                 let new_is_msb = index.lsb() == prev_index.msb() + 1;
                 let new_is_lsb = prev_index.lsb() == index.msb() + 1;
                 if new_is_lsb || new_is_msb {
@@ -1268,12 +1272,17 @@ impl HierarchyBuilder {
                     };
                     prev_var.index = Some(new_index);
 
-                    // update the signal
-                    print!("old len={}  -- ", len.get());
-                    *len = NonZeroU32::new(new_index.length()).unwrap();
+                    // remember type of (potentially) new signal
+                    debug_assert_eq!(
+                        signal_encoding,
+                        SignalEncoding::BitVector(NonZeroU32::new(index.length()).unwrap())
+                    );
+                    self.set_signal_encoding(signal_idx, signal_encoding, new_name);
+
+                    // create a new compound signal
+
                     println!(
-                        "TODO: actually make the signal a compound signal (new_len={}, new_index={new_index:?})",
-                        len.get()
+                        "TODO: actually make the signal a compound signal (new_index={new_index:?})",
                     );
 
                     // a merge happened!
@@ -1284,12 +1293,34 @@ impl HierarchyBuilder {
         false
     }
 
+    fn set_signal_encoding(
+        &mut self,
+        signal: SignalRef,
+        encoding: SignalEncoding,
+        name: HierarchyStringId,
+    ) {
+        let ii = signal.index();
+        if self.signal_encodings.len() <= ii {
+            self.signal_encodings
+                .resize(ii + 1, SignalEncoding::Unknown);
+        }
+        debug_assert!(
+            self.signal_encodings[ii] == SignalEncoding::Unknown
+                || self.signal_encodings[ii] == encoding,
+            "Trying to redefine signal encoding: {:?} -> {:?} for {}",
+            self.signal_encodings[ii],
+            encoding,
+            self.strings[name.index()],
+        );
+        self.signal_encodings[ii] = encoding;
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn add_var(
         &mut self,
         name: HierarchyStringId,
         tpe: VarType,
-        signal_tpe: SignalEncoding,
+        signal_encoding: SignalEncoding,
         direction: VarDirection,
         index: Option<VarIndex>,
         signal_idx: SignalRef,
@@ -1299,7 +1330,7 @@ impl HierarchyBuilder {
         println!("{} {index:?}", self.strings[name.index()]);
 
         if let Some(ii) = index
-            && self.check_for_split_var(name, ii)
+            && self.check_for_split_var(name, ii, signal_encoding, signal_idx)
         {
             // we merged with an existing variable, no need to add a new one
             return;
@@ -1310,20 +1341,7 @@ impl HierarchyBuilder {
         let parent = self.add_to_hierarchy_tree(var_id.into());
 
         // update signal encoding
-        let ii = signal_idx.index();
-        if self.signal_encodings.len() <= ii {
-            self.signal_encodings
-                .resize(ii + 1, SignalEncoding::Unknown);
-        }
-        debug_assert!(
-            self.signal_encodings[ii] == SignalEncoding::Unknown
-                || self.signal_encodings[ii] == signal_tpe,
-            "Trying to redefine signal encoding: {:?} -> {:?} for {}",
-            self.signal_encodings[ii],
-            signal_tpe,
-            self.strings[name.index()],
-        );
-        self.signal_encodings[ii] = signal_tpe;
+        self.set_signal_encoding(signal_idx, signal_encoding, name);
 
         // now we can build the node data structure and store it
         let node = Var {

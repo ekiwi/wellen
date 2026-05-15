@@ -340,6 +340,8 @@ fn vcd_questa_sim_undo_bit_split() {
 
     check_no_duplicate_var(waves.hierarchy());
     // we expect prescale to be reassembled from the individual bit signals
+    assert_eq!(prescale.index().unwrap().msb(), 15);
+    assert_eq!(prescale.index().unwrap().lsb(), 0);
     assert_eq!(prescale.length(waves.hierarchy()), Some(16));
 
     check_no_duplicate_var(waves.hierarchy());
