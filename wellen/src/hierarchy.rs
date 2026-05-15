@@ -6,6 +6,7 @@
 use crate::FileFormat;
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
+use std::fmt::{Debug, Formatter};
 use std::num::{NonZeroI32, NonZeroU16, NonZeroU32};
 use std::ops::{Index, IndexMut};
 
@@ -233,12 +234,18 @@ impl VarDirection {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 #[repr(Rust, packed(4))]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct VarIndex {
     lsb: i64,
     width: NonZeroI32,
+}
+
+impl Debug for VarIndex {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "VarIndex([{}:{}])", self.msb(), self.lsb())
+    }
 }
 
 const DEFAULT_ZERO_REPLACEMENT: NonZeroI32 = NonZeroI32::new(i32::MIN).unwrap();
@@ -1232,6 +1239,36 @@ impl HierarchyBuilder {
         }
     }
 
+    /// Checks to see if the previous var has the same name and an adjacent index.
+    /// In this case, the two variables are merged into one.
+    /// This is important to deal with QuestaSim and ModelSim splitting bit-vectors into
+    /// individual bits when generating VCDs.
+    fn check_for_split_var(
+        &mut self,
+        new_name: HierarchyStringId,
+        signal_encoding: SignalEncoding,
+        index: VarIndex,
+    ) -> bool {
+        // lookup previous item
+        let entry_pos = find_parent_scope(&self.scope_stack);
+        let entry = &mut self.scope_stack[entry_pos];
+        // is it a variable?
+        if let Some(ScopeOrVarRef::Var(prev_var_ref)) = entry.last_child {
+            let prev_var = &mut self.vars[prev_var_ref.index()];
+            // does the name match?
+            if prev_var.name == new_name
+                && let Some(prev_index) = prev_var.index
+            {
+                let new_is_msb = index.lsb() == prev_index.msb() + 1;
+                let new_is_lsb = prev_index.lsb() == index.msb() + 1;
+                if new_is_lsb || new_is_msb {
+                    todo!("we got a match, now combine! {prev_index:?} {index:?}")
+                }
+            }
+        }
+        false
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn add_var(
         &mut self,
@@ -1244,6 +1281,12 @@ impl HierarchyBuilder {
         enum_type: Option<EnumTypeId>,
         vhdl_type_name: Option<HierarchyStringId>,
     ) {
+        if let Some(ii) = index
+            && self.check_for_split_var(name, signal_tpe, ii)
+        {
+            todo!()
+        }
+
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
         let parent = self.add_to_hierarchy_tree(var_id.into());
