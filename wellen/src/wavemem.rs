@@ -780,17 +780,20 @@ impl SignalEncoder {
             leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
             let data_start_index = self.data.len();
             if min_states == value.states() {
-                // values are already in the correct format
+                // values are already minimal
                 value.append_to_vec(&mut self.data);
             } else {
-                // we need to pad with zeros in order to get a uniform sized value
-
-                //compress(value, states, min_states, bits, &mut self.data);
-                todo!("value compress method")
+                // we need to compress the representation
+                compress_state_representation(value, min_states, &mut self.data);
             }
 
-            // make sure the leading bits are 0
+            // when debugging: make sure the leading bits are 0
             if cfg!(debug_assertions) {
+                debug_assert!(
+                    self.data.len() > data_start_index,
+                    "No data was added! (value.width={})",
+                    value.width()
+                );
                 let first_byte = self.data[data_start_index];
                 let first_byte_mask = min_states.first_byte_mask(value.width());
                 debug_assert_eq!(
@@ -944,47 +947,26 @@ pub(crate) fn compress_signal(signal: &Signal) -> Option<(Vec<u8>, SignalEncodin
     enc.finish()
 }
 
-/// picks a specialized compress implementation
-fn compress(value: &[u8], in_states: States, out_states: States, bits: u32, out: &mut Vec<u8>) {
-    match (in_states, out_states) {
-        (States::Nine, States::Two) => {
-            compress_template(value, States::Nine, States::Two, bits, out)
-        }
-        (States::Four, States::Two) => {
-            compress_template(value, States::Four, States::Two, bits, out)
-        }
-        (States::Nine, States::Four) => {
-            compress_template(value, States::Nine, States::Four, bits, out)
-        }
-        _ => unreachable!("Cannot compress {in_states:?} => {out_states:?}"),
-    }
-}
-
-#[inline]
-fn compress_template(
-    value: &[u8],
-    in_states: States,
-    out_states: States,
-    bits: u32,
-    out: &mut Vec<u8>,
-) {
-    debug_assert!(in_states.bits_in_a_byte() < out_states.bits_in_a_byte());
+/// Compresses a 4-state value into a 2-state value or a 9-state into a 4- or 2-state value.
+/// This is only possible, if each bit fits into the smaller state representation.
+fn compress_state_representation(value: BitVecRef, out_states: States, out: &mut Vec<u8>) {
+    debug_assert!(value.states().bits_in_a_byte() < out_states.bits_in_a_byte());
     let mut working_byte = 0u8;
-    let max_bits = value.len() as u32 * in_states.bits_in_a_byte();
-    for bit in (0..bits).rev() {
-        let rev_bit = max_bits - bit - 1;
-        let in_byte = value[(rev_bit / in_states.bits_in_a_byte()) as usize];
-        let in_value =
-            (in_byte >> ((bit % in_states.bits_in_a_byte()) * in_states.bits())) & in_states.mask();
-        debug_assert!(in_value <= out_states.mask(), "{in_value:?}");
-
-        working_byte = (working_byte << out_states.bits()) + in_value;
-        if bit % out_states.bits_in_a_byte() == 0 {
+    for (bit, bit_pos) in value.iter_msb_to_lsb().zip((0..value.width()).rev()) {
+        debug_assert!(
+            u8::from(bit) <= out_states.mask(),
+            "{bit:?} does not fit into {out_states:?}"
+        );
+        working_byte = (working_byte << out_states.bits()) + u8::from(bit);
+        if bit_pos % out_states.bits_in_a_byte() == 0 {
             out.push(working_byte);
             working_byte = 0;
         }
     }
 }
+
+#[inline]
+fn compress_template(value: BitVecRef, out_states: States, out: &mut Vec<u8>) {}
 
 #[inline]
 pub fn write_n_state_from_ascii(
@@ -1120,10 +1102,11 @@ mod tests {
         let min_states = States::from_ascii(value.as_bytes()).unwrap();
         let bits = value.len() as u32;
         // convert string to bit vector
-        let max_value = convert_to_bits(max_states, &value);
+        let max_value_bytes = convert_to_bits(max_states, &value);
+        let max_value = BitVecRef::new(max_states, bits, &max_value_bytes);
         // compress
         let mut out = Vec::new();
-        compress(&max_value, max_states, min_states, bits, &mut out);
+        compress_state_representation(max_value, min_states, &mut out);
         // check
         let direct_conversion = convert_to_bits(min_states, &value);
         assert_eq!(
