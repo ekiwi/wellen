@@ -11,7 +11,7 @@ use std::num::NonZeroU32;
 mod compressed;
 pub use compressed::{CompressedSignal, CompressedTimeTable, Compression};
 mod value;
-pub use value::{Real, SignalValueRef, States, bit_char_to_num};
+pub use value::{Bit, BitVecRef, Real, SignalValueRef, States, bit_char_to_num};
 mod source;
 mod transform;
 pub use source::{SignalSource, SignalSourceImplementation};
@@ -30,7 +30,7 @@ pub enum FixedWidthEncoding {
     /// are reduced by 1 (Four -> Two, Nine -> Four) or by 2 (Nine -> Two).
     BitVector {
         max_states: States,
-        bits: u32,
+        width: u32,
         meta_byte: bool,
     },
     /// Each value is encoded as an 8-byte f64 in little endian.
@@ -42,7 +42,7 @@ pub enum FixedWidthEncoding {
 impl FixedWidthEncoding {
     pub fn signal_encoding(&self) -> SignalEncoding {
         match self {
-            FixedWidthEncoding::BitVector { bits, .. } => {
+            FixedWidthEncoding::BitVector { width: bits, .. } => {
                 SignalEncoding::BitVector(NonZeroU32::new(*bits).unwrap())
             }
             FixedWidthEncoding::Real => SignalEncoding::Real,
@@ -109,7 +109,7 @@ impl Signal {
         }
         let data = SignalChangeData::FixedLength {
             encoding,
-            width,
+            bytes_per_entry: width,
             bytes,
         };
         Signal {
@@ -290,7 +290,7 @@ pub struct DataOffset {
 enum SignalChangeData {
     FixedLength {
         encoding: FixedWidthEncoding,
-        width: u32, // bytes per entry
+        bytes_per_entry: u32,
         bytes: Vec<u8>,
     },
     VariableLength(Vec<String>),
@@ -337,16 +337,16 @@ impl SignalChangeData {
         match &self {
             SignalChangeData::FixedLength {
                 encoding,
-                width,
+                bytes_per_entry,
                 bytes,
             } => {
-                let start = offset * (*width as usize);
-                let raw_data = &bytes[start..(start + (*width as usize))];
+                let start = offset * (*bytes_per_entry as usize);
+                let raw_data = &bytes[start..(start + (*bytes_per_entry as usize))];
                 match encoding {
                     FixedWidthEncoding::Event => SignalValueRef::Event,
                     FixedWidthEncoding::BitVector {
                         max_states,
-                        bits,
+                        width,
                         meta_byte,
                     } => {
                         let data = if *meta_byte { &raw_data[1..] } else { raw_data };
@@ -354,30 +354,26 @@ impl SignalChangeData {
                             States::Two => {
                                 debug_assert!(!meta_byte);
                                 // if the max state is 2, then all entries must be binary
-                                SignalValueRef::Binary(data, *bits)
+                                SignalValueRef::bit_vec(*max_states, *width, data)
                             }
                             States::Four | States::Nine => {
                                 // otherwise the actual number of states is encoded in the meta data
                                 let meta_value = (raw_data[0] >> 6) & 0x3;
-                                if States::try_from_primitive(meta_value).is_err() {
-                                    println!(
-                                        "ERROR: offset={offset}, encoding={encoding:?}, width={width}, raw_data[0]={}",
-                                        raw_data[0]
-                                    );
-                                }
+                                debug_assert!(
+                                    States::try_from_primitive(meta_value).is_ok(),
+                                    "ERROR: offset={offset}, encoding={encoding:?}, width={bytes_per_entry}, raw_data[0]={}",
+                                    raw_data[0]
+                                );
                                 let states = States::try_from_primitive(meta_value).unwrap();
-                                let num_out_bytes = states.bytes_required(*bits);
+                                let num_out_bytes = states.bytes_required(*width);
                                 debug_assert!(num_out_bytes <= data.len());
                                 let signal_bytes = if num_out_bytes == data.len() {
                                     data
                                 } else {
+                                    debug_assert!(states != *max_states);
                                     &data[(data.len() - num_out_bytes)..]
                                 };
-                                match states {
-                                    States::Two => SignalValueRef::Binary(signal_bytes, *bits),
-                                    States::Four => SignalValueRef::FourValue(signal_bytes, *bits),
-                                    States::Nine => SignalValueRef::NineValue(signal_bytes, *bits),
-                                }
+                                SignalValueRef::bit_vec(states, *width, signal_bytes)
                             }
                         }
                     }

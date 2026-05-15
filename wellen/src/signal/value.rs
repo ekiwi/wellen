@@ -5,28 +5,147 @@
 
 use num_enum::TryFromPrimitive;
 use std::fmt::{Display, Formatter};
+use std::ops::{BitOr, BitOrAssign};
 
 pub type Real = f64;
 
 #[derive(Debug, Clone, Copy)]
 pub enum SignalValueRef<'a> {
     Event,
-    Binary(&'a [u8], u32),
-    FourValue(&'a [u8], u32),
-    NineValue(&'a [u8], u32),
+    BitVec(BitVecRef<'a>),
     String(&'a str),
     Real(Real),
+}
+
+impl<'a> SignalValueRef<'a> {
+    pub(crate) fn bit_vec(states: States, width: u32, data: &'a [u8]) -> Self {
+        Self::BitVec(BitVecRef::new(states, width, data))
+    }
+}
+
+/// References the value of a (2/4/9 value) bit vector signal.
+#[derive(Debug, Clone, Copy)]
+pub struct BitVecRef<'a> {
+    states: States,
+    width: u32,
+    data: &'a [u8],
+}
+
+/// Represents a single bit.
+/// This is how the values map to ASCII:
+/// ` '0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-' `
+#[derive(Debug, Clone, Copy)]
+pub struct Bit(u8);
+
+impl Bit {
+    /// Checks to make sure that the value is in range (in debug mode).
+    #[inline]
+    pub fn new(value: u8) -> Self {
+        debug_assert!((value as usize) < NINE_STATE_LOOKUP.len());
+        Bit(value)
+    }
+
+    #[inline]
+    pub fn to_ascii(&self) -> char {
+        NINE_STATE_LOOKUP[self.0 as usize]
+    }
+}
+
+impl From<Bit> for u8 {
+    fn from(value: Bit) -> Self {
+        value.0
+    }
+}
+
+impl From<Bit> for u64 {
+    fn from(value: Bit) -> Self {
+        value.0 as u64
+    }
+}
+
+impl BitOrAssign<&Bit> for Bit {
+    fn bitor_assign(&mut self, rhs: &Bit) {
+        self.0 |= rhs.0;
+    }
+}
+
+impl BitOr for Bit {
+    type Output = Bit;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Bit::new(self.0 | rhs.0)
+    }
+}
+
+impl<'a> BitVecRef<'a> {
+    pub fn new(states: States, width: u32, data: &'a [u8]) -> Self {
+        debug_assert_eq!(states.bytes_required(width), data.len());
+        Self {
+            states,
+            width,
+            data,
+        }
+    }
+
+    /// The number of bits in the bit-vector.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// The number of values/states that each bit can represent.
+    pub fn states(&self) -> States {
+        self.states
+    }
+    /// Returns the numeric (not ASCII!) value of a bit.
+    pub fn get_bit(&self, bit: u32) -> Bit {
+        self.states.get_bit(self.data, bit)
+    }
+
+    /// Iterate over bits, starting with the most significant bit.
+    pub fn iter_msb_to_lsb(&self) -> impl Iterator<Item = Bit> + '_ {
+        (0..self.width()).rev().map(move |bit| self.get_bit(bit))
+    }
+
+    /// Iterate over bits, starting with the least significant bit.
+    pub fn iter_lsb_to_msb(&self) -> impl Iterator<Item = Bit> + '_ {
+        (0..self.width()).map(move |bit| self.get_bit(bit))
+    }
+
+    /// Returns a string with one ASCII character for each bit.
+    pub fn bit_string(&self) -> String {
+        String::from_iter(self.iter_msb_to_lsb().map(|b| b.to_ascii()))
+    }
+
+    /// Find the minimum number of states required to represent all bits.
+    pub fn find_min_states(&self) -> States {
+        if self.states == States::Two {
+            // No need to scan, since we already know by construction that all bits are two state.
+            States::Two
+        } else {
+            self.iter_lsb_to_msb()
+                .reduce(|a, b| a | b)
+                .and_then(States::from_value)
+                .unwrap_or(States::Nine)
+        }
+    }
+
+    /// Append data to a vec, making sure to properly mask the leading byte.
+    pub fn append_to_vec(&self, out: &mut Vec<u8>) {
+        let mask = self.states.first_byte_mask(self.width);
+        if mask == u8::MAX {
+            out.extend_from_slice(self.data);
+        } else {
+            out.push(self.data[0] & mask);
+            out.extend_from_slice(&self.data[1..]);
+        }
+    }
 }
 
 impl Display for SignalValueRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
             SignalValueRef::Event => write!(f, "Event"),
-            SignalValueRef::Binary(..)
-            | SignalValueRef::FourValue(..)
-            | SignalValueRef::NineValue(..) => {
-                write!(f, "{}", self.to_bit_string().unwrap())
-            }
+            SignalValueRef::BitVec(..) => write!(f, "{}", self.to_bit_string().unwrap()),
             SignalValueRef::String(value) => write!(f, "{value}"),
             SignalValueRef::Real(value) => write!(f, "{value}"),
         }
@@ -49,110 +168,82 @@ impl SignalValueRef<'_> {
     }
 
     pub fn to_bit_string(&self) -> Option<String> {
-        self.iter_msb_to_lsb()
-            .map(|bits| String::from_iter(bits.flat_map(bit_num_to_char)))
+        self.as_bit_vec().map(|bv| bv.bit_string())
     }
 
     /// Returns the number of bits in the signal value. Returns None if the value is a real or string.
     pub fn width(&self) -> Option<u32> {
         match self {
             SignalValueRef::Event => Some(0),
-            SignalValueRef::Binary(_, bits) => Some(*bits),
-            SignalValueRef::FourValue(_, bits) => Some(*bits),
-            SignalValueRef::NineValue(_, bits) => Some(*bits),
+            SignalValueRef::BitVec(b) => Some(b.width),
             _ => None,
         }
     }
 
     /// Returns the states per bit. Returns None if the value is a real or string.
     pub fn states(&self) -> Option<States> {
-        match self {
-            SignalValueRef::Binary(_, _) => Some(States::Two),
-            SignalValueRef::FourValue(_, _) => Some(States::Four),
-            SignalValueRef::NineValue(_, _) => Some(States::Nine),
-            _ => None,
-        }
-    }
-
-    /// Iterate over bits, starting with the most significant bit.
-    pub fn iter_msb_to_lsb(&self) -> Option<impl Iterator<Item = u8> + '_> {
-        let (data, bits, states) = self.data_bits_and_states()?;
-        Some((0..bits).rev().map(move |bit| states.get_bit(data, bit)))
-    }
-
-    /// Iterate over bits, starting with the least significant bit.
-    pub fn iter_lsb_to_msb(&self) -> Option<impl Iterator<Item = u8> + '_> {
-        let (data, bits, states) = self.data_bits_and_states()?;
-        Some((0..bits).map(move |bit| states.get_bit(data, bit)))
+        self.as_bit_vec().map(|bv| bv.states())
     }
 
     /// Returns a reference to the raw data, bits and states
-    pub(crate) fn data_bits_and_states(&self) -> Option<(&[u8], u32, States)> {
+    pub(crate) fn as_bit_vec(&self) -> Option<BitVecRef<'_>> {
         match self {
-            SignalValueRef::Binary(data, bits) => Some((*data, *bits, States::Two)),
-            SignalValueRef::FourValue(data, bits) => Some((*data, *bits, States::Four)),
-            SignalValueRef::NineValue(data, bits) => Some((*data, *bits, States::Nine)),
+            SignalValueRef::BitVec(b) => Some(*b),
             _ => None,
         }
     }
-
-    /// Returns a reference to the raw data and a mask. Returns None if the value is a real or string.
-    pub(crate) fn data_and_mask(&self) -> Option<(&[u8], u8)> {
-        let (data, bits, states) = self.data_bits_and_states()?;
-        Some((data, states.first_byte_mask(bits)))
-    }
 }
 
-#[derive(Debug, Clone)]
-pub struct SignalValue(SignalValueKind);
-
-/// Private enum to protect [[SignalValue]] internals.
-#[derive(Debug, Clone)]
-enum SignalValueKind {
-    Event,
-    Binary(Vec<u8>, u32),
-    FourValue(Vec<u8>, u32),
-    NineValue(Vec<u8>, u32),
-    String(String),
-    Real(Real),
-}
-
-impl<'a> From<&'a SignalValue> for SignalValueRef<'a> {
-    fn from(value: &'a SignalValue) -> Self {
-        match &value.0 {
-            SignalValueKind::Event => SignalValueRef::Event,
-            SignalValueKind::Binary(data, bits) => SignalValueRef::Binary(data, *bits),
-            SignalValueKind::FourValue(data, bits) => SignalValueRef::FourValue(data, *bits),
-            SignalValueKind::NineValue(data, bits) => SignalValueRef::NineValue(data, *bits),
-            SignalValueKind::String(s) => SignalValueRef::String(s.as_str()),
-            SignalValueKind::Real(data) => SignalValueRef::Real(*data),
-        }
-    }
-}
-
-impl<'a> From<SignalValueRef<'a>> for SignalValue {
-    fn from(value: SignalValueRef<'a>) -> Self {
-        Self(match value {
-            SignalValueRef::Event => SignalValueKind::Event,
-            SignalValueRef::Binary(data, bits) => SignalValueKind::Binary(data.to_vec(), bits),
-            SignalValueRef::FourValue(data, bits) => {
-                SignalValueKind::FourValue(data.to_vec(), bits)
-            }
-            SignalValueRef::NineValue(data, bits) => {
-                SignalValueKind::NineValue(data.to_vec(), bits)
-            }
-            SignalValueRef::String(data) => SignalValueKind::String(data.to_string()),
-            SignalValueRef::Real(data) => SignalValueKind::Real(data),
-        })
-    }
-}
-
-impl Display for SignalValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let sig_ref: SignalValueRef = self.into();
-        sig_ref.fmt(f)
-    }
-}
+// #[derive(Debug, Clone)]
+// pub struct SignalValue(SignalValueKind);
+//
+// /// Private enum to protect [[SignalValue]] internals.
+// #[derive(Debug, Clone)]
+// enum SignalValueKind {
+//     Event,
+//     Binary(Vec<u8>, u32),
+//     FourValue(Vec<u8>, u32),
+//     NineValue(Vec<u8>, u32),
+//     String(String),
+//     Real(Real),
+// }
+//
+// impl<'a> From<&'a SignalValue> for SignalValueRef<'a> {
+//     fn from(value: &'a SignalValue) -> Self {
+//         match &value.0 {
+//             SignalValueKind::Event => SignalValueRef::Event,
+//             SignalValueKind::Binary(data, bits) => SignalValueRef::Binary(data, *bits),
+//             SignalValueKind::FourValue(data, bits) => SignalValueRef::FourValue(data, *bits),
+//             SignalValueKind::NineValue(data, bits) => SignalValueRef::NineValue(data, *bits),
+//             SignalValueKind::String(s) => SignalValueRef::String(s.as_str()),
+//             SignalValueKind::Real(data) => SignalValueRef::Real(*data),
+//         }
+//     }
+// }
+//
+// impl<'a> From<SignalValueRef<'a>> for SignalValue {
+//     fn from(value: SignalValueRef<'a>) -> Self {
+//         Self(match value {
+//             SignalValueRef::Event => SignalValueKind::Event,
+//             SignalValueRef::Binary(data, bits) => SignalValueKind::Binary(data.to_vec(), bits),
+//             SignalValueRef::FourValue(data, bits) => {
+//                 SignalValueKind::FourValue(data.to_vec(), bits)
+//             }
+//             SignalValueRef::NineValue(data, bits) => {
+//                 SignalValueKind::NineValue(data.to_vec(), bits)
+//             }
+//             SignalValueRef::String(data) => SignalValueKind::String(data.to_string()),
+//             SignalValueRef::Real(data) => SignalValueKind::Real(data),
+//         })
+//     }
+// }
+//
+// impl Display for SignalValue {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+//         let sig_ref: SignalValueRef = self.into();
+//         sig_ref.fmt(f)
+//     }
+// }
 
 const NINE_STATE_LOOKUP: [char; 9] = ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-'];
 
@@ -168,27 +259,30 @@ pub enum States {
 }
 
 impl States {
-    pub fn from_value(value: u8) -> Option<Self> {
-        if value <= 1 {
+    pub fn from_value(value: Bit) -> Option<Self> {
+        if value.0 <= 1 {
             Some(States::Two)
-        } else if value <= 3 {
+        } else if value.0 <= 3 {
             Some(States::Four)
-        } else if value <= 15 {
+        } else if value.0 < NINE_STATE_LOOKUP.len() as u8 {
             Some(States::Nine)
         } else {
-            None
+            unreachable!(
+                "Bit should never contain a value greater {}",
+                NINE_STATE_LOOKUP.len() - 1
+            );
         }
     }
 
-    pub fn from_ascii_bit(bit: u8) -> Option<(Self, u8)> {
+    pub fn from_ascii_bit(bit: u8) -> Option<(Self, Bit)> {
         let num = bit_char_to_num(bit)?;
         Some((Self::from_value(num).unwrap(), num))
     }
 
     pub fn from_ascii(string: &[u8]) -> Option<Self> {
-        let mut union = 0;
+        let mut union = Bit::new(0);
         for cc in string {
-            union |= bit_char_to_num(*cc)?;
+            union |= &bit_char_to_num(*cc)?;
         }
         Self::from_value(union)
     }
@@ -224,14 +318,14 @@ impl States {
 
     /// Returns how many bits the first byte would contain.
     #[inline]
-    fn bits_in_first_byte(self, bits: u32) -> u32 {
-        (bits * self.bits() as u32) % u8::BITS
+    fn bits_in_first_byte(self, width: u32) -> u32 {
+        (width * self.bits() as u32) % u8::BITS
     }
 
     /// Creates a mask that will only leave the relevant bits in the first byte.
     #[inline]
-    pub(crate) fn first_byte_mask(self, bits: u32) -> u8 {
-        let n = self.bits_in_first_byte(bits);
+    pub(crate) fn first_byte_mask(self, width: u32) -> u8 {
+        let n = self.bits_in_first_byte(width);
         if n > 0 { (1u8 << n) - 1 } else { u8::MAX }
     }
 
@@ -248,37 +342,32 @@ impl States {
 
     /// Extracts a single bit from a n-state encoding.
     #[inline]
-    pub fn get_bit(&self, data: &[u8], bit: u32) -> u8 {
+    fn get_bit(&self, data: &[u8], bit: u32) -> Bit {
         debug_assert!(data.len() >= self.bytes_required(bit));
         let bit_in_byte = bit % self.bits_in_a_byte();
         let little_endian_byte_index = (bit / self.bits_in_a_byte()) as usize;
         let big_endian_byte_index = data.len() - 1 - little_endian_byte_index;
         let byte = data[big_endian_byte_index];
-        self.mask() & (byte >> (bit_in_byte * self.bits()))
+        Bit::new(self.mask() & (byte >> (bit_in_byte * self.bits())))
     }
 }
 
 #[inline]
-pub fn bit_char_to_num(value: u8) -> Option<u8> {
+pub fn bit_char_to_num(value: u8) -> Option<Bit> {
     match value {
         // Value shared with 2 and 4-state logic
-        b'0' | b'1' => Some(value - b'0'), // strong 0 / strong 1
+        b'0' | b'1' => Some(Bit(value - b'0')), // strong 0 / strong 1
         // Values shared with Verilog 4-state logic
-        b'x' | b'X' => Some(2), // strong o or 1 (unknown)
-        b'z' | b'Z' => Some(3), // high impedance
+        b'x' | b'X' => Some(Bit(2)), // strong o or 1 (unknown)
+        b'z' | b'Z' => Some(Bit(3)), // high impedance
         // Values unique to the IEEE Standard Logic Type
-        b'h' | b'H' => Some(4), // weak 1
-        b'u' | b'U' => Some(5), // uninitialized
-        b'w' | b'W' => Some(6), // weak 0 or 1 (unknown)
-        b'l' | b'L' => Some(7), // weak 1
-        b'-' => Some(8),        // don't care
+        b'h' | b'H' => Some(Bit(4)), // weak 1
+        b'u' | b'U' => Some(Bit(5)), // uninitialized
+        b'w' | b'W' => Some(Bit(6)), // weak 0 or 1 (unknown)
+        b'l' | b'L' => Some(Bit(7)), // weak 1
+        b'-' => Some(Bit(8)),        // don't care
         _ => None,
     }
-}
-
-#[inline]
-fn bit_num_to_char(num: u8) -> Option<char> {
-    NINE_STATE_LOOKUP.get(num as usize).cloned()
 }
 
 #[cfg(test)]
@@ -304,9 +393,12 @@ mod tests {
             let drop_bytes = data0.len() - number_of_bytes;
             let data = &data0[drop_bytes..];
             assert_eq!(
-                SignalValueRef::Binary(data, bits as u32)
-                    .to_bit_string()
-                    .unwrap(),
+                BitVecRef {
+                    states: States::Two,
+                    width: bits as u32,
+                    data,
+                }
+                .bit_string(),
                 expected,
                 "bits={bits}"
             );
@@ -325,9 +417,12 @@ mod tests {
             let drop_bytes = data0.len() - number_of_bytes;
             let data = &data0[drop_bytes..];
             assert_eq!(
-                SignalValueRef::FourValue(data, bits as u32)
-                    .to_bit_string()
-                    .unwrap(),
+                BitVecRef {
+                    states: States::Four,
+                    width: bits as u32,
+                    data,
+                }
+                .bit_string(),
                 expected,
                 "bits={bits}"
             );
@@ -339,9 +434,12 @@ mod tests {
         let data = [
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b110001, 0b11, 0b10110011,
         ];
-        let out = SignalValueRef::Binary(data.as_slice(), 153)
-            .to_bit_string()
-            .unwrap();
+        let out = BitVecRef {
+            states: States::Two,
+            width: 153,
+            data: data.as_slice(),
+        }
+        .bit_string();
         let expected = "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100010000001110110011";
         assert_eq!(out, expected);
     }

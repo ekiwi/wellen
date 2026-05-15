@@ -9,7 +9,7 @@ use crate::signal::{
 };
 use crate::stream::{Filter, StreamEncoder};
 use crate::vcd::parse_name;
-use crate::wavemem::{check_if_changed_and_truncate, write_n_state};
+use crate::wavemem::{check_if_changed_and_truncate, write_n_state_from_ascii};
 use crate::{FileFormat, LoadOptions, TimeTable, WellenError};
 use fst_reader::*;
 use rustc_hash::FxHashMap;
@@ -228,9 +228,14 @@ impl SignalWriter {
                         // same meta-data location and length as the maximum
                         if has_meta {
                             self.data_bytes.push(meta_data);
-                            write_n_state(local_encoding, value, &mut self.data_bytes, None);
+                            write_n_state_from_ascii(
+                                local_encoding,
+                                value,
+                                &mut self.data_bytes,
+                                None,
+                            );
                         } else {
-                            write_n_state(
+                            write_n_state_from_ascii(
                                 local_encoding,
                                 value,
                                 &mut self.data_bytes,
@@ -245,7 +250,7 @@ impl SignalWriter {
                         } else {
                             push_zeros(&mut self.data_bytes, len - local_len - 1);
                         }
-                        write_n_state(local_encoding, value, &mut self.data_bytes, None);
+                        write_n_state_from_ascii(local_encoding, value, &mut self.data_bytes, None);
                     }
 
                     let bytes_per_entry = get_bytes_per_entry(len, has_meta);
@@ -301,7 +306,7 @@ impl SignalWriter {
                 let (bytes, meta_byte) = get_len_and_meta(self.max_states, len.get());
                 let encoding = FixedWidthEncoding::BitVector {
                     max_states: self.max_states,
-                    bits: len.get(),
+                    width: len.get(),
                     meta_byte,
                 };
                 Signal::new_fixed_len(

@@ -7,7 +7,7 @@
 
 use crate::signal::States;
 use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
-use crate::wavemem::write_n_state;
+use crate::wavemem::write_n_state_from_ascii;
 use crate::{
     FileFormat, Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValueRef,
     Time, WellenError, viewers,
@@ -206,11 +206,11 @@ where
                     }
 
                     SignalEncoding::BitVector(len) => {
-                        let bits = len.get();
+                        let width = len.get();
 
                         debug_assert_eq!(
                             value.len(),
-                            bits as usize,
+                            width as usize,
                             "{}",
                             String::from_utf8_lossy(value)
                         );
@@ -224,13 +224,8 @@ where
 
                         // convert from ASCII characters to packed encoding
                         self.buf.clear();
-                        write_n_state(states, value, &mut self.buf, None);
-
-                        match states {
-                            States::Two => SignalValueRef::Binary(&self.buf, bits),
-                            States::Four => SignalValueRef::FourValue(&self.buf, bits),
-                            States::Nine => SignalValueRef::NineValue(&self.buf, bits),
-                        }
+                        write_n_state_from_ascii(states, value, &mut self.buf, None);
+                        SignalValueRef::bit_vec(states, width, &self.buf)
                     }
                     SignalEncoding::Real => panic!(
                         "Expecting reals, but got: {}",
@@ -270,25 +265,19 @@ where
                     );
                     SignalValueRef::Event
                 }
-                SignalEncoding::BitVector(len) => {
-                    let (data, states) = decode_vcd_bit_vec_change(len, value);
+                SignalEncoding::BitVector(width) => {
+                    let (data, states) = decode_vcd_bit_vec_change(width, value);
 
                     // put data into buffer
                     match data {
                         VcdBitVecChange::SingleBit(bit_value) => {
-                            self.buf.push(bit_value);
+                            self.buf.push(bit_value.into());
                         }
                         VcdBitVecChange::MultiBit(data_to_write) => {
-                            write_n_state(states, &data_to_write, &mut self.buf, None);
+                            write_n_state_from_ascii(states, &data_to_write, &mut self.buf, None);
                         }
                     }
-
-                    // construct signal data based on number of states
-                    match states {
-                        States::Two => SignalValueRef::Binary(&self.buf, len.get()),
-                        States::Four => SignalValueRef::FourValue(&self.buf, len.get()),
-                        States::Nine => SignalValueRef::NineValue(&self.buf, len.get()),
-                    }
+                    SignalValueRef::bit_vec(states, width.get(), &self.buf)
                 }
                 SignalEncoding::String => {
                     assert!(

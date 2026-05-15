@@ -5,7 +5,7 @@
 
 use crate::fst::{Attribute, parse_scope_attributes, parse_var_attributes};
 use crate::hierarchy::*;
-use crate::signal::{SignalSource, States};
+use crate::signal::{Bit, SignalSource, States};
 use crate::stream::{Filter, StreamEncoder};
 use crate::viewers::ProgressCount;
 use crate::wavemem::Encoder;
@@ -1627,7 +1627,7 @@ fn unescape_vcd_value(value: &[u8]) -> Cow<'_, [u8]> {
 }
 
 pub enum VcdBitVecChange<'a> {
-    SingleBit(u8),
+    SingleBit(Bit),
     MultiBit(Cow<'a, [u8]>),
 }
 
