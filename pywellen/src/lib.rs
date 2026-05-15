@@ -40,17 +40,6 @@ struct Hierarchy(pub(crate) Arc<wellen::Hierarchy>);
 
 #[pymethods]
 impl Hierarchy {
-    fn all_vars(&self) -> VarIter {
-        VarIter(Box::new(
-            //TODO: optimize me
-            self.0
-                .get_unique_signals_vars()
-                .into_iter()
-                .flatten()
-                .map(Var),
-        ))
-    }
-
     fn top_scopes(&self) -> ScopeIter {
         ScopeIter(Box::new({
             let hier = self.0.clone();
@@ -192,8 +181,8 @@ impl Var {
     pub fn full_name(&self, hier: Bound<'_, Hierarchy>) -> String {
         self.0.full_name(&hier.borrow().0).to_string()
     }
-    pub fn bitwidth(&self) -> Option<u32> {
-        self.0.length()
+    pub fn bitwidth(&self, hier: Bound<'_, Hierarchy>) -> Option<u32> {
+        self.0.length(&hier.borrow().0)
     }
     pub fn var_type(&self) -> String {
         format!("{:?}", self.0.var_type())
@@ -217,20 +206,20 @@ impl Var {
     pub fn direction(&self) -> String {
         format!("{:?}", self.0.direction())
     }
-    pub fn length(&self) -> Option<u32> {
-        self.0.length()
+    pub fn length(&self, hier: Bound<'_, Hierarchy>) -> Option<u32> {
+        self.0.length(&hier.borrow().0)
     }
-    pub fn is_real(&self) -> bool {
-        self.0.is_real()
+    pub fn is_real(&self, hier: Bound<'_, Hierarchy>) -> bool {
+        self.0.is_real(&hier.borrow().0)
     }
-    pub fn is_string(&self) -> bool {
-        self.0.is_string()
+    pub fn is_string(&self, hier: Bound<'_, Hierarchy>) -> bool {
+        self.0.is_string(&hier.borrow().0)
     }
-    pub fn is_bit_vector(&self) -> bool {
-        self.0.is_bit_vector()
+    pub fn is_bit_vector(&self, hier: Bound<'_, Hierarchy>) -> bool {
+        self.0.is_bit_vector(&hier.borrow().0)
     }
-    pub fn is_1bit(&self) -> bool {
-        self.0.is_1bit()
+    pub fn is_1bit(&self, hier: Bound<'_, Hierarchy>) -> bool {
+        self.0.is_1bit(&hier.borrow().0)
     }
 }
 
@@ -373,7 +362,7 @@ impl Waveform {
         let mut signal =
             self.wave_source
                 .load_signals(&[var.0.signal_ref()], &self.hierarchy.0, true);
-        let (_sr, sig) = signal.swap_remove(0);
+        let sig = signal.swap_remove(0);
         Bound::new(
             py,
             Signal {

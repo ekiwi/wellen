@@ -59,8 +59,5 @@ pub use hierarchy::{
     Hierarchy, Scope, ScopeOrVar, ScopeOrVarRef, ScopeRef, ScopeType, SignalEncoding, SignalRef,
     Timescale, TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
 };
+pub use signal::{BitVecRef, Real, Signal, SignalSource, SignalValueRef, Time, TimeTableIdx};
 pub use signal::{CompressedSignal, CompressedTimeTable, Compression};
-pub use signal::{Real, Signal, SignalSource, SignalValueRef, Time, TimeTableIdx};
-
-#[cfg(feature = "benchmark")]
-pub use wavemem::check_states_pub;

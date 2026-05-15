@@ -96,6 +96,16 @@ impl<'a> BitVecRef<'a> {
     pub fn states(&self) -> States {
         self.states
     }
+
+    /// Provides access to big-endian bytes iff `self` is a 2-state value.
+    pub fn be_bytes(&self) -> Option<&[u8]> {
+        if self.states == States::Two {
+            Some(self.data)
+        } else {
+            None
+        }
+    }
+
     /// Returns the numeric (not ASCII!) value of a bit.
     pub fn get_bit(&self, bit: u32) -> Bit {
         self.states.get_bit(self.data, bit)
