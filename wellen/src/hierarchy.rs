@@ -1346,8 +1346,6 @@ impl HierarchyBuilder {
         enum_type: Option<EnumTypeId>,
         vhdl_type_name: Option<HierarchyStringId>,
     ) {
-        println!("{} {index:?}", self.strings[name.index()]);
-
         if let Some(ii) = index
             && self.check_for_split_var(name, ii, signal_encoding, signal_idx)
         {

@@ -5,7 +5,6 @@
 
 use num_enum::TryFromPrimitive;
 use std::fmt::{Display, Formatter};
-use std::ops::{BitOr, BitOrAssign};
 
 pub type Real = f64;
 
@@ -60,20 +59,6 @@ impl From<Bit> for u8 {
 impl From<Bit> for u64 {
     fn from(value: Bit) -> Self {
         value.0 as u64
-    }
-}
-
-impl BitOrAssign<&Bit> for Bit {
-    fn bitor_assign(&mut self, rhs: &Bit) {
-        self.0 |= rhs.0;
-    }
-}
-
-impl BitOr for Bit {
-    type Output = Bit;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Bit::new(self.0 | rhs.0)
     }
 }
 
@@ -132,10 +117,7 @@ impl<'a> BitVecRef<'a> {
             // No need to scan, since we already know by construction that all bits are two state.
             States::Two
         } else {
-            self.iter_lsb_to_msb()
-                .reduce(|a, b| a | b)
-                .and_then(States::from_value)
-                .unwrap_or(States::Nine)
+            States::from_bits(self.iter_lsb_to_msb())
         }
     }
 
@@ -269,13 +251,13 @@ pub enum States {
 }
 
 impl States {
-    pub fn from_value(value: Bit) -> Option<Self> {
+    pub fn from_bit(value: Bit) -> Self {
         if value.0 <= 1 {
-            Some(States::Two)
+            States::Two
         } else if value.0 <= 3 {
-            Some(States::Four)
+            States::Four
         } else if value.0 < NINE_STATE_LOOKUP.len() as u8 {
-            Some(States::Nine)
+            States::Nine
         } else {
             unreachable!(
                 "Bit should never contain a value greater {}",
@@ -286,15 +268,33 @@ impl States {
 
     pub fn from_ascii_bit(bit: u8) -> Option<(Self, Bit)> {
         let num = bit_char_to_num(bit)?;
-        Some((Self::from_value(num).unwrap(), num))
+        Some((Self::from_bit(num), num))
     }
 
     pub fn from_ascii(string: &[u8]) -> Option<Self> {
-        let mut union = Bit::new(0);
+        let mut union = 0;
         for cc in string {
-            union |= &bit_char_to_num(*cc)?;
+            union |= u8::from(bit_char_to_num(*cc)?);
         }
-        Self::from_value(union)
+        Some(Self::from_union(union))
+    }
+
+    #[inline]
+    fn from_union(union: u8) -> Self {
+        // invalid bits are only possible when there was at least one 9-state signal involved
+        // since 2 and 4 states signal bits are closed under bit-wise or
+        if union >= 4 {
+            Self::Nine
+        } else {
+            Self::from_bit(Bit::new(union))
+        }
+    }
+
+    pub fn from_bits(bits: impl Iterator<Item = Bit>) -> Self {
+        // We combine all values in a single u8, this can result in an invalid bit value,
+        // since we might end up with something like (8 | 7) = 15.
+        let union = bits.map(|b| u8::from(b)).reduce(|a, b| a | b).unwrap_or(0);
+        Self::from_union(union)
     }
 
     pub fn join(a: Self, b: Self) -> Self {

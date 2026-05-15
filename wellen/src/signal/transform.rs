@@ -151,16 +151,6 @@ impl From<Extract> for u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_slice_signal() {
-        let mut out: Vec<u8> = vec![];
-        // todo: readd code that does this
-        // slice_n_states(States::Two, &[0b001001], &mut out, 3, 3, 7);
-        assert_eq!(out[0], 1);
-        out.clear();
-    }
-
     use proptest::prelude::*;
 
     fn do_test_extract_conversion(signal: u16, width: u16, lsb: u32) {

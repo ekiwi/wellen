@@ -299,7 +299,7 @@ fn load_fixed_len_signal(
             1 => {
                 let value = Bit::new((time_idx_delta_raw & 0xf) as u8);
                 // unwrap cannot fail because of prior masking
-                let states = States::from_value(value).unwrap();
+                let states = States::from_bit(value);
                 let meta_data = (states as u8) << 6;
                 out.push(u8::from(value) | meta_data);
                 // time delta is encoded together with the value
