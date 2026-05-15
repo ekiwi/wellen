@@ -107,18 +107,3 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         run: cargo build --verbose --features serde1
-
-  benchmarks:
-    name: Benchmarks
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        toolchain:
-          - stable
-
-    steps:
-      - name: Update Rust to ${{ matrix.toolchain }}
-        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - uses: actions/checkout@v4
-      - name: run benchmarks
-        run: cargo bench --features benchmark
