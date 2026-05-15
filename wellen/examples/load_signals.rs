@@ -163,8 +163,8 @@ fn main() {
         let loaded = wave_source.load_signals(&ids, &hierarchy, load_opts.multi_thread);
         let load_time = start.elapsed();
         assert_eq!(loaded.len(), ids.len());
-        let (loaded_id, loaded_signal) = loaded.into_iter().next().unwrap();
-        assert_eq!(loaded_id, ids[0]);
+        let loaded_signal = loaded.into_iter().next().unwrap();
+        assert_eq!(loaded_signal.signal_ref(), ids[0]);
         let bytes_in_mem = loaded_signal.size_in_memory();
         signal_load_times.push(load_time);
         signal_sizes.push(bytes_in_mem);
