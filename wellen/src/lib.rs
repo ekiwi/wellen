@@ -59,5 +59,7 @@ pub use hierarchy::{
     Hierarchy, Scope, ScopeOrVar, ScopeOrVarRef, ScopeRef, ScopeType, SignalEncoding, SignalRef,
     Timescale, TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
 };
-pub use signal::{BitVecRef, Real, Signal, SignalSource, SignalValueRef, Time, TimeTableIdx};
+pub use signal::{
+    BitVecRef, Real, Signal, SignalSource, SignalValueRef, States, Time, TimeTableIdx,
+};
 pub use signal::{CompressedSignal, CompressedTimeTable, Compression};

@@ -4,7 +4,7 @@
 
 use rustc_hash::FxHashMap;
 use wellen::simple::Waveform;
-use wellen::{Hierarchy, SignalRef, SignalValueRef, Time, TimeTableIdx, Var};
+use wellen::{Hierarchy, SignalRef, SignalValueRef, States, Time, TimeTableIdx, Var};
 
 #[allow(dead_code)]
 pub fn load_all_signals(our: &mut Waveform) {
@@ -140,25 +140,27 @@ pub fn diff_signal_value(
 #[allow(dead_code)]
 /// Checks to make sure that 4 and 9 state signals are only used when they are required.
 fn ensure_minimal_format(signal_value: SignalValueRef) {
-    match signal_value {
-        SignalValueRef::FourValue(_, _) => {
-            let value_str = signal_value.to_bit_string().unwrap();
-            assert!(
-                value_str.contains('x') || value_str.contains('z'),
-                "{value_str} does not need to be represented as a 4-state signal"
-            )
+    if let SignalValueRef::BitVec(bv) = signal_value {
+        match bv.states() {
+            States::Two => {}
+            States::Four => {
+                let value_str = bv.bit_string();
+                assert!(
+                    value_str.contains('x') || value_str.contains('z'),
+                    "{value_str} does not need to be represented as a 4-state signal"
+                )
+            }
+            States::Nine => {
+                let value_str = bv.bit_string();
+                assert!(
+                    value_str.contains('h')
+                        || value_str.contains('u')
+                        || value_str.contains('w')
+                        || value_str.contains('l')
+                        || value_str.contains('-'),
+                    "{value_str} does not need to be represented as a 9-state signal"
+                )
+            }
         }
-        SignalValueRef::NineValue(_, _) => {
-            let value_str = signal_value.to_bit_string().unwrap();
-            assert!(
-                value_str.contains('h')
-                    || value_str.contains('u')
-                    || value_str.contains('w')
-                    || value_str.contains('l')
-                    || value_str.contains('-'),
-                "{value_str} does not need to be represented as a 9-state signal"
-            )
-        }
-        _ => {} // no check
     }
 }

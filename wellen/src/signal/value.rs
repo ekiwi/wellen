@@ -18,7 +18,7 @@ pub enum SignalValueRef<'a> {
 }
 
 impl<'a> SignalValueRef<'a> {
-    pub(crate) fn bit_vec(states: States, width: u32, data: &'a [u8]) -> Self {
+    pub fn bit_vec(states: States, width: u32, data: &'a [u8]) -> Self {
         Self::BitVec(BitVecRef::new(states, width, data))
     }
 }

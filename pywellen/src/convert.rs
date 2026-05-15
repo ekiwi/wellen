@@ -48,13 +48,13 @@ impl Mappable for BigUint {
 #[cfg(test)]
 mod tests {
     use super::Mappable;
-    use wellen::SignalValueRef;
+    use wellen::{SignalValueRef, States};
 
     #[test]
     fn test_long_2_state_to_string() {
         let data = [0b0, 0b110001, 0b10110011];
 
-        let out = SignalValueRef::Binary(data.as_slice(), 12);
+        let out = SignalValueRef::bit_vec(States::Two, 12, data.as_slice());
         let _ = u16::try_from_signal(out).unwrap();
     }
 }
