@@ -293,7 +293,7 @@ impl States {
     pub fn from_bits(bits: impl Iterator<Item = Bit>) -> Self {
         // We combine all values in a single u8, this can result in an invalid bit value,
         // since we might end up with something like (8 | 7) = 15.
-        let union = bits.map(|b| u8::from(b)).reduce(|a, b| a | b).unwrap_or(0);
+        let union = bits.map(u8::from).reduce(|a, b| a | b).unwrap_or(0);
         Self::from_union(union)
     }
 

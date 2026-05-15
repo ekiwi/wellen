@@ -966,9 +966,6 @@ fn compress_state_representation(value: BitVecRef, out_states: States, out: &mut
 }
 
 #[inline]
-fn compress_template(value: BitVecRef, out_states: States, out: &mut Vec<u8>) {}
-
-#[inline]
 pub fn write_n_state_from_ascii(
     states: States,
     value: &[u8],
