@@ -3,8 +3,9 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use crate::signal::transform::slice_signal;
+use crate::signal::SignalTransform;
 use crate::{Hierarchy, Signal, SignalEncoding, SignalRef};
+use rustc_hash::FxHashMap;
 
 pub trait SignalSourceImplementation: Sync + Send {
     /// Loads new signals.
@@ -30,46 +31,74 @@ impl SignalSource {
 
     /// Loads new signals.
     /// Many implementations take advantage of loading multiple signals at a time.
+    /// A note on derived signals: this function will load the underlying signals and compute the
+    /// derived signals. However, since we do not have access to signals that were loaded
+    /// in a previous call to this function, performance may be suboptimal.
+    /// Thus, if you can, consider handling derived signals in the caller and only passing
+    /// non-derived signals that are needed to this function.
     pub fn load_signals(
         &mut self,
         ids: &[SignalRef],
         hierarchy: &Hierarchy,
         multi_threaded: bool,
-    ) -> Vec<(SignalRef, Signal)> {
-        // sort and dedup ids
-        let mut ids = Vec::from_iter(ids.iter().cloned());
+    ) -> Vec<Signal> {
+        let (derived, signals): (Vec<_>, Vec<_>) = ids.iter().partition(|s| s.is_derived_signal());
+        let mut out = self.load_non_derived_signals(signals, hierarchy, multi_threaded);
+        let mut others = self.load_derived_signals(derived, hierarchy, multi_threaded);
+        out.append(&mut others);
+        out
+    }
+
+    fn load_non_derived_signals(
+        &mut self,
+        mut ids: Vec<SignalRef>,
+        hierarchy: &Hierarchy,
+        multi_threaded: bool,
+    ) -> Vec<Signal> {
         ids.sort();
         ids.dedup();
-
-        // replace any aliases by their source signal
-        let orig_ids = ids.clone();
-        let mut is_alias = vec![false; ids.len()];
-        for (ii, id) in ids.iter_mut().enumerate() {
-            if let Some(slice) = hierarchy.get_slice_info(*id) {
-                *id = slice.sliced_signal;
-                is_alias[ii] = true;
-            }
-        }
-
-        // collect meta data
-        let types: Vec<_> = ids
+        debug_assert!(ids.iter().all(|s| !s.is_derived_signal()));
+        let enc: Vec<_> = ids
             .iter()
             .map(|i| hierarchy.get_signal_tpe(*i).unwrap())
             .collect();
-        let signals = self.inner.load_signals(&ids, &types, multi_threaded);
-        // the signal source must always return the correct number of signals!
-        assert_eq!(signals.len(), ids.len());
-        let mut out = Vec::with_capacity(orig_ids.len());
-        for ((id, is_alias), signal) in orig_ids.iter().zip(is_alias.iter()).zip(signals) {
-            if *is_alias {
-                let slice = hierarchy.get_slice_info(*id).unwrap();
-                let sliced = slice_signal(*id, &signal, slice.msb, slice.lsb);
-                out.push((*id, sliced));
-            } else {
-                out.push((*id, signal));
-            }
-        }
-        out
+        let signals = self.inner.load_signals(&ids, &enc, multi_threaded);
+        assert_eq!(
+            signals.len(),
+            ids.len(),
+            "the signal source must always return the correct number of signals!"
+        );
+        signals
+    }
+
+    fn load_derived_signals(
+        &mut self,
+        mut ids: Vec<SignalRef>,
+        hierarchy: &Hierarchy,
+        multi_threaded: bool,
+    ) -> Vec<Signal> {
+        ids.sort();
+        ids.dedup();
+        debug_assert!(ids.iter().all(|s| s.is_derived_signal()));
+
+        let transforms: Vec<_> = ids
+            .iter()
+            .map(|s| hierarchy.get_derived_signal(*s).unwrap())
+            .collect();
+        let underlying_ids: Vec<_> = transforms
+            .iter()
+            .flat_map(|d| d.inputs())
+            .cloned()
+            .collect();
+        let underlying_signals: FxHashMap<_, _> = self
+            .load_non_derived_signals(underlying_ids, hierarchy, multi_threaded)
+            .into_iter()
+            .map(|s| (s.idx, s))
+            .collect();
+        ids.into_iter()
+            .zip(transforms)
+            .map(|(s, transform)| todo!("apply transform to signal!"))
+            .collect()
     }
 
     /// Print memory size / speed statistics.

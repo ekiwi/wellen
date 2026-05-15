@@ -143,8 +143,8 @@ where
                 // make sure that we do not have any slices
                 for signal in hierarchy.signals() {
                     assert!(
-                        hierarchy.get_slice_info(signal).is_none(),
-                        "TODO: support signal slices"
+                        hierarchy.get_derived_signal(signal).is_none(),
+                        "TODO: support derived signal"
                     );
                 }
 
@@ -160,8 +160,8 @@ where
                 let mut enc = vec![SignalEncoding::Unknown; max_index + 1];
                 for &signal in signals {
                     assert!(
-                        hierarchy.get_slice_info(signal).is_none(),
-                        "TODO: support signal slices"
+                        hierarchy.get_derived_signal(signal).is_none(),
+                        "TODO: support derived signal"
                     );
                     enc[signal.index()] = hierarchy.get_signal_tpe(signal).unwrap();
                 }

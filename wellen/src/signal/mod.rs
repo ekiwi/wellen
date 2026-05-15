@@ -15,6 +15,7 @@ pub use value::{Real, SignalValueRef, States, bit_char_to_num};
 mod source;
 mod transform;
 pub use source::{SignalSource, SignalSourceImplementation};
+pub use transform::{DerivedBitVecSignal, SignalTransform};
 
 pub type Time = u64;
 pub type TimeTableIdx = u32;

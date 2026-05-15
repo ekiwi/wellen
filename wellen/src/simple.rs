@@ -90,8 +90,8 @@ impl Waveform {
         let res = self
             .source
             .load_signals(&filtered_ids, &self.hierarchy, multi_threaded);
-        for (id, signal) in res {
-            self.signals.insert(id, signal);
+        for signal in res {
+            self.signals.insert(signal.signal_ref(), signal);
         }
     }
 

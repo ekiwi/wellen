@@ -4,6 +4,7 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::FileFormat;
+use crate::signal::DerivedBitVecSignal;
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::fmt::{Debug, Formatter};
@@ -285,15 +286,45 @@ impl VarIndex {
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct SignalRef(NonZeroU32);
 
+/// The upper bit is used for indicating whether the signal is derived.
+const MAX_INDEX: usize = ((u32::MAX as usize) >> 2) - 1;
+const INDEX_MASK: u32 = u32::MAX >> 1;
+
 impl SignalRef {
     #[inline]
     pub fn from_index(index: usize) -> Option<Self> {
-        NonZeroU32::new(index as u32 + 1).map(Self)
+        if index > MAX_INDEX {
+            None
+        } else {
+            Some(Self(NonZeroU32::new(index as u32 + 1).unwrap()))
+        }
+    }
+
+    #[inline]
+    pub fn derived_from_index(index: usize) -> Option<Self> {
+        if index > MAX_INDEX {
+            None
+        } else {
+            let value = (index as u32 + 1) | (1u32 << 31);
+            Some(Self(NonZeroU32::new(value).unwrap()))
+        }
+    }
+
+    /// A derived signal does not actually exist in the original waveform trace.
+    #[inline]
+    pub fn is_derived_signal(&self) -> bool {
+        self.0.get() >> 31 == 1
     }
 
     #[inline]
     pub fn index(&self) -> usize {
-        (self.0.get() - 1) as usize
+        ((self.0.get() & INDEX_MASK) - 1) as usize
+    }
+
+    #[inline]
+    pub fn to_derived(&self) -> Self {
+        let value = self.0.get() | (1u32 << 31);
+        Self(NonZeroU32::new(value).unwrap())
     }
 }
 
@@ -362,17 +393,6 @@ pub struct Var {
     vhdl_type_name: Option<HierarchyStringId>,
     parent: Option<ScopeRef>,
     next: Option<ScopeOrVarRef>,
-}
-
-/// Represents a slice of another signal identified by its `SignalRef`.
-/// This is helpful for formats like GHW where some signals are directly defined as
-/// slices of other signals, and thus we only save the data of the larger signal.
-#[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub struct SignalSlice {
-    pub msb: u32,
-    pub lsb: u32,
-    pub sliced_signal: SignalRef,
 }
 
 const SCOPE_SEPARATOR: char = '.';
@@ -684,7 +704,7 @@ pub struct Hierarchy {
     enums: Vec<EnumType>,
     signal_encodings: Vec<SignalEncoding>,
     meta: HierarchyMetaData,
-    slices: FxHashMap<SignalRef, SignalSlice>,
+    signal_derivations: FxHashMap<SignalRef, DerivedBitVecSignal>,
 }
 
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
@@ -833,8 +853,8 @@ impl Hierarchy {
         self.signal_encodings.get(signal_idx.index()).copied()
     }
 
-    pub fn get_slice_info(&self, signal_idx: SignalRef) -> Option<SignalSlice> {
-        self.slices.get(&signal_idx).copied()
+    pub fn get_derived_signal(&self, signal_idx: SignalRef) -> Option<&DerivedBitVecSignal> {
+        self.signal_derivations.get(&signal_idx)
     }
 }
 
@@ -923,7 +943,7 @@ pub struct HierarchyBuilder {
     enums: Vec<EnumType>,
     signal_encodings: Vec<SignalEncoding>,
     meta: HierarchyMetaData,
-    slices: FxHashMap<SignalRef, SignalSlice>,
+    signal_derivations: FxHashMap<SignalRef, DerivedBitVecSignal>,
     /// used to deduplicate strings
     strings: IndexSet<String, FxBuildHasher>,
     /// keeps track of the number of children to decide when to switch to a hash table based
@@ -970,7 +990,7 @@ impl HierarchyBuilder {
             enums: Vec::default(),
             signal_encodings: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
-            slices: FxHashMap::default(),
+            signal_derivations: FxHashMap::default(),
             scope_child_count: vec![0],
             scope_dedup_tables: Default::default(),
         }
@@ -985,7 +1005,7 @@ impl HierarchyBuilder {
         self.source_locs.shrink_to_fit();
         self.enums.shrink_to_fit();
         self.signal_encodings.shrink_to_fit();
-        self.slices.shrink_to_fit();
+        self.signal_derivations.shrink_to_fit();
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
@@ -993,7 +1013,7 @@ impl HierarchyBuilder {
             source_locs: self.source_locs,
             enums: self.enums,
             meta: self.meta,
-            slices: self.slices,
+            signal_derivations: self.signal_derivations,
             signal_encodings: self.signal_encodings,
         }
     }
@@ -1256,7 +1276,6 @@ impl HierarchyBuilder {
         // is it a variable?
         if let Some(ScopeOrVarRef::Var(prev_var_ref)) = entry.last_child {
             let prev_var = &mut self.vars[prev_var_ref.index()];
-            let prev_enc = &mut self.signal_encodings[prev_var.signal_idx.index()];
             // does the name match? does the variable have an index?
             if prev_var.name == new_name
                 && let Some(prev_index) = prev_var.index
@@ -1412,15 +1431,20 @@ impl HierarchyBuilder {
         lsb: u32,
         sliced_signal: SignalRef,
     ) {
+        debug_assert!(
+            !sliced_signal.is_derived_signal(),
+            "we can only slice a signal that actually exists, not a derived signal!"
+        );
+        debug_assert!(
+            signal_ref.is_derived_signal(),
+            "the signal that is derived from a slice needs to be marked as such"
+        );
         debug_assert!(msb >= lsb);
-        debug_assert!(!self.slices.contains_key(&signal_ref));
-        self.slices.insert(
+        debug_assert!(!self.signal_derivations.contains_key(&signal_ref));
+        let sliced_signal_enc = self.signal_encodings[sliced_signal.index()];
+        self.signal_derivations.insert(
             signal_ref,
-            SignalSlice {
-                msb,
-                lsb,
-                sliced_signal,
-            },
+            DerivedBitVecSignal::new(sliced_signal, sliced_signal_enc, msb, lsb),
         );
     }
 }
