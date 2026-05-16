@@ -56,7 +56,7 @@ impl TimescaleUnit {
 
 /// Uniquely identifies a variable in the hierarchy.
 /// Replaces the old `SignalRef`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct VarRef(NonZeroU32);
 
@@ -272,7 +272,7 @@ impl VarIndex {
     }
 
     #[inline]
-    pub fn length(&self) -> u32 {
+    pub fn width(&self) -> u32 {
         if self.width == DEFAULT_ZERO_REPLACEMENT {
             1
         } else {
@@ -943,7 +943,10 @@ pub struct HierarchyBuilder {
     enums: Vec<EnumType>,
     signal_encodings: Vec<SignalEncoding>,
     meta: HierarchyMetaData,
+    /// derived signals where we know the SignalRef during building
     signal_derivations: FxHashMap<SignalRef, DerivedBitVecSignal>,
+    /// derived signals where we do not have a SignalRef at creation time
+    var_to_derived: FxHashMap<VarRef, DerivedBitVecSignal>,
     /// used to deduplicate strings
     strings: IndexSet<String, FxBuildHasher>,
     /// keeps track of the number of children to decide when to switch to a hash table based
@@ -991,6 +994,7 @@ impl HierarchyBuilder {
             signal_encodings: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
             signal_derivations: FxHashMap::default(),
+            var_to_derived: FxHashMap::default(),
             scope_child_count: vec![0],
             scope_dedup_tables: Default::default(),
         }
@@ -1005,6 +1009,11 @@ impl HierarchyBuilder {
         self.source_locs.shrink_to_fit();
         self.enums.shrink_to_fit();
         self.signal_encodings.shrink_to_fit();
+        assert!(
+            self.var_to_derived.is_empty(),
+            "TODO: generate SignalRefs for {} derived signals!",
+            self.var_to_derived.len()
+        );
         self.signal_derivations.shrink_to_fit();
         Hierarchy {
             vars: self.vars,
@@ -1270,6 +1279,10 @@ impl HierarchyBuilder {
         signal_encoding: SignalEncoding,
         signal_idx: SignalRef,
     ) -> bool {
+        debug_assert!(
+            !signal_idx.is_derived_signal(),
+            "Only works for original signals."
+        );
         // lookup previous item
         let entry_pos = find_parent_scope(&self.scope_stack);
         let entry = &mut self.scope_stack[entry_pos];
@@ -1283,26 +1296,29 @@ impl HierarchyBuilder {
                 let new_is_msb = index.lsb() == prev_index.msb() + 1;
                 let new_is_lsb = prev_index.lsb() == index.msb() + 1;
                 if new_is_lsb || new_is_msb {
+                    let mut prev_derived =
+                        self.var_to_derived.entry(prev_var_ref).or_insert_with(|| {
+                            DerivedBitVecSignal::new_identity(
+                                prev_var.signal_ref(),
+                                self.signal_encodings[prev_var.signal_ref().index()],
+                            )
+                        });
                     // modify existing variable (we assume that the other properties are the same
-                    let new_index = if new_is_msb {
-                        VarIndex::new(index.msb(), prev_index.lsb())
+                    if new_is_msb {
+                        prev_var.index = Some(VarIndex::new(index.msb(), prev_index.lsb()));
+                        prev_derived.concat_left_full(signal_idx, signal_encoding);
                     } else {
-                        VarIndex::new(prev_index.msb(), index.lsb())
+                        prev_var.index = Some(VarIndex::new(prev_index.msb(), index.lsb()));
+                        prev_derived.concat_right_full(signal_idx, signal_encoding);
                     };
-                    prev_var.index = Some(new_index);
+                    debug_assert_eq!(prev_var.index.unwrap().width(), prev_derived.width());
 
                     // remember type of (potentially) new signal
                     debug_assert_eq!(
                         signal_encoding,
-                        SignalEncoding::BitVector(NonZeroU32::new(index.length()).unwrap())
+                        SignalEncoding::BitVector(NonZeroU32::new(index.width()).unwrap())
                     );
                     self.set_signal_encoding(signal_idx, signal_encoding, new_name);
-
-                    // create a new compound signal
-
-                    println!(
-                        "TODO: actually make the signal a compound signal (new_index={new_index:?})",
-                    );
 
                     // a merge happened!
                     return true;
@@ -1442,7 +1458,7 @@ impl HierarchyBuilder {
         let sliced_signal_enc = self.signal_encodings[sliced_signal.index()];
         self.signal_derivations.insert(
             signal_ref,
-            DerivedBitVecSignal::new(sliced_signal, sliced_signal_enc, msb, lsb),
+            DerivedBitVecSignal::new_slice(sliced_signal, sliced_signal_enc, msb, lsb),
         );
     }
 }

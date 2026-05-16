@@ -19,6 +19,7 @@ pub trait SignalTransform {
 }
 
 /// Captures a signal which is derived from other bit-vector signals by slice and concat operations.
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct DerivedBitVecSignal {
     width: u32,
@@ -27,8 +28,8 @@ pub struct DerivedBitVecSignal {
 }
 
 impl DerivedBitVecSignal {
-    /// Creates a new signal by concatenating an existing one.
-    pub fn new(signal: SignalRef, enc: SignalEncoding, msb: u32, lsb: u32) -> Self {
+    /// Creates a new signal by slicing an existing one.
+    pub fn new_slice(signal: SignalRef, enc: SignalEncoding, msb: u32, lsb: u32) -> Self {
         let mut out = Self {
             width: 0,
             inputs: vec![],
@@ -36,6 +37,28 @@ impl DerivedBitVecSignal {
         };
         out.concat_left(signal, enc, msb, lsb);
         out
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Creates a new signal that is just the identity (full slice) of an existing one.
+    pub fn new_identity(signal: SignalRef, enc: SignalEncoding) -> Self {
+        if let SignalEncoding::BitVector(width) = enc {
+            Self::new_slice(signal, enc, width.get() - 1, 0)
+        } else {
+            unreachable!("This function only works for bit vector signals")
+        }
+    }
+
+    /// Concatenates a full signal to the left, i.e., on the most significant side.
+    pub fn concat_left_full(&mut self, signal: SignalRef, enc: SignalEncoding) {
+        if let SignalEncoding::BitVector(width) = enc {
+            self.concat_left(signal, enc, width.get() - 1, 0)
+        } else {
+            unreachable!("This function only works for bit vector signals")
+        }
     }
 
     /// Concatenates a signal to the left, i.e., on the most significant side.
@@ -54,6 +77,15 @@ impl DerivedBitVecSignal {
         } else {
             debug_assert!(self.bits.is_empty());
             self.bits.push(extract.into());
+        }
+    }
+
+    /// Concatenates a full signal to the right, i.e., on the least significant side.
+    pub fn concat_right_full(&mut self, signal: SignalRef, enc: SignalEncoding) {
+        if let SignalEncoding::BitVector(width) = enc {
+            self.concat_right(signal, enc, width.get() - 1, 0)
+        } else {
+            unreachable!("This function only works for bit vector signals")
         }
     }
 

@@ -595,7 +595,7 @@ pub fn parse_name(
     // This is important in order to distinguish bit indices from array indices.
     let (mut name, index) = if let Some(index) = index {
         // index length does not match declared variable length
-        if index.length() != length {
+        if index.width() != length {
             // => go back to old name and no index
             (raw_name, None)
         } else {
