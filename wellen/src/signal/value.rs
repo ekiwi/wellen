@@ -37,9 +37,14 @@ pub struct BitVecRef<'a> {
 pub struct Bit(u8);
 
 impl Bit {
+    pub const ZERO: Self = Self(0);
+    pub const ONE: Self = Self(1);
+    pub const X: Self = Self(2);
+    pub const Z: Self = Self(3);
+
     /// Checks to make sure that the value is in range (in debug mode).
     #[inline]
-    pub fn new(value: u8) -> Self {
+    pub const fn new(value: u8) -> Self {
         debug_assert!((value as usize) < NINE_STATE_LOOKUP.len());
         Bit(value)
     }
@@ -154,7 +159,7 @@ impl PartialEq for SignalValueRef<'_> {
     }
 }
 
-impl SignalValueRef<'_> {
+impl<'a> SignalValueRef<'a> {
     pub fn is_event(&self) -> bool {
         matches!(self, SignalValueRef::Event)
     }
@@ -178,7 +183,7 @@ impl SignalValueRef<'_> {
     }
 
     /// Returns a reference to the raw data, bits and states
-    pub(crate) fn as_bit_vec(&self) -> Option<BitVecRef<'_>> {
+    pub(crate) fn as_bit_vec(&self) -> Option<BitVecRef<'a>> {
         match self {
             SignalValueRef::BitVec(b) => Some(*b),
             _ => None,
@@ -200,6 +205,20 @@ impl BitVecValue {
             width,
             states,
             data: vec![0; states.bytes_required(width)],
+        }
+    }
+
+    pub fn repeat(states: States, width: u32, bit: Bit) -> Self {
+        debug_assert!(States::from_bit(bit).bytes_required(width) <= states.bytes_required(width));
+        let mut value = 0;
+        for _ in 0..states.bits_in_a_byte() {
+            value <<= states.bits();
+            value |= u8::from(bit);
+        }
+        Self {
+            width,
+            states,
+            data: vec![value; states.bytes_required(width)],
         }
     }
 
@@ -393,8 +412,20 @@ mod tests {
     #[test]
     fn test_sizes() {
         // signal values contain a slice (ptr + len) as well as a tag and potentially a length
-        assert_eq!(std::mem::size_of::<&[u8]>(), 16);
-        assert_eq!(std::mem::size_of::<SignalValueRef>(), 16 + 8);
+        assert_eq!(std::mem::size_of::<&[u8]>(), 2 * 8);
+        assert_eq!(std::mem::size_of::<SignalValueRef>(), 3 * 8);
+        // BitVecRef is the same size as SignalValueRef
+        assert_eq!(std::mem::size_of::<BitVecRef>(), 3 * 8);
+        // A BitVecValue has a Vec (3 pointer sized values) + meta-data
+        assert_eq!(std::mem::size_of::<BitVecValue>(), 4 * 8);
+    }
+
+    #[test]
+    fn test_bit_constants() {
+        assert_eq!(Bit::ZERO.to_ascii(), '0');
+        assert_eq!(Bit::ONE.to_ascii(), '1');
+        assert_eq!(Bit::X.to_ascii(), 'x');
+        assert_eq!(Bit::Z.to_ascii(), 'z');
     }
 
     #[test]

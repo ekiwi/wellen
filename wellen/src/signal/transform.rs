@@ -3,13 +3,12 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use super::{FixedWidthEncoding, SignalChangeIterator};
+use super::{Bit, FixedWidthEncoding};
 use crate::fst::push_zeros;
 use crate::fst::{get_bytes_per_entry, get_len_and_meta};
 use crate::signal::value::BitVecValue;
 use crate::wavemem::check_if_changed_and_truncate;
-use crate::{BitVecRef, Signal, SignalEncoding, SignalRef, SignalValueRef, States, TimeTableIdx};
-use std::iter::Peekable;
+use crate::{BitVecRef, Signal, SignalEncoding, SignalRef, States, TimeTableIdx};
 use std::num::NonZeroU32;
 
 pub fn transform_signal(transform: &DerivedBitVecSignal, inputs: &[&Signal]) -> Signal {
@@ -33,14 +32,46 @@ fn transform_bv_signal(
         .reduce(States::join)
         .unwrap();
     let mut out = BitVectorBuilder::new(max_states, out_width);
-    // let mut bvs = vec![];
-    // for (time, values) in MultiSignalChangeIter::new(inputs) {
-    //     debug_assert!(bvs.is_empty());
-    //     bvs.extend(values.iter().map(|v| v.as_bit_vec().unwrap()));
-    //     out.add_change(time, (&transform.on_change(&bvs)).into());
-    //     bvs.clear();
-    // }
-    todo!("iterate!");
+    // iteration - todo: split into its own function
+    let mut time = inputs
+        .iter()
+        .map(|i| i.time_indices.get(0).cloned().unwrap_or(0))
+        .min()
+        .unwrap_or(0);
+    let mut offsets: Vec<Option<u32>> = inputs
+        .iter()
+        .map(|i| {
+            for (ii, i_time) in i.time_indices.iter().enumerate() {
+                if *i_time > time {
+                    return if ii > 0 {
+                        Some(i.time_indices[ii - 1])
+                    } else {
+                        None
+                    };
+                }
+            }
+            None
+        })
+        .collect();
+    let mut values: Vec<Option<BitVecRef>> = inputs
+        .iter()
+        .zip(offsets.iter())
+        .map(|(i, offset)| {
+            offset.map(|o| {
+                let value = i.data.get_value_at(o as usize);
+                let out = value.as_bit_vec().unwrap();
+                out
+            })
+        })
+        .collect();
+
+    while !offsets.iter().all(|o| o.is_none()) {
+        out.add_change(time, (&transform.on_change(&values)).into());
+
+        // more iteration logic
+        todo!()
+    }
+
     out.finish(SignalRef::derived_max())
 }
 
@@ -170,15 +201,32 @@ impl DerivedBitVecSignal {
         &self.inputs
     }
 
-    pub fn on_change<'a>(&'a self, values: &[BitVecRef<'_>]) -> BitVecValue {
+    pub fn on_change<'a>(&'a self, values: &[Option<BitVecRef<'_>>]) -> BitVecValue {
         let max_states = values
             .iter()
-            .map(|v| v.states())
+            .flat_map(|v| v.map(|v| v.states()))
             .reduce(States::join)
             .unwrap();
         let mut out = BitVecValue::zero(max_states, self.width);
 
-        // TODO
+        let mut bit = self.width - 1;
+        for extract in self.bits.iter().map(|b| Extract::from(*b)) {
+            if let Some(value) = values[extract.signal as usize] {
+                for other_bit in (extract.lsb..(extract.msb + 1)).rev() {
+                    let other_value = value.get_bit(other_bit);
+                    out.set_bit(bit, other_value);
+                    bit -= 1;
+                }
+            } else {
+                // set bits to X
+                for _ in 0..(extract.width()) {
+                    let other_value = Bit::X;
+                    out.set_bit(bit, other_value);
+                    bit -= 1;
+                }
+            }
+        }
+        debug_assert_eq!(bit, 0);
 
         out
     }
