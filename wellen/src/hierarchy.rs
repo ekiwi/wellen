@@ -4,7 +4,7 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::FileFormat;
-use crate::signal::{DerivedBitVecSignal, SignalTransform};
+use crate::signal::{DerivedBitVecSignal, PureSignalTransform};
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::fmt::{Debug, Formatter};

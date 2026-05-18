@@ -3,13 +3,17 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use crate::{SignalEncoding, SignalRef, Time};
+use crate::{Signal, SignalEncoding, SignalRef, Time};
 use std::num::NonZeroU32;
 
+pub fn transform_signal(transform: &impl PureSignalTransform, inputs: &[&Signal]) -> Signal {
+    todo!()
+}
+
 /// Generates a new signal based on other signals.
-/// The on_change method takes a mutable reference and thus the transform must be
-/// executed sequentially over all changes in order.
-pub trait SignalTransform {
+/// The on_change method takes a immutable reference and thus the transform is pure and can
+/// be executed in any order.
+pub trait PureSignalTransform {
     type SignalRefType;
     /// The encoding of the output signal.
     fn output_encoding(&self) -> SignalEncoding;
@@ -135,7 +139,7 @@ impl DerivedBitVecSignal {
     }
 }
 
-impl SignalTransform for DerivedBitVecSignal {
+impl PureSignalTransform for DerivedBitVecSignal {
     type SignalRefType = ();
 
     fn output_encoding(&self) -> SignalEncoding {

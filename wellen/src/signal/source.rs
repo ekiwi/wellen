@@ -3,7 +3,8 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use crate::signal::SignalTransform;
+use crate::signal::PureSignalTransform;
+use crate::signal::transform::transform_signal;
 use crate::{Hierarchy, Signal, SignalEncoding, SignalRef};
 use rustc_hash::FxHashMap;
 
@@ -90,14 +91,23 @@ impl SignalSource {
             .flat_map(|d| d.inputs())
             .cloned()
             .collect();
-        let _underlying_signals: FxHashMap<_, _> = self
+        let underlying_signals: FxHashMap<_, _> = self
             .load_non_derived_signals(underlying_ids, hierarchy, multi_threaded)
             .into_iter()
             .map(|s| (s.idx, s))
             .collect();
         ids.into_iter()
             .zip(transforms)
-            .map(|(_s, _transform)| todo!("apply transform to signal!"))
+            .map(|(s, transform)| {
+                let inputs: Vec<_> = transform
+                    .inputs()
+                    .iter()
+                    .map(|i| &underlying_signals[i])
+                    .collect();
+                let mut signal = transform_signal(transform, &inputs);
+                signal.idx = s;
+                signal
+            })
             .collect()
     }
 
