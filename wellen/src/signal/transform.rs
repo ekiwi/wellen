@@ -290,63 +290,6 @@ impl BitVectorBuilder {
     }
 }
 
-struct MultiSignalChangeIter<'a> {
-    signals: Vec<&'a Signal>,
-    offsets: Vec<u32>,
-    buf: &'a mut [SignalValueRef<'a>],
-}
-
-impl<'a> MultiSignalChangeIter<'a> {
-    fn new(signals: &'a[&'a Signal], buf: &'a mut [SignalValueRef<'a>]) -> Self {
-        let signals = Vec::from(signals);
-        let offsets = vec![0; signals.len()];
-        Self { signals, offsets, buf }
-    }
-}
-
-impl<'a> Iterator for MultiSignalChangeIter<'a> {
-    type Item = (TimeTableIdx, &'b [SignalValueRef<'a>]) where 'b : Self;
-
-    fn next(&'a mut self) -> Option<Self::Item> {}
-}
-
-// Failed attempt!
-// struct MultiSignalChangeIter<'a> {
-//     iters: Vec<Peekable<SignalChangeIterator<'a>>>,
-//     buf: Vec<SignalValueRef<'a>>
-// }
-//
-// impl<'a> MultiSignalChangeIter<'a> {
-//     fn new(signals: &'a[&'a Signal]) -> Self {
-//         let mut iters: Vec<_> = signals.iter().map(|s| s.iter_changes().peekable()).collect();
-//         Self { iters, buf: vec![] }
-//     }
-// }
-//
-//
-// impl<'a> Iterator for MultiSignalChangeIter<'a> {
-//     type Item = (TimeTableIdx, &'a[SignalValueRef<'a>]);
-//
-//     fn next(&'a mut self) -> Option<Self::Item> {
-//         // are we all done
-//         let done = self.iters.iter().all(|i| i.peek().is_none());
-//         if done {
-//             return None;
-//         }
-//
-//         // update buf with current value
-//         self.buf.clear();
-//         self.buf.extend(self.iters.iter_mut().map(|i| i.peek().unwrap().1));
-//         let current_time = self.iters.iter().map(|i| i.peek().unwrap().0).min().unwrap();
-//
-//
-//         // advance at least one sub-iterator
-//
-//         // return ref to our buffer
-//         Some((current_time, &self.buf))
-//
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
