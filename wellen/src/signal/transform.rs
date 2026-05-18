@@ -4,6 +4,7 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::{SignalEncoding, SignalRef, Time};
+use std::num::NonZeroU32;
 
 /// Generates a new signal based on other signals.
 /// The on_change method takes a mutable reference and thus the transform must be
@@ -19,7 +20,7 @@ pub trait SignalTransform {
 }
 
 /// Captures a signal which is derived from other bit-vector signals by slice and concat operations.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct DerivedBitVecSignal {
     width: u32,
@@ -138,7 +139,7 @@ impl SignalTransform for DerivedBitVecSignal {
     type SignalRefType = ();
 
     fn output_encoding(&self) -> SignalEncoding {
-        todo!()
+        SignalEncoding::BitVector(NonZeroU32::new(self.width).unwrap())
     }
 
     fn inputs(&self) -> &[SignalRef] {

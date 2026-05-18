@@ -4,7 +4,7 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::FileFormat;
-use crate::signal::DerivedBitVecSignal;
+use crate::signal::{DerivedBitVecSignal, SignalTransform};
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::fmt::{Debug, Formatter};
@@ -1003,18 +1003,20 @@ impl HierarchyBuilder {
 
 impl HierarchyBuilder {
     pub fn finish(mut self) -> Hierarchy {
+        self.generate_signal_refs_for_derived();
+        debug_assert!(self.var_to_derived.is_empty());
         self.vars.shrink_to_fit();
         self.scopes.shrink_to_fit();
         self.strings.shrink_to_fit();
         self.source_locs.shrink_to_fit();
         self.enums.shrink_to_fit();
         self.signal_encodings.shrink_to_fit();
-        assert!(
-            self.var_to_derived.is_empty(),
-            "TODO: generate SignalRefs for {} derived signals!",
-            self.var_to_derived.len()
-        );
         self.signal_derivations.shrink_to_fit();
+        debug_assert!(
+            self.signal_derivations
+                .keys()
+                .all(|r| r.is_derived_signal())
+        );
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
@@ -1024,6 +1026,36 @@ impl HierarchyBuilder {
             meta: self.meta,
             signal_derivations: self.signal_derivations,
             signal_encodings: self.signal_encodings,
+        }
+    }
+
+    /// Called from finish. Assigns signal references for all derived signals
+    /// and patches the variables with the final reference.
+    /// This can only be done at the end of the builder phase, as only then, do we know
+    /// that no new signal references will be created.
+    fn generate_signal_refs_for_derived(&mut self) {
+        if self.var_to_derived.is_empty() {
+            return;
+        }
+        // deduplicate signals
+        let mut signal_to_ref = FxHashMap::default();
+        let var_to_derived = std::mem::take(&mut self.var_to_derived);
+        for (var, signal) in var_to_derived {
+            let signal_enc = signal.output_encoding();
+            let signal_ref = signal_to_ref
+                .entry(signal)
+                .or_insert_with(|| {
+                    let r = SignalRef::derived_from_index(self.signal_encodings.len()).unwrap();
+                    self.signal_encodings.push(signal_enc);
+                    r
+                })
+                .clone();
+            self.vars[var.index()].signal_idx = signal_ref;
+        }
+
+        for (signal, signal_ref) in signal_to_ref {
+            debug_assert!(!self.signal_derivations.contains_key(&signal_ref));
+            self.signal_derivations.insert(signal_ref, signal);
         }
     }
 
@@ -1296,7 +1328,7 @@ impl HierarchyBuilder {
                 let new_is_msb = index.lsb() == prev_index.msb() + 1;
                 let new_is_lsb = prev_index.lsb() == index.msb() + 1;
                 if new_is_lsb || new_is_msb {
-                    let mut prev_derived =
+                    let prev_derived =
                         self.var_to_derived.entry(prev_var_ref).or_insert_with(|| {
                             DerivedBitVecSignal::new_identity(
                                 prev_var.signal_ref(),

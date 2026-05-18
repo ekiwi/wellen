@@ -327,7 +327,7 @@ fn vcd_character_encoding() {
 #[test]
 fn vcd_questa_sim_undo_bit_split() {
     let filename = "inputs/questa-sim/wellen-issue-57-uart.vcd";
-    let waves = read(filename).expect("failed to parse");
+    let mut waves = read(filename).expect("failed to parse");
     let prescale_ref = waves
         .hierarchy()
         .lookup_var(&[&"tb_uart", &"dut"], &"prescale")
@@ -345,4 +345,7 @@ fn vcd_questa_sim_undo_bit_split() {
     assert_eq!(prescale.length(waves.hierarchy()), Some(16));
 
     check_no_duplicate_var(waves.hierarchy());
+
+    // load and verify the values of the prescale variable which have been assembled from individual bit signals
+    waves.load_signals(&[prescale.signal_ref()]);
 }
