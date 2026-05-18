@@ -33,7 +33,7 @@ fn transform_bv_signal(
         .reduce(States::join)
         .unwrap();
     let mut out = BitVectorBuilder::new(max_states, out_width);
-    let mut bvs = vec![];
+    // let mut bvs = vec![];
     // for (time, values) in MultiSignalChangeIter::new(inputs) {
     //     debug_assert!(bvs.is_empty());
     //     bvs.extend(values.iter().map(|v| v.as_bit_vec().unwrap()));

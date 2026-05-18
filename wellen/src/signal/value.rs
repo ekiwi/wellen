@@ -229,57 +229,6 @@ impl<'a> From<&'a BitVecValue> for BitVecRef<'a> {
     }
 }
 
-// #[derive(Debug, Clone)]
-// pub struct SignalValue(SignalValueKind);
-//
-// /// Private enum to protect [[SignalValue]] internals.
-// #[derive(Debug, Clone)]
-// enum SignalValueKind {
-//     Event,
-//     Binary(Vec<u8>, u32),
-//     FourValue(Vec<u8>, u32),
-//     NineValue(Vec<u8>, u32),
-//     String(String),
-//     Real(Real),
-// }
-//
-// impl<'a> From<&'a SignalValue> for SignalValueRef<'a> {
-//     fn from(value: &'a SignalValue) -> Self {
-//         match &value.0 {
-//             SignalValueKind::Event => SignalValueRef::Event,
-//             SignalValueKind::Binary(data, bits) => SignalValueRef::Binary(data, *bits),
-//             SignalValueKind::FourValue(data, bits) => SignalValueRef::FourValue(data, *bits),
-//             SignalValueKind::NineValue(data, bits) => SignalValueRef::NineValue(data, *bits),
-//             SignalValueKind::String(s) => SignalValueRef::String(s.as_str()),
-//             SignalValueKind::Real(data) => SignalValueRef::Real(*data),
-//         }
-//     }
-// }
-//
-// impl<'a> From<SignalValueRef<'a>> for SignalValue {
-//     fn from(value: SignalValueRef<'a>) -> Self {
-//         Self(match value {
-//             SignalValueRef::Event => SignalValueKind::Event,
-//             SignalValueRef::Binary(data, bits) => SignalValueKind::Binary(data.to_vec(), bits),
-//             SignalValueRef::FourValue(data, bits) => {
-//                 SignalValueKind::FourValue(data.to_vec(), bits)
-//             }
-//             SignalValueRef::NineValue(data, bits) => {
-//                 SignalValueKind::NineValue(data.to_vec(), bits)
-//             }
-//             SignalValueRef::String(data) => SignalValueKind::String(data.to_string()),
-//             SignalValueRef::Real(data) => SignalValueKind::Real(data),
-//         })
-//     }
-// }
-//
-// impl Display for SignalValue {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         let sig_ref: SignalValueRef = self.into();
-//         sig_ref.fmt(f)
-//     }
-// }
-
 const NINE_STATE_LOOKUP: [char; 9] = ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-'];
 
 #[repr(u8)]
