@@ -3,25 +3,36 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use crate::{Signal, SignalEncoding, SignalRef, Time};
+use std::iter::Peekable;
+use crate::{BitVecRef, Signal, SignalEncoding, SignalRef, SignalValueRef, States, TimeTableIdx};
 use std::num::NonZeroU32;
+use crate::fst::{get_bytes_per_entry, get_len_and_meta};
+use crate::wavemem::{check_if_changed_and_truncate};
+use crate::fst::push_zeros;
+use crate::signal::value::BitVecValue;
+use super::{FixedWidthEncoding, SignalChangeIterator};
 
-pub fn transform_signal(transform: &impl PureSignalTransform, inputs: &[&Signal]) -> Signal {
-    todo!()
+pub fn transform_signal(transform: &DerivedBitVecSignal, inputs: &[&Signal]) -> Signal {
+    match transform.output_encoding() {
+        SignalEncoding::BitVector(width) => transform_bv_signal(transform, width.get(), inputs),
+        other => todo!("Add support for generating a {:?} signal.", other),
+    }
+
 }
 
-/// Generates a new signal based on other signals.
-/// The on_change method takes a immutable reference and thus the transform is pure and can
-/// be executed in any order.
-pub trait PureSignalTransform {
-    type SignalRefType;
-    /// The encoding of the output signal.
-    fn output_encoding(&self) -> SignalEncoding;
-    /// The signals that this transform depends on.
-    fn inputs(&self) -> &[SignalRef];
-    /// Process a change in at least one of the input signals.
-    fn on_change(&mut self, time: Time, values: &[Self::SignalRefType]) -> Self::SignalRefType;
+fn transform_bv_signal(transform: &DerivedBitVecSignal, out_width: u32, inputs: &[&Signal]) -> Signal {
+    let max_states = inputs.iter().map(|i| i.max_states().expect("inputs to a bit-vec transform mut be bit-vec")).reduce(States::join).unwrap();
+    let mut out = BitVectorBuilder::new(max_states, out_width);
+    let mut bvs =  vec![];
+    for (time, values) in MultiSignalChangeIter::new(inputs) {
+        debug_assert!(bvs.is_empty());
+        bvs.extend(values.iter().map(|v| v.as_bit_vec().unwrap()));
+        out.add_change(time, (&transform.on_change(&bvs)).into());
+        bvs.clear();
+    }
+    out.finish(SignalRef::derived_max())
 }
+
 
 /// Captures a signal which is derived from other bit-vector signals by slice and concat operations.
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
@@ -139,19 +150,25 @@ impl DerivedBitVecSignal {
     }
 }
 
-impl PureSignalTransform for DerivedBitVecSignal {
-    type SignalRefType = ();
+/// TODO: turn this into more of a trait!
+impl DerivedBitVecSignal {
 
-    fn output_encoding(&self) -> SignalEncoding {
+    pub fn output_encoding(&self) -> SignalEncoding {
         SignalEncoding::BitVector(NonZeroU32::new(self.width).unwrap())
     }
 
-    fn inputs(&self) -> &[SignalRef] {
+    pub fn inputs(&self) -> &[SignalRef] {
         &self.inputs
     }
 
-    fn on_change(&mut self, _time: Time, _values: &[Self::SignalRefType]) -> Self::SignalRefType {
-        todo!()
+    pub fn on_change<'a>(&'a self, values: &[BitVecRef<'_>]) -> BitVecValue {
+        let max_states = values.iter().map(|v| v.states()).reduce(States::join).unwrap();
+        let mut out = BitVecValue::zero(max_states, self.width);
+
+        // TODO
+
+        out
+
     }
 }
 
@@ -184,6 +201,152 @@ impl From<Extract> for u64 {
         ((value.signal as u64) << (64 - 16)) | ((width as u64) << 32) | (value.lsb as u64)
     }
 }
+
+struct BitVectorBuilder {
+    max_states: States,
+    width: u32,
+    len: usize,
+    has_meta: bool,
+    bytes_per_entry: usize,
+    data: Vec<u8>,
+    time_indices: Vec<TimeTableIdx>,
+}
+
+impl BitVectorBuilder {
+    fn new(max_states: States, bits: u32) -> Self {
+        assert!(bits > 0);
+        let (len, has_meta) = get_len_and_meta(max_states, bits);
+        let bytes_per_entry = get_bytes_per_entry(len, has_meta);
+        let data = vec![];
+        let time_indices = vec![];
+        Self {
+            max_states,
+            width: bits,
+            len,
+            has_meta,
+            bytes_per_entry,
+            data,
+            time_indices,
+        }
+    }
+
+    fn add_change(&mut self, time_idx: TimeTableIdx, value: BitVecRef) {
+        debug_assert_eq!(value.width(), self.width);
+        let local_encoding = value.states();
+        debug_assert!(local_encoding.bits() >= self.max_states.bits());
+        if self.width == 1 {
+            let value = u8::from(value.get_bit(0));
+            let meta_data = (local_encoding as u8) << 6;
+            self.data.push(value | meta_data);
+        } else {
+            let (local_len, local_has_meta) = get_len_and_meta(local_encoding, self.width);
+
+            // append data
+            let meta_data = (local_encoding as u8) << 6;
+            if local_len == self.len && local_has_meta == self.has_meta {
+                // same meta-data location and length as the maximum
+                if self.has_meta {
+                    self.data.push(meta_data);
+                    value.append_to_vec(&mut self.data);
+                } else {
+                    let meta_data_index = self.data.len();
+                    value.append_to_vec(&mut self.data);
+                    self.data[meta_data_index] |= meta_data;
+                }
+            } else {
+                // smaller encoding than the maximum
+                self.data.push(meta_data);
+                if self.has_meta {
+                    push_zeros(&mut self.data, self.len - local_len);
+                } else {
+                    push_zeros(&mut self.data, self.len - local_len - 1);
+                }
+                value.append_to_vec(&mut self.data);
+            }
+        }
+        // see if there actually was a change and revert if there was not
+        if check_if_changed_and_truncate(self.bytes_per_entry, &mut self.data) {
+            self.time_indices.push(time_idx);
+        }
+    }
+
+    fn finish(self, id: SignalRef) -> Signal {
+        debug_assert_eq!(
+            self.data.len(),
+            self.time_indices.len() * self.bytes_per_entry
+        );
+        let encoding = FixedWidthEncoding::BitVector {
+            max_states: self.max_states,
+            width: self.width,
+            meta_byte: self.has_meta,
+        };
+        Signal::new_fixed_len(
+            id,
+            self.time_indices,
+            encoding,
+            self.bytes_per_entry as u32,
+            self.data,
+        )
+    }
+}
+
+struct MultiSignalChangeIter<'a> {
+    signals: Vec<&'a Signal>,
+    offsets: Vec<u32>,
+    buf: &'a mut [SignalValueRef<'a>],
+}
+
+impl<'a> MultiSignalChangeIter<'a> {
+    fn new(signals: &'a[&'a Signal], buf: &'a mut [SignalValueRef<'a>]) -> Self {
+        let signals = Vec::from(signals);
+        let offsets = vec![0; signals.len()];
+        Self { signals, offsets, buf }
+    }
+}
+
+impl<'a> Iterator for MultiSignalChangeIter<'a> {
+    type Item = (TimeTableIdx, &'b [SignalValueRef<'a>]) where 'b : Self;
+
+    fn next(&'a mut self) -> Option<Self::Item> {}
+}
+
+// Failed attempt!
+// struct MultiSignalChangeIter<'a> {
+//     iters: Vec<Peekable<SignalChangeIterator<'a>>>,
+//     buf: Vec<SignalValueRef<'a>>
+// }
+//
+// impl<'a> MultiSignalChangeIter<'a> {
+//     fn new(signals: &'a[&'a Signal]) -> Self {
+//         let mut iters: Vec<_> = signals.iter().map(|s| s.iter_changes().peekable()).collect();
+//         Self { iters, buf: vec![] }
+//     }
+// }
+//
+//
+// impl<'a> Iterator for MultiSignalChangeIter<'a> {
+//     type Item = (TimeTableIdx, &'a[SignalValueRef<'a>]);
+//
+//     fn next(&'a mut self) -> Option<Self::Item> {
+//         // are we all done
+//         let done = self.iters.iter().all(|i| i.peek().is_none());
+//         if done {
+//             return None;
+//         }
+//
+//         // update buf with current value
+//         self.buf.clear();
+//         self.buf.extend(self.iters.iter_mut().map(|i| i.peek().unwrap().1));
+//         let current_time = self.iters.iter().map(|i| i.peek().unwrap().0).min().unwrap();
+//
+//
+//         // advance at least one sub-iterator
+//
+//         // return ref to our buffer
+//         Some((current_time, &self.buf))
+//
+//     }
+// }
 
 #[cfg(test)]
 mod tests {

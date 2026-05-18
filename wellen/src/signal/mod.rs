@@ -15,7 +15,7 @@ pub use value::{Bit, BitVecRef, Real, SignalValueRef, States, bit_char_to_num};
 mod source;
 mod transform;
 pub use source::{SignalSource, SignalSourceImplementation};
-pub use transform::{DerivedBitVecSignal, PureSignalTransform};
+pub use transform::{DerivedBitVecSignal};
 
 pub type Time = u64;
 pub type TimeTableIdx = u32;
@@ -186,6 +186,13 @@ impl Signal {
 
     pub(crate) fn signal_encoding(&self) -> SignalEncoding {
         self.data.signal_encoding()
+    }
+
+    pub fn max_states(&self) -> Option<States> {
+        if let SignalChangeData::FixedLength {encoding, ..} = self.data &&
+        let FixedWidthEncoding::BitVector { max_states, .. } = encoding{
+            Some(max_states)
+        } else {None}
     }
 }
 

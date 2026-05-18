@@ -4,7 +4,7 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::FileFormat;
-use crate::signal::{DerivedBitVecSignal, PureSignalTransform};
+use crate::signal::{DerivedBitVecSignal};
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::fmt::{Debug, Formatter};
@@ -308,6 +308,12 @@ impl SignalRef {
             let value = (index as u32 + 1) | (1u32 << 31);
             Some(Self(NonZeroU32::new(value).unwrap()))
         }
+    }
+
+    /// Generates a dummy ID for a derived signal.
+    #[inline]
+    pub(crate) fn derived_max() -> Self {
+        Self::derived_from_index(MAX_INDEX).unwrap()
     }
 
     /// A derived signal does not actually exist in the original waveform trace.

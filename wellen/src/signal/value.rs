@@ -186,6 +186,38 @@ impl SignalValueRef<'_> {
     }
 }
 
+/// Owns the value of a (2/4/9 value) bit vector signal.
+#[derive(Debug, Clone)]
+pub struct BitVecValue {
+    width: u32,
+    states: States,
+    data: Vec<u8>,
+}
+
+impl BitVecValue {
+    pub fn zero(states: States, width: u32) -> Self {
+        Self { width, states, data: vec![0; states.bytes_required(width)] }
+    }
+
+
+    /// Sets the numeric (not ASCII!) value of a bit.
+    pub fn set_bit(&mut self, bit: u32, value: Bit) {
+        self.states.set_bit(&mut self.data, bit, value);
+    }
+}
+
+impl <'a> From<BitVecRef<'a>> for BitVecValue {
+    fn from(value: BitVecRef<'a>) -> Self {
+        Self { width: value.width, states: value.states, data: value.data.to_vec() }
+    }
+}
+
+impl<'a> From<&'a BitVecValue> for BitVecRef<'a> {
+    fn from(value: &'a BitVecValue) -> Self {
+        Self { width: value.width, states: value.states, data: &value.data }
+    }
+}
+
 // #[derive(Debug, Clone)]
 // pub struct SignalValue(SignalValueKind);
 //
@@ -359,6 +391,19 @@ impl States {
         let big_endian_byte_index = data.len() - 1 - little_endian_byte_index;
         let byte = data[big_endian_byte_index];
         Bit::new(self.mask() & (byte >> (bit_in_byte * self.bits())))
+    }
+
+    /// Sets a single bit of an n-state encoded bit-vector {
+    #[inline]
+    fn set_bit(&self, data: &mut [u8], bit: u32, value: Bit) {
+        debug_assert!(data.len() >= self.bytes_required(bit));
+        let bit_in_byte = bit % self.bits_in_a_byte();
+        let little_endian_byte_index = (bit / self.bits_in_a_byte()) as usize;
+        let big_endian_byte_index = data.len() - 1 - little_endian_byte_index;
+        let raw_value = u8::from(value);
+        let shift_by = bit_in_byte * self.bits();
+        let other_bits = !(self.mask() << shift_by);
+        data[big_endian_byte_index] = (data[big_endian_byte_index] & other_bits) | (raw_value << shift_by);
     }
 }
 

@@ -3,7 +3,6 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use crate::signal::PureSignalTransform;
 use crate::signal::transform::transform_signal;
 use crate::{Hierarchy, Signal, SignalEncoding, SignalRef};
 use rustc_hash::FxHashMap;
