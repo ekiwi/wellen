@@ -196,9 +196,12 @@ pub struct BitVecValue {
 
 impl BitVecValue {
     pub fn zero(states: States, width: u32) -> Self {
-        Self { width, states, data: vec![0; states.bytes_required(width)] }
+        Self {
+            width,
+            states,
+            data: vec![0; states.bytes_required(width)],
+        }
     }
-
 
     /// Sets the numeric (not ASCII!) value of a bit.
     pub fn set_bit(&mut self, bit: u32, value: Bit) {
@@ -206,15 +209,23 @@ impl BitVecValue {
     }
 }
 
-impl <'a> From<BitVecRef<'a>> for BitVecValue {
+impl<'a> From<BitVecRef<'a>> for BitVecValue {
     fn from(value: BitVecRef<'a>) -> Self {
-        Self { width: value.width, states: value.states, data: value.data.to_vec() }
+        Self {
+            width: value.width,
+            states: value.states,
+            data: value.data.to_vec(),
+        }
     }
 }
 
 impl<'a> From<&'a BitVecValue> for BitVecRef<'a> {
     fn from(value: &'a BitVecValue) -> Self {
-        Self { width: value.width, states: value.states, data: &value.data }
+        Self {
+            width: value.width,
+            states: value.states,
+            data: &value.data,
+        }
     }
 }
 
@@ -403,7 +414,8 @@ impl States {
         let raw_value = u8::from(value);
         let shift_by = bit_in_byte * self.bits();
         let other_bits = !(self.mask() << shift_by);
-        data[big_endian_byte_index] = (data[big_endian_byte_index] & other_bits) | (raw_value << shift_by);
+        data[big_endian_byte_index] =
+            (data[big_endian_byte_index] & other_bits) | (raw_value << shift_by);
     }
 }
 

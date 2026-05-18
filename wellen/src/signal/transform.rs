@@ -3,36 +3,46 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use std::iter::Peekable;
-use crate::{BitVecRef, Signal, SignalEncoding, SignalRef, SignalValueRef, States, TimeTableIdx};
-use std::num::NonZeroU32;
-use crate::fst::{get_bytes_per_entry, get_len_and_meta};
-use crate::wavemem::{check_if_changed_and_truncate};
-use crate::fst::push_zeros;
-use crate::signal::value::BitVecValue;
 use super::{FixedWidthEncoding, SignalChangeIterator};
+use crate::fst::push_zeros;
+use crate::fst::{get_bytes_per_entry, get_len_and_meta};
+use crate::signal::value::BitVecValue;
+use crate::wavemem::check_if_changed_and_truncate;
+use crate::{BitVecRef, Signal, SignalEncoding, SignalRef, SignalValueRef, States, TimeTableIdx};
+use std::iter::Peekable;
+use std::num::NonZeroU32;
 
 pub fn transform_signal(transform: &DerivedBitVecSignal, inputs: &[&Signal]) -> Signal {
     match transform.output_encoding() {
         SignalEncoding::BitVector(width) => transform_bv_signal(transform, width.get(), inputs),
         other => todo!("Add support for generating a {:?} signal.", other),
     }
-
 }
 
-fn transform_bv_signal(transform: &DerivedBitVecSignal, out_width: u32, inputs: &[&Signal]) -> Signal {
-    let max_states = inputs.iter().map(|i| i.max_states().expect("inputs to a bit-vec transform mut be bit-vec")).reduce(States::join).unwrap();
+fn transform_bv_signal(
+    transform: &DerivedBitVecSignal,
+    out_width: u32,
+    inputs: &[&Signal],
+) -> Signal {
+    let max_states = inputs
+        .iter()
+        .map(|i| {
+            i.max_states()
+                .expect("inputs to a bit-vec transform mut be bit-vec")
+        })
+        .reduce(States::join)
+        .unwrap();
     let mut out = BitVectorBuilder::new(max_states, out_width);
-    let mut bvs =  vec![];
-    for (time, values) in MultiSignalChangeIter::new(inputs) {
-        debug_assert!(bvs.is_empty());
-        bvs.extend(values.iter().map(|v| v.as_bit_vec().unwrap()));
-        out.add_change(time, (&transform.on_change(&bvs)).into());
-        bvs.clear();
-    }
+    let mut bvs = vec![];
+    // for (time, values) in MultiSignalChangeIter::new(inputs) {
+    //     debug_assert!(bvs.is_empty());
+    //     bvs.extend(values.iter().map(|v| v.as_bit_vec().unwrap()));
+    //     out.add_change(time, (&transform.on_change(&bvs)).into());
+    //     bvs.clear();
+    // }
+    todo!("iterate!");
     out.finish(SignalRef::derived_max())
 }
-
 
 /// Captures a signal which is derived from other bit-vector signals by slice and concat operations.
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
@@ -152,7 +162,6 @@ impl DerivedBitVecSignal {
 
 /// TODO: turn this into more of a trait!
 impl DerivedBitVecSignal {
-
     pub fn output_encoding(&self) -> SignalEncoding {
         SignalEncoding::BitVector(NonZeroU32::new(self.width).unwrap())
     }
@@ -162,13 +171,16 @@ impl DerivedBitVecSignal {
     }
 
     pub fn on_change<'a>(&'a self, values: &[BitVecRef<'_>]) -> BitVecValue {
-        let max_states = values.iter().map(|v| v.states()).reduce(States::join).unwrap();
+        let max_states = values
+            .iter()
+            .map(|v| v.states())
+            .reduce(States::join)
+            .unwrap();
         let mut out = BitVecValue::zero(max_states, self.width);
 
         // TODO
 
         out
-
     }
 }
 
@@ -289,7 +301,6 @@ impl BitVectorBuilder {
         )
     }
 }
-
 
 #[cfg(test)]
 mod tests {
