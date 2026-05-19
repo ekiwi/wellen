@@ -855,6 +855,7 @@ pub fn stream_body<R: BufRead + Seek>(
     };
 
     reader.read_signals(&fst_filter, fst_callback)?;
+    enc.finish();
 
     Ok(())
 }

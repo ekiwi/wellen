@@ -143,10 +143,6 @@ fn main() {
 
     wave_source.print_statistics();
 
-    println!(
-        "The hierarchy takes up at least {} of memory.",
-        ByteSize::b(hierarchy.size_in_memory() as u64)
-    );
     print_size_of_full_vs_reduced_names(&hierarchy);
 
     if args.skip_load {

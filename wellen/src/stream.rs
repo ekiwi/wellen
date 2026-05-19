@@ -364,6 +364,19 @@ where
             }
         }
         // Emit derived signals.
+        self.emit_derived_signal_changes();
+
+        // TODO: check filter to see if we are done or what!
+        self.time = Some(time);
+        self.skipping_time_step = false;
+    }
+
+    /// Must be called at the end of a stream. Dispatches any pending derived signal changes.
+    pub(crate) fn finish(&mut self) {
+        self.emit_derived_signal_changes();
+    }
+
+    fn emit_derived_signal_changes(&mut self) {
         if !self.has_changed.is_empty() {
             let time = self
                 .time
@@ -383,10 +396,6 @@ where
                 (self.callback)(time, signal, (&value).into());
             }
         }
-
-        // TODO: check filter to see if we are done or what!
-        self.time = Some(time);
-        self.skipping_time_step = false;
     }
 
     pub(crate) fn time_is_none(&self) -> bool {

@@ -1453,6 +1453,7 @@ pub fn stream_body<R: BufRead + Seek>(
             parse_body(input, &mut disp, stop_pos, None)?;
             // reset stream so that we can read data again
             input.seek(SeekFrom::Start(start))?;
+            disp.enc.finish();
             Ok(())
         }
         Input::Mmap(mmap) => {
@@ -1460,6 +1461,7 @@ pub fn stream_body<R: BufRead + Seek>(
             let mut input = std::io::Cursor::new(data);
             let stop_pos = data.len() - 1;
             parse_body(&mut input, &mut disp, stop_pos, None)?;
+            disp.enc.finish();
             Ok(())
         }
     }
