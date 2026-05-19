@@ -26,6 +26,8 @@ fn diff_stream(filename: &str) {
     );
 
     let mut delta_counter = FxHashMap::default();
+    // keeps track of the times when we see a signal changing in the stream
+    let mut observed_changes = FxHashMap::default();
 
     let filter = Filter::all();
     streamed
@@ -35,9 +37,29 @@ fn diff_stream(filename: &str) {
                 .get(&time)
                 .expect("failed to find time in time table") as usize;
             let b_value = get_value(&batch, sig, idx, &mut delta_counter);
+            println!("{time}, {a_value} vs {b_value}");
             diff_signal_value(time, sig, a_value, b_value, None, batch.hierarchy());
+            // record observed change
+            observed_changes
+                .entry(sig)
+                .or_insert_with(Vec::new)
+                .push(time);
         })
         .unwrap();
+
+    // make sure we actually saw all the changes!
+    for signal in batch.hierarchy().signals() {
+        assert!(
+            observed_changes.contains_key(&signal),
+            "The stream is missing changes for {signal:?}"
+        );
+        let time_indices = batch.get_signal(signal).unwrap().time_indices();
+        let observed = observed_changes[&signal].as_slice();
+        assert_eq!(time_indices.len(), observed.len());
+        for (&time_idx, &observed_time) in time_indices.iter().zip(observed) {
+            assert_eq!(batch.time_table()[time_idx as usize], observed_time);
+        }
+    }
 }
 
 fn load_streaming(filename: &str) -> StreamingWaveform<BufReader<File>> {
@@ -178,6 +200,11 @@ fn diff_stream_questa_sim_dump() {
 #[test]
 fn diff_stream_questa_sim_test() {
     diff_stream("inputs/questa-sim/test.vcd");
+}
+
+#[test]
+fn diff_stream_questa_wellen_issue_57() {
+    diff_stream("inputs/questa-sim/wellen-issue-57-uart.vcd");
 }
 
 #[test]
