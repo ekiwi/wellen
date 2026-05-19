@@ -784,7 +784,14 @@ impl Hierarchy {
             .iter()
             .enumerate()
             .filter(|(_, enc)| **enc != SignalEncoding::Unknown)
-            .map(|(ii, _)| SignalRef::from_index(ii).unwrap())
+            .map(|(ii, _)| {
+                let d = SignalRef::derived_from_index(ii).unwrap();
+                if self.signal_derivations.contains_key(&d) {
+                    d
+                } else {
+                    SignalRef::from_index(ii).unwrap()
+                }
+            })
     }
 
     /// Size of the Hierarchy in bytes.
