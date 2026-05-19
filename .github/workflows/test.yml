@@ -21,7 +21,7 @@ jobs:
     steps:
       - name: Update Rust to ${{ matrix.toolchain }}
         run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build
         run: cargo build --verbose
       - name: Run tests
@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           package: wellen
@@ -66,7 +66,7 @@ jobs:
     name: Check Minimum Rust Version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: taiki-e/cache-cargo-install-action@v2
         with:
           tool: cargo-msrv
@@ -87,7 +87,7 @@ jobs:
     steps:
       - name: Update Rust to ${{ matrix.toolchain }}
         run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build
         run: cargo build --verbose --examples --release
       - name: load_signals
@@ -107,6 +107,6 @@ jobs:
     steps:
       - name: Update Rust to ${{ matrix.toolchain }}
         run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build
         run: cargo build --verbose --features serde1
