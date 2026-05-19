@@ -348,4 +348,10 @@ fn vcd_questa_sim_undo_bit_split() {
 
     // load and verify the values of the prescale variable which have been assembled from individual bit signals
     waves.load_signals(&[prescale.signal_ref()]);
+    let prescale_signal = waves.get_signal(prescale.signal_ref()).unwrap();
+    let values: Vec<_> = prescale_signal
+        .iter_changes()
+        .map(|(time_idx, value)| format!("{time_idx}: {value}"))
+        .collect();
+    assert_eq!(values, ["0: 0000000000010100"]);
 }

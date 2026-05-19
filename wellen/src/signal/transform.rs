@@ -50,7 +50,9 @@ fn transform_bv_signal(
                     };
                 }
             }
-            None
+            i.time_indices
+                .first()
+                .and_then(|first| if *first == time { Some(0) } else { None })
         })
         .collect();
     let mut values: Vec<Option<BitVecRef>> = inputs
@@ -69,7 +71,30 @@ fn transform_bv_signal(
         out.add_change(time, (&transform.on_change(&values)).into());
 
         // more iteration logic
-        todo!()
+        let maybe_next_time = inputs
+            .iter()
+            .zip(offsets.iter())
+            // find the next time index
+            .flat_map(|(i, offset)| offset.and_then(|o| i.time_indices.get(o as usize + 1)))
+            // pick the smallest
+            .min();
+        if let Some(next_time) = maybe_next_time {
+            for ((i, offset), value) in inputs.iter().zip(offsets.iter_mut()).zip(values.iter_mut())
+            {
+                // we only advance the signals which have a matching next time
+                if let Some(o) = *offset {
+                    let next_o = o + 1;
+                    if i.time_indices.get(next_o as usize) == Some(next_time) {
+                        *offset = Some(next_o);
+                        let any_value = i.data.get_value_at(next_o as usize);
+                        *value = Some(any_value.as_bit_vec().unwrap());
+                    }
+                }
+            }
+            time = *next_time;
+        } else {
+            break; // done
+        }
     }
 
     out.finish(SignalRef::derived_max())
@@ -209,20 +234,20 @@ impl DerivedBitVecSignal {
             .unwrap();
         let mut out = BitVecValue::zero(max_states, self.width);
 
-        let mut bit = self.width - 1;
+        let mut bit = self.width;
         for extract in self.bits.iter().map(|b| Extract::from(*b)) {
             if let Some(value) = values[extract.signal as usize] {
                 for other_bit in (extract.lsb..(extract.msb + 1)).rev() {
+                    bit -= 1;
                     let other_value = value.get_bit(other_bit);
                     out.set_bit(bit, other_value);
-                    bit -= 1;
                 }
             } else {
-                // set bits to X
-                for _ in 0..(extract.width()) {
+                // set bits to X if not value is available
+                for _ in 0..extract.width() {
+                    bit -= 1;
                     let other_value = Bit::X;
                     out.set_bit(bit, other_value);
-                    bit -= 1;
                 }
             }
         }

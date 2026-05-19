@@ -176,7 +176,7 @@ impl Signal {
         &self.time_indices
     }
 
-    pub fn iter_changes(&self) -> SignalChangeIterator<'_> {
+    pub fn iter_changes(&self) -> impl Iterator<Item = (TimeTableIdx, SignalValueRef<'_>)> {
         SignalChangeIterator::new(self)
     }
 
