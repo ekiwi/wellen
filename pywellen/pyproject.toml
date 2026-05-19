@@ -15,8 +15,8 @@ license = "BSD-3-Clause"
 description = "Fast VCD, GHW and FST wavedump reading."
 readme = "Readme.md"
 authors = [
-  { name = "James Connolly", email = "dogman3117@gmail.com" },
   { name = "Kevin Laeufer", email = "laeufer@cornell.edu" },
+  { name = "James Connolly", email = "dogman3117@gmail.com" },
 ]
 
 [project.urls]
@@ -27,6 +27,14 @@ Issues = "https://github.com/ekiwi/wellen/issues"
 requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
-
 [tool.maturin]
 features = ["pyo3/extension-module"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4.2",
+]
+
+[tool.uv]
+cache-keys = [{file = "pyproject.toml"}, {file = "Cargo.toml"}, {file = "src/*.rs"}]
+
