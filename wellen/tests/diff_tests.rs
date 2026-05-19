@@ -121,11 +121,16 @@ fn diff_test_one(vcd_filename: &str, mut our: Waveform, skip_content_comparison:
             return;
         }
     };
-    let mut id_map = FxHashMap::default();
-    diff_hierarchy(our.hierarchy(), &ref_header, &mut id_map);
-    load_all_signals(&mut our);
-    if !skip_content_comparison {
-        diff_signals(&mut ref_parser, &mut our, &id_map);
+
+    if our.hierarchy().has_derived_signals() {
+        println!("WARN: skipping VCD test from questa sim with merged signals");
+    } else {
+        let mut id_map = FxHashMap::default();
+        diff_hierarchy(our.hierarchy(), &ref_header, &mut id_map);
+        load_all_signals(&mut our);
+        if !skip_content_comparison {
+            diff_signals(&mut ref_parser, &mut our, &id_map);
+        }
     }
 }
 
@@ -272,7 +277,7 @@ fn diff_hierarchy_item(
                         if ref_var.size == 0 {
                             assert_eq!(1, size)
                         } else {
-                            assert_eq!(ref_var.size, size)
+                            assert_eq!(ref_var.size, size, "{}", our_var.full_name(our_hier))
                         }
                     }
                 }

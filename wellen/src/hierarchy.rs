@@ -862,6 +862,10 @@ impl Hierarchy {
     pub fn get_derived_signal(&self, signal_idx: SignalRef) -> Option<&DerivedBitVecSignal> {
         self.signal_derivations.get(&signal_idx)
     }
+
+    pub fn has_derived_signals(&self) -> bool {
+        !self.signal_derivations.is_empty()
+    }
 }
 
 // private implementation
