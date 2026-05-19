@@ -535,11 +535,13 @@ pub struct Scope {
 
 impl Scope {
     /// Local name of the scope.
+    #[inline]
     pub fn name<'a>(&self, hierarchy: &'a Hierarchy) -> &'a str {
         &hierarchy[self.name]
     }
 
     /// Local name of the component, e.g., the name of the module that was instantiated.
+    #[inline]
     pub fn component<'a>(&self, hierarchy: &'a Hierarchy) -> Option<&'a str> {
         self.component.map(|n| &hierarchy[n])
     }
@@ -561,12 +563,52 @@ impl Scope {
         out
     }
 
+    #[inline]
     pub fn scope_type(&self) -> ScopeType {
         self.tpe
     }
 
+    #[inline]
     pub fn pack_info(&self) -> Option<ScopePackInfo> {
         self.pack
+    }
+
+    #[inline]
+    pub fn is_array(&self) -> bool {
+        matches!(self.tpe, ScopeType::VhdlArray | ScopeType::SvArray)
+    }
+
+    #[inline]
+    pub fn is_packed_array(&self) -> bool {
+        self.is_array() && self.is_packed()
+    }
+
+    #[inline]
+    pub fn is_unpacked_array(&self) -> bool {
+        self.is_array() && self.is_unpacked()
+    }
+
+    #[inline]
+    pub fn is_packed(&self) -> bool {
+        matches!(
+            self.pack,
+            Some(ScopePackInfo::Packed) | Some(ScopePackInfo::TaggedPacked)
+        )
+    }
+
+    #[inline]
+    pub fn is_unpacked(&self) -> bool {
+        matches!(self.pack, Some(ScopePackInfo::Unpacked))
+    }
+
+    #[inline]
+    pub fn is_record(&self) -> bool {
+        matches!(self.tpe, ScopeType::Struct | ScopeType::VhdlRecord)
+    }
+
+    #[inline]
+    pub fn is_packed_record(&self) -> bool {
+        self.is_record() && self.is_packed()
     }
 
     pub fn source_loc<'a>(&self, hierarchy: &'a Hierarchy) -> Option<(&'a str, u64)> {
@@ -636,6 +678,7 @@ impl Iterator for HierarchyItemIdIterator<'_> {
     }
 }
 
+#[inline]
 fn to_var_ref_iterator(iter: impl Iterator<Item = ScopeOrVarRef>) -> impl Iterator<Item = VarRef> {
     iter.flat_map(|i| match i {
         ScopeOrVarRef::Scope(_) => None,
@@ -1318,6 +1361,13 @@ impl HierarchyBuilder {
         // lookup previous item
         let entry_pos = find_parent_scope(&self.scope_stack);
         let entry = &mut self.scope_stack[entry_pos];
+
+        // for unpacked arrays, we specifically do _not_ want to merge entries into a single
+        // (packed) bit-vector
+        if self.scopes[entry.scope_id].is_unpacked_array() {
+            return false;
+        }
+
         // is it a variable?
         if let Some(ScopeOrVarRef::Var(prev_var_ref)) = entry.last_child {
             let prev_var = &mut self.vars[prev_var_ref.index()];
