@@ -162,6 +162,8 @@ fn main() {
         let loaded_signal = loaded.into_iter().next().unwrap();
         assert_eq!(loaded_signal.signal_ref(), ids[0]);
         signal_load_times.push(load_time);
+        let bytes_in_mem = loaded_signal.size_in_memory();
+        signal_sizes.push(bytes_in_mem);
     }
     let signal_load_total_duration = signal_load_start.elapsed();
     println!("It took {signal_load_total_duration:?} to load all signals. (and drop them)");
