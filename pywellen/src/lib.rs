@@ -50,6 +50,10 @@ impl Hierarchy {
         }))
     }
 
+    fn all_vars(&self) -> Vec<Var> {
+        self.0.all_vars().map(|v| Var(v.clone())).collect()
+    }
+
     /// Get the date metadata from the waveform file
     fn date(&self) -> String {
         self.0.date().to_string()

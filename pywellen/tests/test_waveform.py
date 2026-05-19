@@ -113,8 +113,8 @@ def test_vcd_var_types_types():
         assert var_type == expected["var_type"], f"Expected {expected['var_type']}, got {var_type} for {var_name}"
 
         # Test bitwidth/length
-        assert var.bitwidth() == expected["bitwidth"], f"Expected bitwidth {expected['bitwidth']}, got {var.bitwidth()} for {var_name}"
-        assert var.length() == expected["bitwidth"], f"Expected length {expected['bitwidth']}, got {var.length()} for {var_name}"
+        assert var.bitwidth(h) == expected["bitwidth"], f"Expected bitwidth {expected['bitwidth']}, got {var.bitwidth()} for {var_name}"
+        assert var.length(h) == expected["bitwidth"], f"Expected length {expected['bitwidth']}, got {var.length()} for {var_name}"
 
         # Test direction (should be Unknown for VCD)
         direction = var.direction()
@@ -122,20 +122,20 @@ def test_vcd_var_types_types():
 
         # Test signal encoding properties
         if expected.get("is_string"):
-            assert var.is_string(), f"Expected {var_name} to be string"
-            assert not var.is_real() and not var.is_bit_vector()
+            assert var.is_string(h), f"Expected {var_name} to be string"
+            assert not var.is_real(h) and not var.is_bit_vector(h)
         elif expected.get("is_real"):
-            assert var.is_real(), f"Expected {var_name} to be real"
-            assert not var.is_string() and not var.is_bit_vector()
+            assert var.is_real(h), f"Expected {var_name} to be real"
+            assert not var.is_string(h) and not var.is_bit_vector(h)
         elif expected.get("is_bit_vector"):
-            assert var.is_bit_vector(), f"Expected {var_name} to be bit vector"
-            assert not var.is_string() and not var.is_real()
+            assert var.is_bit_vector(h), f"Expected {var_name} to be bit vector"
+            assert not var.is_string(h) and not var.is_real(h)
 
         # Test is_1bit
         if expected.get("is_1bit"):
-            assert var.is_1bit(), f"Expected {var_name} to be 1-bit"
+            assert var.is_1bit(h), f"Expected {var_name} to be 1-bit"
         elif expected["bitwidth"] and expected["bitwidth"] > 1:
-            assert not var.is_1bit(), f"Expected {var_name} to not be 1-bit"
+            assert not var.is_1bit(h), f"Expected {var_name} to not be 1-bit"
 
         # Test enum_type (only for ENUM2_IN)
         enum_type = var.enum_type(h)
