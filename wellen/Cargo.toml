@@ -30,6 +30,7 @@ serde = { workspace = true, optional = true }
 rustc-hash.workspace = true
 miniz_oxide.workspace = true
 indexmap.workspace = true
+smallvec.workspace = true
 
 [dev-dependencies]
 itertools.workspace = true

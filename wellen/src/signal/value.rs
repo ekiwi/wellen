@@ -4,6 +4,7 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use num_enum::TryFromPrimitive;
+use smallvec::{SmallVec, ToSmallVec, smallvec};
 use std::fmt::{Display, Formatter};
 
 pub type Real = f64;
@@ -19,6 +20,12 @@ pub enum SignalValueRef<'a> {
 impl<'a> SignalValueRef<'a> {
     pub fn bit_vec(states: States, width: u32, data: &'a [u8]) -> Self {
         Self::BitVec(BitVecRef::new(states, width, data))
+    }
+}
+
+impl<'a> From<BitVecRef<'a>> for SignalValueRef<'a> {
+    fn from(value: BitVecRef<'a>) -> Self {
+        Self::BitVec(value)
     }
 }
 
@@ -241,7 +248,7 @@ impl<'a> SignalValueRef<'a> {
 pub struct BitVecValue {
     width: u32,
     states: States,
-    data: Vec<u8>,
+    data: SmallVec<[u8; 16]>,
 }
 
 impl BitVecValue {
@@ -249,7 +256,7 @@ impl BitVecValue {
         Self {
             width,
             states,
-            data: vec![0; states.bytes_required(width)],
+            data: smallvec![0; states.bytes_required(width)],
         }
     }
 
@@ -263,7 +270,7 @@ impl BitVecValue {
         Self {
             width,
             states,
-            data: vec![value; states.bytes_required(width)],
+            data: smallvec![value; states.bytes_required(width)],
         }
     }
 
@@ -278,7 +285,7 @@ impl<'a> From<BitVecRef<'a>> for BitVecValue {
         Self {
             width: value.width,
             states: value.states,
-            data: value.data.to_vec(),
+            data: value.data.to_smallvec(),
         }
     }
 }
@@ -290,6 +297,13 @@ impl<'a> From<&'a BitVecValue> for BitVecRef<'a> {
             states: value.states,
             data: &value.data,
         }
+    }
+}
+
+impl<'a> From<&'a BitVecValue> for SignalValueRef<'a> {
+    fn from(value: &'a BitVecValue) -> Self {
+        let bv: BitVecRef = value.into();
+        bv.into()
     }
 }
 
@@ -473,6 +487,8 @@ mod tests {
         assert_eq!(std::mem::size_of::<BitVecRef>(), 3 * 8);
         // A BitVecValue has a Vec (3 pointer sized values) + meta-data
         assert_eq!(std::mem::size_of::<BitVecValue>(), 4 * 8);
+        // SignalValue is just as big as a BitVecValue
+        assert_eq!(std::mem::size_of::<SignalValue>(), 4 * 8);
     }
 
     #[test]

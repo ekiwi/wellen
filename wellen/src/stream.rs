@@ -5,14 +5,16 @@
 //! This interface is useful when you want to batch process waveform data instead
 //! of displaying it in a waveform viewer.
 
-use crate::signal::States;
+use crate::signal::{DerivedBitVecSignal, States};
 use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
 use crate::wavemem::write_n_state_from_ascii;
 use crate::{
-    FileFormat, Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValueRef,
-    Time, WellenError, viewers,
+    FileFormat, Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValue,
+    SignalValueRef, Time, WellenError, viewers,
 };
 use fst_reader::FstSignalValue;
+use rustc_hash::{FxHashMap, FxHashSet};
+use smallvec::{SmallVec, smallvec};
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
 
@@ -130,6 +132,13 @@ where
     /// contains encoding for all _included_ signals (depending on the [Filter] provided)
     encoding: Vec<SignalEncoding>,
     buf: Vec<u8>,
+    /// signal value cache, used for derived signals and their inputs
+    values: FxHashMap<SignalRef, SignalValue>,
+    /// what signals are derived from the key?
+    to_derived: FxHashMap<SignalRef, SmallVec<[SignalRef; 4]>>,
+    /// keep track of which derived signals had changes this time step
+    has_changed: FxHashSet<SignalRef>,
+    transforms: FxHashMap<SignalRef, DerivedBitVecSignal>,
 }
 
 impl<C> StreamEncoder<C>
@@ -137,15 +146,15 @@ where
     C: FnMut(Time, SignalRef, SignalValueRef<'_>),
 {
     pub(crate) fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> Self {
+        // data for derived signals
+        let mut transforms = FxHashMap::default();
+
         // remember encoding information for all included signals
-        let encoding = match filter.signals {
+        let mut encoding = match filter.signals {
             None => {
-                // make sure that we do not have any slices
-                for signal in hierarchy.signals() {
-                    assert!(
-                        hierarchy.get_derived_signal(signal).is_none(),
-                        "TODO: support derived signal"
-                    );
+                // collect info for derived signals
+                for (signal_ref, transform) in hierarchy.all_derived_signals() {
+                    transforms.insert(signal_ref, transform.clone());
                 }
 
                 // all signals
@@ -159,15 +168,28 @@ where
                 let max_index = signals.iter().map(|r| r.index()).max().unwrap();
                 let mut enc = vec![SignalEncoding::Unknown; max_index + 1];
                 for &signal in signals {
-                    assert!(
-                        hierarchy.get_derived_signal(signal).is_none(),
-                        "TODO: support derived signal"
-                    );
-                    enc[signal.index()] = hierarchy.get_signal_tpe(signal).unwrap();
+                    if let Some(transform) = hierarchy.get_derived_signal(signal) {
+                        debug_assert!(signal.is_derived_signal());
+                        transforms.insert(signal, transform.clone());
+                    } else {
+                        debug_assert!(!signal.is_derived_signal());
+                        enc[signal.index()] = hierarchy.get_signal_tpe(signal).unwrap();
+                    }
                 }
                 enc
             }
         };
+
+        let mut to_derived = FxHashMap::default();
+        for (&signal_ref, transform) in transforms.iter() {
+            for &input in transform.inputs() {
+                to_derived
+                    .entry(input)
+                    .or_insert_with(|| smallvec![])
+                    .push(signal_ref);
+                encoding[input.index()] = hierarchy.get_signal_tpe(input).unwrap();
+            }
+        }
 
         Self {
             callback,
@@ -175,6 +197,10 @@ where
             skipping_time_step: false,
             encoding,
             buf: Vec::with_capacity(128),
+            values: FxHashMap::default(),
+            to_derived,
+            has_changed: Default::default(),
+            transforms,
         }
     }
 
@@ -239,6 +265,12 @@ where
                 }
             };
 
+            if let Some(derived) = self.to_derived.get(&signal_ref) {
+                self.values.insert(signal_ref, signal_value.into());
+                for &signal in derived.iter() {
+                    self.has_changed.insert(signal);
+                }
+            }
             (self.callback)(time, signal_ref, signal_value);
         }
     }
@@ -304,6 +336,12 @@ where
                 SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
             };
 
+            if let Some(derived) = self.to_derived.get(&signal_ref) {
+                self.values.insert(signal_ref, signal_value.into());
+                for &signal in derived.iter() {
+                    self.has_changed.insert(signal);
+                }
+            }
             (self.callback)(time, signal_ref, signal_value);
         }
     }
@@ -325,6 +363,27 @@ where
                 }
             }
         }
+        // Emit derived signals.
+        if !self.has_changed.is_empty() {
+            let time = self
+                .time
+                .expect("time cannot be None when there are changes");
+            for signal in self.has_changed.drain() {
+                let t = &self.transforms[&signal];
+                let inputs: Vec<_> = t
+                    .inputs()
+                    .iter()
+                    .map(|i| {
+                        self.values
+                            .get(i)
+                            .map(|v| SignalValueRef::from(v).as_bit_vec().unwrap())
+                    })
+                    .collect();
+                let value = t.on_change(&inputs);
+                (self.callback)(time, signal, (&value).into());
+            }
+        }
+
         // TODO: check filter to see if we are done or what!
         self.time = Some(time);
         self.skipping_time_step = false;

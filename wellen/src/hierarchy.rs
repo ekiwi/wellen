@@ -795,21 +795,6 @@ impl Hierarchy {
             })
     }
 
-    /// Size of the Hierarchy in bytes.
-    pub fn size_in_memory(&self) -> usize {
-        let var_size = self.vars.capacity() * std::mem::size_of::<Var>();
-        let scope_size = self.scopes.capacity() * std::mem::size_of::<Scope>();
-        let string_size = self.strings.capacity() * std::mem::size_of::<String>()
-            + self.strings.iter().map(|s| s.len()).sum::<usize>();
-        let signal_encodings_size =
-            self.signal_encodings.capacity() * std::mem::size_of::<SignalEncoding>();
-        var_size
-            + scope_size
-            + string_size
-            + signal_encodings_size
-            + std::mem::size_of::<Hierarchy>()
-    }
-
     pub fn date(&self) -> &str {
         &self.meta.date
     }
@@ -869,6 +854,10 @@ impl Hierarchy {
 
     pub fn get_derived_signal(&self, signal_idx: SignalRef) -> Option<&DerivedBitVecSignal> {
         self.signal_derivations.get(&signal_idx)
+    }
+
+    pub fn all_derived_signals(&self) -> impl Iterator<Item = (SignalRef, &DerivedBitVecSignal)> {
+        self.signal_derivations.iter().map(|(k, v)| (*k, v))
     }
 
     pub fn has_derived_signals(&self) -> bool {

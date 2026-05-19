@@ -339,6 +339,11 @@ fn diff_stream_verilator_verilator_incomplete() {
 }
 
 #[test]
+fn diff_stream_verilator_complex_structs() {
+    diff_stream("inputs/verilator/verilator-pull-7255-t_trace_complex_structs_cc_fst.fst");
+}
+
+#[test]
 fn diff_stream_vivado_iladata() {
     diff_stream("inputs/vivado/iladata.vcd");
 }
