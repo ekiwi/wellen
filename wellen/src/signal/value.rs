@@ -105,6 +105,7 @@ impl From<Bit> for u64 {
 
 impl<'a> BitVecRef<'a> {
     pub fn new(states: States, width: u32, data: &'a [u8]) -> Self {
+        // TODO: can we enforce that states == min_states?
         debug_assert_eq!(states.bytes_required(width), data.len());
         Self {
             states,
@@ -174,6 +175,12 @@ impl<'a> BitVecRef<'a> {
     }
 }
 
+impl PartialEq for BitVecRef<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.bit_string() == other.bit_string()
+    }
+}
+
 impl Display for SignalValueRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
@@ -190,6 +197,8 @@ impl PartialEq for SignalValueRef<'_> {
         match (self, other) {
             (SignalValueRef::String(a), SignalValueRef::String(b)) => a == b,
             (SignalValueRef::Real(a), SignalValueRef::Real(b)) => a == b,
+            (SignalValueRef::Event, SignalValueRef::Event) => true,
+            (SignalValueRef::BitVec(a), SignalValueRef::BitVec(b)) => a == b,
             _ => self.to_bit_string().unwrap() == other.to_bit_string().unwrap(),
         }
     }

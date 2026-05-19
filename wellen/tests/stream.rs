@@ -41,8 +41,10 @@ fn diff_stream(filename: &str) {
             let b_value = get_value(&batch, sig, idx, &mut delta_counter);
             // println!("{time}, {a_value} vs {b_value}");
             diff_signal_value(time, sig, a_value, b_value, None, batch.hierarchy());
-            // record observed change if the value actually changed
-            if !prev_value.contains_key(&sig) || SignalValueRef::from(&prev_value[&sig]) != a_value
+            // record observed change if the value actually changed (or if we are dealing with an event)
+            if !prev_value.contains_key(&sig)
+                || a_value.is_event()
+                || SignalValueRef::from(&prev_value[&sig]) != a_value
             {
                 observed_changes
                     .entry(sig)
@@ -66,7 +68,7 @@ fn diff_stream(filename: &str) {
         assert_eq!(
             &expected,
             observed,
-            "{}",
+            "{} sees different changes (batch vs. stream)",
             find_signal_name(batch.hierarchy(), signal)
         );
     }
