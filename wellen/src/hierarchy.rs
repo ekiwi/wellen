@@ -1318,10 +1318,6 @@ impl HierarchyBuilder {
         signal_encoding: SignalEncoding,
         signal_idx: SignalRef,
     ) -> bool {
-        debug_assert!(
-            !signal_idx.is_derived_signal(),
-            "Only works for original signals."
-        );
         // lookup previous item
         let entry_pos = find_parent_scope(&self.scope_stack);
         let entry = &mut self.scope_stack[entry_pos];
