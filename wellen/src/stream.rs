@@ -210,6 +210,11 @@ where
             "fst reader should filter out time steps"
         );
 
+        // emit a fake time step
+        if self.time.is_none_or(|t| time > t) {
+            self.time_change(time);
+        }
+
         // check to see if the signal should be included
         let tpe = self
             .encoding
