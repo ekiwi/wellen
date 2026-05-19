@@ -786,6 +786,7 @@ impl Hierarchy {
             .filter(|(_, enc)| **enc != SignalEncoding::Unknown)
             .map(|(ii, _)| {
                 let d = SignalRef::derived_from_index(ii).unwrap();
+                // todo: we can optimize this away by storing a "derived" bit in the SignalEncoding
                 if self.signal_derivations.contains_key(&d) {
                     d
                 } else {
