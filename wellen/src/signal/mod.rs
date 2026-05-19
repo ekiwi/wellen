@@ -11,7 +11,7 @@ use std::num::NonZeroU32;
 mod compressed;
 pub use compressed::{CompressedSignal, CompressedTimeTable, Compression};
 mod value;
-pub use value::{Bit, BitVecRef, Real, SignalValueRef, States, bit_char_to_num};
+pub use value::{Bit, BitVecRef, Real, SignalValue, SignalValueRef, States, bit_char_to_num};
 mod source;
 mod transform;
 pub use source::{SignalSource, SignalSourceImplementation};

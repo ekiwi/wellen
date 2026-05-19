@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use std::fs::File;
 use std::io::BufReader;
 use wellen::stream::*;
-use wellen::{LoadOptions, TimeTableIdx};
+use wellen::{Hierarchy, LoadOptions, SignalRef, SignalValue, SignalValueRef, TimeTableIdx};
 
 mod utils;
 
@@ -28,6 +28,8 @@ fn diff_stream(filename: &str) {
     let mut delta_counter = FxHashMap::default();
     // keeps track of the times when we see a signal changing in the stream
     let mut observed_changes = FxHashMap::default();
+    // remember previous value in order to filter out no-op changes
+    let mut prev_value: FxHashMap<SignalRef, SignalValue> = FxHashMap::default();
 
     let filter = Filter::all();
     streamed
@@ -37,13 +39,18 @@ fn diff_stream(filename: &str) {
                 .get(&time)
                 .expect("failed to find time in time table") as usize;
             let b_value = get_value(&batch, sig, idx, &mut delta_counter);
-            println!("{time}, {a_value} vs {b_value}");
+            // println!("{time}, {a_value} vs {b_value}");
             diff_signal_value(time, sig, a_value, b_value, None, batch.hierarchy());
-            // record observed change
-            observed_changes
-                .entry(sig)
-                .or_insert_with(Vec::new)
-                .push(time);
+            // record observed change if the value actually changed
+            if !prev_value.contains_key(&sig) || SignalValueRef::from(&prev_value[&sig]) != a_value
+            {
+                observed_changes
+                    .entry(sig)
+                    .or_insert_with(Vec::new)
+                    .push(time);
+            }
+            let value: SignalValue = a_value.into();
+            prev_value.insert(sig, value);
         })
         .unwrap();
 
@@ -54,12 +61,27 @@ fn diff_stream(filename: &str) {
             "The stream is missing changes for {signal:?}"
         );
         let time_indices = batch.get_signal(signal).unwrap().time_indices();
-        let observed = observed_changes[&signal].as_slice();
-        assert_eq!(time_indices.len(), observed.len());
-        for (&time_idx, &observed_time) in time_indices.iter().zip(observed) {
-            assert_eq!(batch.time_table()[time_idx as usize], observed_time);
+        let expected: Vec<_> = time_indices
+            .iter()
+            .map(|ii| batch.time_table()[*ii as usize])
+            .collect();
+        let observed = &observed_changes[&signal];
+        assert_eq!(
+            &expected,
+            observed,
+            "{}",
+            find_signal_name(batch.hierarchy(), signal)
+        );
+    }
+}
+
+fn find_signal_name(h: &Hierarchy, s: SignalRef) -> String {
+    for var in h.all_vars() {
+        if var.signal_ref() == s {
+            return var.full_name(h);
         }
     }
+    "unknown".into()
 }
 
 fn load_streaming(filename: &str) -> StreamingWaveform<BufReader<File>> {

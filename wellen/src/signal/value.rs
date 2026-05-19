@@ -22,6 +22,42 @@ impl<'a> SignalValueRef<'a> {
     }
 }
 
+/// Owns a signal value.
+#[derive(Debug, Clone)]
+pub struct SignalValue(SignalValueE);
+
+/// Private enum to hide the internals of [[SignalValue]].
+#[derive(Debug, Clone)]
+enum SignalValueE {
+    Event,
+    BitVec(BitVecValue),
+    String(String),
+    Real(Real),
+}
+
+impl<'a> From<SignalValueRef<'a>> for SignalValue {
+    fn from(value: SignalValueRef<'a>) -> Self {
+        let e = match value {
+            SignalValueRef::Event => SignalValueE::Event,
+            SignalValueRef::BitVec(v) => SignalValueE::BitVec(v.into()),
+            SignalValueRef::String(v) => SignalValueE::String(v.into()),
+            SignalValueRef::Real(v) => SignalValueE::Real(v),
+        };
+        Self(e)
+    }
+}
+
+impl<'a> From<&'a SignalValue> for SignalValueRef<'a> {
+    fn from(value: &'a SignalValue) -> Self {
+        match &value.0 {
+            SignalValueE::Event => SignalValueRef::Event,
+            SignalValueE::BitVec(v) => SignalValueRef::BitVec(v.into()),
+            SignalValueE::String(v) => SignalValueRef::String(v),
+            SignalValueE::Real(v) => SignalValueRef::Real(*v),
+        }
+    }
+}
+
 /// References the value of a (2/4/9 value) bit vector signal.
 #[derive(Debug, Clone, Copy)]
 pub struct BitVecRef<'a> {
