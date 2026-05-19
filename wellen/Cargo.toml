@@ -30,20 +30,16 @@ serde = { workspace = true, optional = true }
 rustc-hash.workspace = true
 miniz_oxide.workspace = true
 indexmap.workspace = true
+smallvec.workspace = true
 
 [dev-dependencies]
 itertools.workspace = true
 vcd.workspace = true
 clap.workspace = true
-criterion.workspace = true
 indicatif.workspace = true
 proptest.workspace = true
 bytesize = "2.3"
 
-
-[[bench]]
-name = "wavemem"
-harness = false
 
 [features]
 # makes internal functions public for benchmarking

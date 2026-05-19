@@ -29,23 +29,23 @@ struct Args {
 }
 
 fn print_size_of_full_vs_reduced_names(hierarchy: &Hierarchy) {
-    let total_num_elements = hierarchy.iter_vars().len() + hierarchy.iter_scopes().len();
+    let total_num_elements = hierarchy.all_vars().count() + hierarchy.all_scopes().count();
     let reduced_size = hierarchy
-        .iter_scopes()
+        .all_scopes()
         .map(|s| s.name(hierarchy).len())
         .sum::<usize>()
         + hierarchy
-            .iter_vars()
+            .all_vars()
             .map(|v| v.name(hierarchy).len())
             .sum::<usize>();
     // to compute full names efficiently, we do need to save a 16-bit parent pointer which takes some space
     let _parent_overhead = std::mem::size_of::<u16>() * total_num_elements;
     let full_size = hierarchy
-        .iter_scopes()
+        .all_scopes()
         .map(|s| s.full_name(hierarchy).len())
         .sum::<usize>()
         + hierarchy
-            .iter_vars()
+            .all_vars()
             .map(|v| v.full_name(hierarchy).len())
             .sum::<usize>();
     let string_overhead = std::mem::size_of::<String>() * total_num_elements;
@@ -143,10 +143,6 @@ fn main() {
 
     wave_source.print_statistics();
 
-    println!(
-        "The hierarchy takes up at least {} of memory.",
-        ByteSize::b(hierarchy.size_in_memory() as u64)
-    );
     print_size_of_full_vs_reduced_names(&hierarchy);
 
     if args.skip_load {
@@ -157,17 +153,16 @@ fn main() {
     let mut signal_load_times = Vec::new();
     let mut signal_sizes = Vec::new();
     let signal_load_start = std::time::Instant::now();
-    for var in hierarchy.get_unique_signals_vars().iter().flatten() {
-        let _signal_name: String = var.full_name(&hierarchy);
-        let ids = [var.signal_ref(); 1];
+    for signal_ref in hierarchy.signals() {
+        let ids = [signal_ref; 1];
         let start = std::time::Instant::now();
         let loaded = wave_source.load_signals(&ids, &hierarchy, load_opts.multi_thread);
         let load_time = start.elapsed();
         assert_eq!(loaded.len(), ids.len());
-        let (loaded_id, loaded_signal) = loaded.into_iter().next().unwrap();
-        assert_eq!(loaded_id, ids[0]);
-        let bytes_in_mem = loaded_signal.size_in_memory();
+        let loaded_signal = loaded.into_iter().next().unwrap();
+        assert_eq!(loaded_signal.signal_ref(), ids[0]);
         signal_load_times.push(load_time);
+        let bytes_in_mem = loaded_signal.size_in_memory();
         signal_sizes.push(bytes_in_mem);
     }
     let signal_load_total_duration = signal_load_start.elapsed();

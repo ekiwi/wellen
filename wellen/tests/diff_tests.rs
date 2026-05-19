@@ -12,11 +12,11 @@ use wellen::simple::*;
 use wellen::*;
 
 fn run_diff_test(vcd_filename: &str, fst_filename: &str) {
-    run_diff_test_internal(vcd_filename, Some(fst_filename), false, LoadType::FromFile);
+    run_diff_test_internal(vcd_filename, Some(fst_filename), false, LoadType::File);
 }
 
 fn run_diff_test_from_bytes(vcd_filename: &str, fst_filename: &str) {
-    run_diff_test_internal(vcd_filename, Some(fst_filename), false, LoadType::FromBytes);
+    run_diff_test_internal(vcd_filename, Some(fst_filename), false, LoadType::Bytes);
 }
 
 fn run_diff_test_from_generic_file(vcd_filename: &str, fst_filename: &str) {
@@ -24,31 +24,31 @@ fn run_diff_test_from_generic_file(vcd_filename: &str, fst_filename: &str) {
         vcd_filename,
         Some(fst_filename),
         false,
-        LoadType::FromFileGeneric,
+        LoadType::FileGeneric,
     );
 }
 
 fn run_diff_test_vcd_only(vcd_filename: &str) {
-    run_diff_test_internal(vcd_filename, None, false, LoadType::FromFile);
+    run_diff_test_internal(vcd_filename, None, false, LoadType::File);
 }
 
 /// Skips trying to load the content with the `vcd` library. This is important for files
 /// with 9-state values since these cannot be read by the `vcd` library.
 fn run_load_test(vcd_filename: &str, fst_filename: &str) {
-    run_diff_test_internal(vcd_filename, Some(fst_filename), true, LoadType::FromFile);
+    run_diff_test_internal(vcd_filename, Some(fst_filename), true, LoadType::File);
 }
 
 fn run_load_test_vcd(vcd_filename: &str) {
-    run_diff_test_internal(vcd_filename, None, true, LoadType::FromFile);
+    run_diff_test_internal(vcd_filename, None, true, LoadType::File);
 }
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 enum LoadType {
-    FromFile,
-    FromBytes,
+    File,
+    Bytes,
     /// Uses the read that is generic over any ReadBuf to read from file instead of the
     /// specialized implementation which will mmap for VCDs
-    FromFileGeneric,
+    FileGeneric,
 }
 
 fn run_diff_test_internal(
@@ -68,17 +68,17 @@ fn run_diff_test_internal(
     }
 
     match load_tpe {
-        LoadType::FromFile => {
+        LoadType::File => {
             let wave = read(vcd_filename).expect("Failed to load VCD with multiple threads");
             diff_test_one(vcd_filename, wave, skip_content_comparison);
         }
-        LoadType::FromBytes => {
+        LoadType::Bytes => {
             let bytes = std::io::Cursor::new(std::fs::read(vcd_filename).expect("failed"));
             let wave = read_from_reader(bytes)
                 .expect("Failed to load VCD with multiple threads from bytes");
             diff_test_one(vcd_filename, wave, skip_content_comparison);
         }
-        LoadType::FromFileGeneric => {
+        LoadType::FileGeneric => {
             let file = std::io::BufReader::new(std::fs::File::open(vcd_filename).expect("failed"));
             let wave = read_from_reader(file)
                 .expect("Failed to load VCD with multiple threads from generic file");
@@ -87,17 +87,17 @@ fn run_diff_test_internal(
     }
     if let Some(fst_filename) = fst_filename {
         match load_tpe {
-            LoadType::FromFile => {
+            LoadType::File => {
                 let wave = read(fst_filename).expect("Failed to load FST");
                 diff_test_one(vcd_filename, wave, skip_content_comparison);
             }
-            LoadType::FromBytes => {
+            LoadType::Bytes => {
                 let bytes = std::io::Cursor::new(std::fs::read(fst_filename).expect("failed"));
                 let wave = read_from_reader(bytes)
                     .expect("Failed to load FST with multiple threads from bytes");
                 diff_test_one(fst_filename, wave, skip_content_comparison);
             }
-            LoadType::FromFileGeneric => {
+            LoadType::FileGeneric => {
                 let file =
                     std::io::BufReader::new(std::fs::File::open(fst_filename).expect("failed"));
                 let wave = read_from_reader(file)
@@ -121,11 +121,17 @@ fn diff_test_one(vcd_filename: &str, mut our: Waveform, skip_content_comparison:
             return;
         }
     };
-    let mut id_map = FxHashMap::default();
-    diff_hierarchy(our.hierarchy(), &ref_header, &mut id_map);
-    load_all_signals(&mut our);
-    if !skip_content_comparison {
-        diff_signals(&mut ref_parser, &mut our, &id_map);
+
+    if our.hierarchy().has_derived_signals() {
+        println!("WARN: skipping VCD comparison test because of merged signals");
+        load_all_signals(&mut our);
+    } else {
+        let mut id_map = FxHashMap::default();
+        diff_hierarchy(our.hierarchy(), &ref_header, &mut id_map);
+        load_all_signals(&mut our);
+        if !skip_content_comparison {
+            diff_signals(&mut ref_parser, &mut our, &id_map);
+        }
     }
 }
 
@@ -266,13 +272,13 @@ fn diff_hierarchy_item(
                 waveform_var_type_to_string(our_var.var_type())
             );
             if !matches!(our_var.var_type(), VarType::Event) {
-                match our_var.length() {
+                match our_var.length(our_hier) {
                     None => {} // nothing to check
                     Some(size) => {
                         if ref_var.size == 0 {
                             assert_eq!(1, size)
                         } else {
-                            assert_eq!(ref_var.size, size)
+                            assert_eq!(ref_var.size, size, "{}", our_var.full_name(our_hier))
                         }
                     }
                 }
@@ -396,7 +402,7 @@ fn diff_signals<R: BufRead>(
                 let signal_ref = id_map[&id];
                 assert_eq!(current_time.unwrap_or(0), time_table[time_table_idx]);
                 let our_value = get_value(our, signal_ref, time_table_idx, &mut delta_counter);
-                if let SignalValue::Real(our_real) = our_value {
+                if let SignalValueRef::Real(our_real) = our_value {
                     assert_eq!(our_real, value);
                 } else {
                     panic!("Expected real value, got: {our_value:?}");

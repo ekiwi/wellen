@@ -4,8 +4,8 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::ghw::common::*;
-use crate::signals::SignalSource;
-use crate::wavemem::{Encoder, States};
+use crate::signal::{SignalSource, States};
+use crate::wavemem::Encoder;
 use crate::{Hierarchy, SignalRef, TimeTable};
 use std::io::BufRead;
 
@@ -242,7 +242,7 @@ impl VecBufferInfo {
     fn data_range(&self) -> std::ops::Range<usize> {
         // data is stored with N bits per byte depending on the states
         let start = self.data_start as usize;
-        let len = self.states.bytes_required(self.bits as usize);
+        let len = self.states.bytes_required(self.bits);
         start..(start + len)
     }
 }
@@ -269,7 +269,7 @@ impl VecBuffer {
                     signal_ref: vector.signal_ref(),
                     max_index: vector.max().index() as u32,
                 };
-                data_start += states.bytes_required(bits as usize);
+                data_start += states.bytes_required(bits);
                 bit_change_start += (bits as usize).div_ceil(8);
                 info
             })
@@ -441,10 +441,10 @@ fn set_value(bits: u32, states: States, data: &mut [u8], bit: u32, value: u8) {
 #[inline]
 fn get_data_index(bits: u32, bit: u32, states: States) -> (usize, usize) {
     debug_assert!(bit < bits);
-    let bits_in_a_byte = states.bits_in_a_byte() as u32;
+    let bits_in_a_byte = states.bits_in_a_byte();
     let bytes = bits.div_ceil(bits_in_a_byte);
     let index = bytes - 1 - (bit / bits_in_a_byte);
-    let shift = (bit % bits_in_a_byte) * states.bits() as u32;
+    let shift = (bit % bits_in_a_byte) * states.bits();
     (index as usize, shift as usize)
 }
 

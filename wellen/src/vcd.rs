@@ -5,11 +5,11 @@
 
 use crate::fst::{Attribute, parse_scope_attributes, parse_var_attributes};
 use crate::hierarchy::*;
-use crate::signals::SignalSource;
+use crate::signal::{Bit, SignalSource, States};
 use crate::stream::{Filter, StreamEncoder};
 use crate::viewers::ProgressCount;
-use crate::wavemem::{Encoder, States, bit_char_to_num, check_states};
-use crate::{FileFormat, LoadOptions, SignalValue, Time, TimeTable};
+use crate::wavemem::Encoder;
+use crate::{FileFormat, LoadOptions, SignalValueRef, Time, TimeTable};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -595,7 +595,7 @@ pub fn parse_name(
     // This is important in order to distinguish bit indices from array indices.
     let (mut name, index) = if let Some(index) = index {
         // index length does not match declared variable length
-        if index.length() != length {
+        if index.width() != length {
             // => go back to old name and no index
             (raw_name, None)
         } else {
@@ -1404,18 +1404,16 @@ fn parse_body(
 
     // we reached the end of the file
     match state {
-        BodyState::ParsingFirstToken => {
-            if !first.is_empty() {
-                match parse_first_token(&first)? {
-                    FirstTokenResult::Time(value) => {
-                        out.time(value)?;
-                    }
-                    FirstTokenResult::OneBitValue => {
-                        out.value(&first[0..1], &first[1..])?;
-                    }
-                    _ => {} // nothing to do
-                };
-            }
+        BodyState::ParsingFirstToken if !first.is_empty() => {
+            match parse_first_token(&first)? {
+                FirstTokenResult::Time(value) => {
+                    out.time(value)?;
+                }
+                FirstTokenResult::OneBitValue => {
+                    out.value(&first[0..1], &first[1..])?;
+                }
+                _ => {} // nothing to do
+            };
         }
         BodyState::ParsingIdToken => {
             out.value(first.as_slice(), id.as_slice())?;
@@ -1441,7 +1439,7 @@ pub fn stream_body<R: BufRead + Seek>(
     data: &mut ReadBodyContinuation<R>,
     hierarchy: &Hierarchy,
     filter: &Filter,
-    callback: impl FnMut(Time, SignalRef, SignalValue<'_>),
+    callback: impl FnMut(Time, SignalRef, SignalValueRef<'_>),
 ) -> Result<()> {
     let mut disp = VcdStreamDispatcher {
         enc: StreamEncoder::new(hierarchy, filter, callback),
@@ -1455,6 +1453,7 @@ pub fn stream_body<R: BufRead + Seek>(
             parse_body(input, &mut disp, stop_pos, None)?;
             // reset stream so that we can read data again
             input.seek(SeekFrom::Start(start))?;
+            disp.enc.finish();
             Ok(())
         }
         Input::Mmap(mmap) => {
@@ -1462,6 +1461,7 @@ pub fn stream_body<R: BufRead + Seek>(
             let mut input = std::io::Cursor::new(data);
             let stop_pos = data.len() - 1;
             parse_body(&mut input, &mut disp, stop_pos, None)?;
+            disp.enc.finish();
             Ok(())
         }
     }
@@ -1469,7 +1469,7 @@ pub fn stream_body<R: BufRead + Seek>(
 
 struct VcdStreamDispatcher<'a, C>
 where
-    C: FnMut(Time, SignalRef, SignalValue<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
 {
     enc: StreamEncoder<C>,
     lookup: &'a IdLookup,
@@ -1477,7 +1477,7 @@ where
 
 impl<C> ParseBodyOutput for VcdStreamDispatcher<'_, C>
 where
-    C: FnMut(Time, SignalRef, SignalValue<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
 {
     #[inline]
     fn time(&mut self, value: u64) -> Result<()> {
@@ -1629,7 +1629,7 @@ fn unescape_vcd_value(value: &[u8]) -> Cow<'_, [u8]> {
 }
 
 pub enum VcdBitVecChange<'a> {
-    SingleBit(u8),
+    SingleBit(Bit),
     MultiBit(Cow<'a, [u8]>),
 }
 
@@ -1644,13 +1644,12 @@ pub fn decode_vcd_bit_vec_change(len: NonZeroU32, value: &[u8]) -> (VcdBitVecCha
             Some(v) => *v,
         };
 
-        let bit_value = bit_char_to_num(value_char).unwrap_or_else(|| {
+        let (states, bit_value) = States::from_ascii_bit(value_char).unwrap_or_else(|| {
             panic!(
                 "Failed to parse four state value: {} for signal of size 1",
                 String::from_utf8_lossy(value)
             )
         });
-        let states = States::from_value(bit_value);
         (VcdBitVecChange::SingleBit(bit_value), states)
     } else {
         let value_bits: &[u8] = match value[0] {
@@ -1666,7 +1665,7 @@ pub fn decode_vcd_bit_vec_change(len: NonZeroU32, value: &[u8]) -> (VcdBitVecCha
                 _ => value_bits,
             }
         };
-        let states = check_states(value_bits).unwrap_or_else(|| {
+        let states = States::from_ascii(value_bits).unwrap_or_else(|| {
             panic!(
                 "Bit-vector contains invalid character. Only 2-, 4-, and 9-state signals are supported: {}",
                 String::from_utf8_lossy(value)
@@ -1825,7 +1824,7 @@ x%i"
     #[test]
     fn test_find_tokens() {
         assert_eq!(
-            find_tokens(&b"wire  1    !   CLK".as_slice()),
+            find_tokens(b"wire  1    !   CLK".as_slice()),
             [
                 b"wire".as_slice(),
                 b"1".as_slice(),
@@ -1834,7 +1833,7 @@ x%i"
             ]
         );
         assert_eq!(
-            find_tokens(&b"wire\t1\t!\nCLK".as_slice()),
+            find_tokens(b"wire\t1\t!\nCLK".as_slice()),
             [
                 b"wire".as_slice(),
                 b"1".as_slice(),
@@ -1843,7 +1842,7 @@ x%i"
             ]
         );
         assert_eq!(
-            find_tokens(&b"wire\t\t\t\t1   \t!\nCLK".as_slice()),
+            find_tokens(b"wire\t\t\t\t1   \t!\nCLK".as_slice()),
             [
                 b"wire".as_slice(),
                 b"1".as_slice(),

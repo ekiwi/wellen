@@ -1,13 +1,15 @@
 // Copyright 2023-2024 The Regents of the University of California
-// Copyright 2024-2025 Cornell University
+// Copyright 2024-2026 Cornell University
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::FileFormat;
+use crate::signal::DerivedBitVecSignal;
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
+use std::fmt::{Debug, Formatter};
 use std::num::{NonZeroI32, NonZeroU16, NonZeroU32};
-use std::ops::Index;
+use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
@@ -54,7 +56,7 @@ impl TimescaleUnit {
 
 /// Uniquely identifies a variable in the hierarchy.
 /// Replaces the old `SignalRef`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct VarRef(NonZeroU32);
 
@@ -233,12 +235,18 @@ impl VarDirection {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 #[repr(Rust, packed(4))]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct VarIndex {
     lsb: i64,
     width: NonZeroI32,
+}
+
+impl Debug for VarIndex {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "VarIndex([{}:{}])", self.msb(), self.lsb())
+    }
 }
 
 const DEFAULT_ZERO_REPLACEMENT: NonZeroI32 = NonZeroI32::new(i32::MIN).unwrap();
@@ -264,7 +272,7 @@ impl VarIndex {
     }
 
     #[inline]
-    pub fn length(&self) -> u32 {
+    pub fn width(&self) -> u32 {
         if self.width == DEFAULT_ZERO_REPLACEMENT {
             1
         } else {
@@ -278,15 +286,51 @@ impl VarIndex {
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct SignalRef(NonZeroU32);
 
+/// The upper bit is used for indicating whether the signal is derived.
+const MAX_INDEX: usize = ((u32::MAX as usize) >> 2) - 1;
+const INDEX_MASK: u32 = u32::MAX >> 1;
+
 impl SignalRef {
     #[inline]
     pub fn from_index(index: usize) -> Option<Self> {
-        NonZeroU32::new(index as u32 + 1).map(Self)
+        if index > MAX_INDEX {
+            None
+        } else {
+            Some(Self(NonZeroU32::new(index as u32 + 1).unwrap()))
+        }
+    }
+
+    #[inline]
+    pub fn derived_from_index(index: usize) -> Option<Self> {
+        if index > MAX_INDEX {
+            None
+        } else {
+            let value = (index as u32 + 1) | (1u32 << 31);
+            Some(Self(NonZeroU32::new(value).unwrap()))
+        }
+    }
+
+    /// Generates a dummy ID for a derived signal.
+    #[inline]
+    pub(crate) fn derived_max() -> Self {
+        Self::derived_from_index(MAX_INDEX).unwrap()
+    }
+
+    /// A derived signal does not actually exist in the original waveform trace.
+    #[inline]
+    pub fn is_derived_signal(&self) -> bool {
+        self.0.get() >> 31 == 1
     }
 
     #[inline]
     pub fn index(&self) -> usize {
-        (self.0.get() - 1) as usize
+        ((self.0.get() & INDEX_MASK) - 1) as usize
+    }
+
+    #[inline]
+    pub fn to_derived(&self) -> Self {
+        let value = self.0.get() | (1u32 << 31);
+        Self(NonZeroU32::new(value).unwrap())
     }
 }
 
@@ -304,6 +348,8 @@ pub enum SignalEncoding {
     BitVector(NonZeroU32),
     /// essentially a bit vector of size 0
     Event,
+    /// the encoding was never supplied
+    Unknown,
 }
 
 impl SignalEncoding {
@@ -314,6 +360,31 @@ impl SignalEncoding {
             Some(value) => SignalEncoding::BitVector(value),
         }
     }
+
+    pub fn length(&self) -> Option<u32> {
+        match &self {
+            SignalEncoding::String | SignalEncoding::Real | SignalEncoding::Unknown => None,
+            SignalEncoding::Event => Some(0),
+            SignalEncoding::BitVector(len) => Some(len.get()),
+        }
+    }
+
+    pub fn is_real(&self) -> bool {
+        matches!(self, SignalEncoding::Real)
+    }
+    pub fn is_string(&self) -> bool {
+        matches!(self, SignalEncoding::String)
+    }
+    pub fn is_bit_vector(&self) -> bool {
+        matches!(self, SignalEncoding::BitVector(_))
+    }
+
+    pub fn is_1bit(&self) -> bool {
+        match self.length() {
+            Some(l) => l == 1,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -322,24 +393,12 @@ pub struct Var {
     name: HierarchyStringId,
     var_tpe: VarType,
     direction: VarDirection,
-    signal_encoding: SignalEncoding,
     index: Option<VarIndex>,
     signal_idx: SignalRef,
     enum_type: Option<EnumTypeId>,
     vhdl_type_name: Option<HierarchyStringId>,
     parent: Option<ScopeRef>,
     next: Option<ScopeOrVarRef>,
-}
-
-/// Represents a slice of another signal identified by its `SignalRef`.
-/// This is helpful for formats like GHW where some signals are directly defined as
-/// slices of other signals, and thus we only save the data of the larger signal.
-#[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub struct SignalSlice {
-    pub msb: u32,
-    pub lsb: u32,
-    pub sliced_signal: SignalRef,
 }
 
 const SCOPE_SEPARATOR: char = '.';
@@ -364,9 +423,12 @@ impl Var {
         }
     }
 
+    #[inline]
     pub fn var_type(&self) -> VarType {
         self.var_tpe
     }
+
+    #[inline]
     pub fn enum_type<'a>(
         &self,
         hierarchy: &'a Hierarchy,
@@ -379,40 +441,49 @@ impl Var {
         self.vhdl_type_name.map(|i| &hierarchy[i])
     }
 
+    #[inline]
     pub fn direction(&self) -> VarDirection {
         self.direction
     }
+
+    #[inline]
     pub fn index(&self) -> Option<VarIndex> {
         self.index
     }
+
+    #[inline]
     pub fn signal_ref(&self) -> SignalRef {
         self.signal_idx
     }
-    pub fn length(&self) -> Option<u32> {
-        match &self.signal_encoding {
-            SignalEncoding::String => None,
-            SignalEncoding::Real => None,
-            SignalEncoding::Event => Some(0),
-            SignalEncoding::BitVector(len) => Some(len.get()),
-        }
+
+    #[inline]
+    pub fn length(&self, h: &Hierarchy) -> Option<u32> {
+        self.signal_encoding(h).length()
     }
-    pub fn is_real(&self) -> bool {
-        matches!(self.signal_encoding, SignalEncoding::Real)
+
+    #[inline]
+    pub fn is_real(&self, h: &Hierarchy) -> bool {
+        self.signal_encoding(h).is_real()
     }
-    pub fn is_string(&self) -> bool {
-        matches!(self.signal_encoding, SignalEncoding::String)
+
+    #[inline]
+    pub fn is_string(&self, h: &Hierarchy) -> bool {
+        self.signal_encoding(h).is_string()
     }
-    pub fn is_bit_vector(&self) -> bool {
-        matches!(self.signal_encoding, SignalEncoding::BitVector(_))
+
+    #[inline]
+    pub fn is_bit_vector(&self, h: &Hierarchy) -> bool {
+        self.signal_encoding(h).is_bit_vector()
     }
-    pub fn is_1bit(&self) -> bool {
-        match self.length() {
-            Some(l) => l == 1,
-            _ => false,
-        }
+
+    #[inline]
+    pub fn is_1bit(&self, h: &Hierarchy) -> bool {
+        self.signal_encoding(h).is_1bit()
     }
-    pub fn signal_encoding(&self) -> SignalEncoding {
-        self.signal_encoding
+
+    #[inline]
+    pub fn signal_encoding(&self, h: &Hierarchy) -> SignalEncoding {
+        h[self.signal_idx]
     }
 }
 
@@ -637,9 +708,9 @@ pub struct Hierarchy {
     strings: Vec<String>,
     source_locs: Vec<SourceLoc>,
     enums: Vec<EnumType>,
-    signal_idx_to_var: Vec<Option<VarRef>>,
+    signal_encodings: Vec<SignalEncoding>,
     meta: HierarchyMetaData,
-    slices: FxHashMap<SignalRef, SignalSlice>,
+    signal_derivations: FxHashMap<SignalRef, DerivedBitVecSignal>,
 }
 
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
@@ -666,12 +737,12 @@ impl HierarchyMetaData {
 // public implementation
 impl Hierarchy {
     /// Returns an iterator over all variables (at all levels).
-    pub fn iter_vars(&self) -> std::slice::Iter<'_, Var> {
+    pub fn all_vars(&self) -> impl Iterator<Item = &Var> + '_ {
         self.vars.iter()
     }
 
     /// Returns an iterator over all scopes (at all levels).
-    pub fn iter_scopes(&self) -> std::slice::Iter<'_, Scope> {
+    pub fn all_scopes(&self) -> impl Iterator<Item = &Scope> + '_ {
         self.scopes.iter()
     }
 
@@ -702,28 +773,26 @@ impl Hierarchy {
         self.scopes.get(1)
     }
 
-    /// Returns one variable per unique signal in the order of signal handles.
-    /// The value will be None if there is no var pointing to the given handle.
-    pub fn get_unique_signals_vars(&self) -> Vec<Option<Var>> {
-        let mut out = Vec::with_capacity(self.signal_idx_to_var.len());
-        for maybe_var_id in &self.signal_idx_to_var {
-            if let Some(var_id) = maybe_var_id {
-                out.push(Some((self[*var_id]).clone()));
-            } else {
-                out.push(None)
-            }
-        }
-        out
+    /// Encoding for all signals. The position of a signal encoding can be mapped to a SignalRef.
+    pub fn signal_encodings(&self) -> &[SignalEncoding] {
+        &self.signal_encodings
     }
 
-    /// Size of the Hierarchy in bytes.
-    pub fn size_in_memory(&self) -> usize {
-        let var_size = self.vars.capacity() * std::mem::size_of::<Var>();
-        let scope_size = self.scopes.capacity() * std::mem::size_of::<Scope>();
-        let string_size = self.strings.capacity() * std::mem::size_of::<String>()
-            + self.strings.iter().map(|s| s.len()).sum::<usize>();
-        let handle_lookup_size = self.signal_idx_to_var.capacity() * std::mem::size_of::<VarRef>();
-        var_size + scope_size + string_size + handle_lookup_size + std::mem::size_of::<Hierarchy>()
+    /// Iterate over all signal references with a known type.
+    pub fn signals(&self) -> impl Iterator<Item = SignalRef> {
+        self.signal_encodings()
+            .iter()
+            .enumerate()
+            .filter(|(_, enc)| **enc != SignalEncoding::Unknown)
+            .map(|(ii, _)| {
+                let d = SignalRef::derived_from_index(ii).unwrap();
+                // todo: we can optimize this away by storing a "derived" bit in the SignalEncoding
+                if self.signal_derivations.contains_key(&d) {
+                    d
+                } else {
+                    SignalRef::from_index(ii).unwrap()
+                }
+            })
     }
 
     pub fn date(&self) -> &str {
@@ -777,19 +846,22 @@ impl Hierarchy {
 }
 
 impl Hierarchy {
-    pub fn num_unique_signals(&self) -> usize {
-        self.signal_idx_to_var.len()
-    }
-
     /// Retrieves the length of a signal identified by its id by looking up a
     /// variable that refers to the signal.
     pub fn get_signal_tpe(&self, signal_idx: SignalRef) -> Option<SignalEncoding> {
-        let var_id = (*self.signal_idx_to_var.get(signal_idx.index())?)?;
-        Some(self[var_id].signal_encoding)
+        self.signal_encodings.get(signal_idx.index()).copied()
     }
 
-    pub fn get_slice_info(&self, signal_idx: SignalRef) -> Option<SignalSlice> {
-        self.slices.get(&signal_idx).copied()
+    pub fn get_derived_signal(&self, signal_idx: SignalRef) -> Option<&DerivedBitVecSignal> {
+        self.signal_derivations.get(&signal_idx)
+    }
+
+    pub fn all_derived_signals(&self) -> impl Iterator<Item = (SignalRef, &DerivedBitVecSignal)> {
+        self.signal_derivations.iter().map(|(k, v)| (*k, v))
+    }
+
+    pub fn has_derived_signals(&self) -> bool {
+        !self.signal_derivations.is_empty()
     }
 }
 
@@ -827,6 +899,12 @@ impl Index<VarRef> for Hierarchy {
     }
 }
 
+impl IndexMut<VarRef> for Hierarchy {
+    fn index_mut(&mut self, index: VarRef) -> &mut Self::Output {
+        &mut self.vars[index.index()]
+    }
+}
+
 impl Index<ScopeRef> for Hierarchy {
     type Output = Scope;
 
@@ -835,11 +913,25 @@ impl Index<ScopeRef> for Hierarchy {
     }
 }
 
+impl IndexMut<ScopeRef> for Hierarchy {
+    fn index_mut(&mut self, index: ScopeRef) -> &mut Self::Output {
+        &mut self.scopes[index.index()]
+    }
+}
+
 impl Index<HierarchyStringId> for Hierarchy {
     type Output = str;
 
     fn index(&self, index: HierarchyStringId) -> &Self::Output {
         &self.strings[index.index()]
+    }
+}
+
+impl Index<SignalRef> for Hierarchy {
+    type Output = SignalEncoding;
+
+    fn index(&self, index: SignalRef) -> &Self::Output {
+        &self.signal_encodings[index.index()]
     }
 }
 
@@ -856,9 +948,12 @@ pub struct HierarchyBuilder {
     scope_stack: Vec<ScopeStackEntry>,
     source_locs: Vec<SourceLoc>,
     enums: Vec<EnumType>,
-    handle_to_node: Vec<Option<VarRef>>,
+    signal_encodings: Vec<SignalEncoding>,
     meta: HierarchyMetaData,
-    slices: FxHashMap<SignalRef, SignalSlice>,
+    /// derived signals where we know the SignalRef during building
+    signal_derivations: FxHashMap<SignalRef, DerivedBitVecSignal>,
+    /// derived signals where we do not have a SignalRef at creation time
+    var_to_derived: FxHashMap<VarRef, DerivedBitVecSignal>,
     /// used to deduplicate strings
     strings: IndexSet<String, FxBuildHasher>,
     /// keeps track of the number of children to decide when to switch to a hash table based
@@ -903,9 +998,10 @@ impl HierarchyBuilder {
             strings,
             source_locs: Vec::default(),
             enums: Vec::default(),
-            handle_to_node: Vec::default(),
+            signal_encodings: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
-            slices: FxHashMap::default(),
+            signal_derivations: FxHashMap::default(),
+            var_to_derived: FxHashMap::default(),
             scope_child_count: vec![0],
             scope_dedup_tables: Default::default(),
         }
@@ -914,22 +1010,56 @@ impl HierarchyBuilder {
 
 impl HierarchyBuilder {
     pub fn finish(mut self) -> Hierarchy {
+        self.generate_signal_refs_for_derived();
+        debug_assert!(self.var_to_derived.is_empty());
         self.vars.shrink_to_fit();
         self.scopes.shrink_to_fit();
         self.strings.shrink_to_fit();
         self.source_locs.shrink_to_fit();
         self.enums.shrink_to_fit();
-        self.handle_to_node.shrink_to_fit();
-        self.slices.shrink_to_fit();
+        self.signal_encodings.shrink_to_fit();
+        self.signal_derivations.shrink_to_fit();
+        debug_assert!(
+            self.signal_derivations
+                .keys()
+                .all(|r| r.is_derived_signal())
+        );
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
             strings: self.strings.into_iter().collect::<Vec<_>>(),
             source_locs: self.source_locs,
             enums: self.enums,
-            signal_idx_to_var: self.handle_to_node,
             meta: self.meta,
-            slices: self.slices,
+            signal_derivations: self.signal_derivations,
+            signal_encodings: self.signal_encodings,
+        }
+    }
+
+    /// Called from finish. Assigns signal references for all derived signals
+    /// and patches the variables with the final reference.
+    /// This can only be done at the end of the builder phase, as only then, do we know
+    /// that no new signal references will be created.
+    fn generate_signal_refs_for_derived(&mut self) {
+        if self.var_to_derived.is_empty() {
+            return;
+        }
+        // deduplicate signals
+        let mut signal_to_ref = FxHashMap::default();
+        let var_to_derived = std::mem::take(&mut self.var_to_derived);
+        for (var, signal) in var_to_derived {
+            let signal_enc = signal.output_encoding();
+            let signal_ref = *signal_to_ref.entry(signal).or_insert_with(|| {
+                let r = SignalRef::derived_from_index(self.signal_encodings.len()).unwrap();
+                self.signal_encodings.push(signal_enc);
+                r
+            });
+            self.vars[var.index()].signal_idx = signal_ref;
+        }
+
+        for (signal, signal_ref) in signal_to_ref {
+            debug_assert!(!self.signal_derivations.contains_key(&signal_ref));
+            self.signal_derivations.insert(signal_ref, signal);
         }
     }
 
@@ -1174,28 +1304,109 @@ impl HierarchyBuilder {
         }
     }
 
+    /// Checks to see if the previous var has the same name and an adjacent index.
+    /// In this case, the two variables are merged into one.
+    /// This is important to deal with QuestaSim and ModelSim splitting bit-vectors into
+    /// individual bits when generating VCDs.
+    fn check_for_split_var(
+        &mut self,
+        new_name: HierarchyStringId,
+        index: VarIndex,
+        signal_encoding: SignalEncoding,
+        signal_idx: SignalRef,
+    ) -> bool {
+        // lookup previous item
+        let entry_pos = find_parent_scope(&self.scope_stack);
+        let entry = &mut self.scope_stack[entry_pos];
+        // is it a variable?
+        if let Some(ScopeOrVarRef::Var(prev_var_ref)) = entry.last_child {
+            let prev_var = &mut self.vars[prev_var_ref.index()];
+            // does the name match? does the variable have an index?
+            if prev_var.name == new_name
+                && let Some(prev_index) = prev_var.index
+            {
+                let new_is_msb = index.lsb() == prev_index.msb() + 1;
+                let new_is_lsb = prev_index.lsb() == index.msb() + 1;
+                if new_is_lsb || new_is_msb {
+                    let prev_derived =
+                        self.var_to_derived.entry(prev_var_ref).or_insert_with(|| {
+                            DerivedBitVecSignal::new_identity(
+                                prev_var.signal_ref(),
+                                self.signal_encodings[prev_var.signal_ref().index()],
+                            )
+                        });
+                    // modify existing variable (we assume that the other properties are the same
+                    if new_is_msb {
+                        prev_var.index = Some(VarIndex::new(index.msb(), prev_index.lsb()));
+                        prev_derived.concat_left_full(signal_idx, signal_encoding);
+                    } else {
+                        prev_var.index = Some(VarIndex::new(prev_index.msb(), index.lsb()));
+                        prev_derived.concat_right_full(signal_idx, signal_encoding);
+                    };
+                    debug_assert_eq!(prev_var.index.unwrap().width(), prev_derived.width());
+
+                    // remember type of (potentially) new signal
+                    debug_assert_eq!(
+                        signal_encoding,
+                        SignalEncoding::BitVector(NonZeroU32::new(index.width()).unwrap())
+                    );
+                    self.set_signal_encoding(signal_idx, signal_encoding, new_name);
+
+                    // a merge happened!
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn set_signal_encoding(
+        &mut self,
+        signal: SignalRef,
+        encoding: SignalEncoding,
+        name: HierarchyStringId,
+    ) {
+        let ii = signal.index();
+        if self.signal_encodings.len() <= ii {
+            self.signal_encodings
+                .resize(ii + 1, SignalEncoding::Unknown);
+        }
+        debug_assert!(
+            self.signal_encodings[ii] == SignalEncoding::Unknown
+                || self.signal_encodings[ii] == encoding,
+            "Trying to redefine signal encoding: {:?} -> {:?} for {}",
+            self.signal_encodings[ii],
+            encoding,
+            self.strings[name.index()],
+        );
+        self.signal_encodings[ii] = encoding;
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn add_var(
         &mut self,
         name: HierarchyStringId,
         tpe: VarType,
-        signal_tpe: SignalEncoding,
+        signal_encoding: SignalEncoding,
         direction: VarDirection,
         index: Option<VarIndex>,
         signal_idx: SignalRef,
         enum_type: Option<EnumTypeId>,
         vhdl_type_name: Option<HierarchyStringId>,
     ) {
+        if let Some(ii) = index
+            && self.check_for_split_var(name, ii, signal_encoding, signal_idx)
+        {
+            // we merged with an existing variable, no need to add a new one
+            return;
+        }
+
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
         let parent = self.add_to_hierarchy_tree(var_id.into());
 
-        // add lookup
-        let handle_idx = signal_idx.index();
-        if self.handle_to_node.len() <= handle_idx {
-            self.handle_to_node.resize(handle_idx + 1, None);
-        }
-        self.handle_to_node[handle_idx] = Some(var_id);
+        // update signal encoding
+        self.set_signal_encoding(signal_idx, signal_encoding, name);
 
         // now we can build the node data structure and store it
         let node = Var {
@@ -1204,7 +1415,6 @@ impl HierarchyBuilder {
             var_tpe: tpe,
             index,
             direction,
-            signal_encoding: signal_tpe,
             signal_idx,
             enum_type,
             next: None,
@@ -1267,15 +1477,20 @@ impl HierarchyBuilder {
         lsb: u32,
         sliced_signal: SignalRef,
     ) {
+        debug_assert!(
+            !sliced_signal.is_derived_signal(),
+            "we can only slice a signal that actually exists, not a derived signal!"
+        );
+        debug_assert!(
+            signal_ref.is_derived_signal(),
+            "the signal that is derived from a slice needs to be marked as such"
+        );
         debug_assert!(msb >= lsb);
-        debug_assert!(!self.slices.contains_key(&signal_ref));
-        self.slices.insert(
+        debug_assert!(!self.signal_derivations.contains_key(&signal_ref));
+        let sliced_signal_enc = self.signal_encodings[sliced_signal.index()];
+        self.signal_derivations.insert(
             signal_ref,
-            SignalSlice {
-                msb,
-                lsb,
-                sliced_signal,
-            },
+            DerivedBitVecSignal::new_slice(sliced_signal, sliced_signal_enc, msb, lsb),
         );
     }
 }
@@ -1318,7 +1533,6 @@ mod tests {
             std::mem::size_of::<HierarchyStringId>()        // name
                 + std::mem::size_of::<VarType>()            // var_tpe
                 + std::mem::size_of::<VarDirection>()       // direction
-                + std::mem::size_of::<SignalEncoding>()     // signal_encoding
                 + std::mem::size_of::<Option<VarIndex>>()   // index
                 + std::mem::size_of::<SignalRef>()          // signal_idx
                 + std::mem::size_of::<Option<EnumTypeId>>() // enum type
@@ -1326,8 +1540,8 @@ mod tests {
                 + std::mem::size_of::<Option<ScopeRef>>()   // parent
                 + std::mem::size_of::<ScopeOrVarRef>() // next
         );
-        // currently this all comes out to 48 bytes (~= 6x 64-bit pointers)
-        assert_eq!(std::mem::size_of::<Var>(), 48);
+        // currently this all comes out to 40 bytes (~= 5x 64-bit pointers)
+        assert_eq!(std::mem::size_of::<Var>(), 40);
 
         // Scope
         assert_eq!(

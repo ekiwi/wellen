@@ -3,11 +3,10 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-mod compressed;
 mod fst;
 mod ghw;
 mod hierarchy;
-mod signals;
+mod signal;
 pub mod simple;
 pub mod stream;
 mod vcd;
@@ -56,12 +55,11 @@ pub enum WellenError {
 
 pub type Result<T> = std::result::Result<T, WellenError>;
 
-pub use compressed::{CompressedSignal, CompressedTimeTable, Compression};
 pub use hierarchy::{
     Hierarchy, Scope, ScopeOrVar, ScopeOrVarRef, ScopeRef, ScopeType, SignalEncoding, SignalRef,
     Timescale, TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
 };
-pub use signals::{Real, Signal, SignalSource, SignalValue, Time, TimeTableIdx};
-
-#[cfg(feature = "benchmark")]
-pub use wavemem::check_states_pub;
+pub use signal::{
+    BitVecRef, Real, Signal, SignalSource, SignalValue, SignalValueRef, States, Time, TimeTableIdx,
+};
+pub use signal::{CompressedSignal, CompressedTimeTable, Compression};

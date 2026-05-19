@@ -184,13 +184,7 @@ fn test_nvc_xwb_fofb_shaper_filt_tb() {
 }
 
 fn load_all_signals(waves: &mut Waveform) {
-    let all_signals = waves
-        .hierarchy()
-        .get_unique_signals_vars()
-        .iter()
-        .flatten()
-        .map(|v| v.signal_ref())
-        .collect::<Vec<_>>();
+    let all_signals: Vec<_> = waves.hierarchy().signals().collect();
     waves.load_signals(&all_signals);
 }
 
@@ -248,7 +242,7 @@ fn test_nvc_issue_77() {
     let scope_parts: Vec<_> = scope_name.split("/").collect();
     let var_ref = waves
         .hierarchy()
-        .lookup_var(&scope_parts, &var_name)
+        .lookup_var(&scope_parts, var_name)
         .unwrap();
     let signal_ref = waves.hierarchy()[var_ref].signal_ref();
     waves.load_signals(&[signal_ref]);
@@ -280,17 +274,17 @@ fn fst_character_encoding() {
     let offset = signal.get_offset(0).unwrap();
     assert_eq!(
         signal.get_value_at(&offset, 1),
-        SignalValue::String("En lång röd räv                                   ")
+        SignalValueRef::String("En lång röd räv                                   ")
     );
     let offset = signal.get_offset(1).unwrap();
     assert_eq!(
         signal.get_value_at(&offset, 0),
-        SignalValue::String("Viel \"spaß\" und überraschung¡                     ")
+        SignalValueRef::String("Viel \"spaß\" und überraschung¡                     ")
     );
     let offset = signal.get_offset(2).unwrap();
     assert_eq!(
         signal.get_value_at(&offset, 0),
-        SignalValue::String("3±0.3°C and ½×¾ cup of sugar                      ")
+        SignalValueRef::String("3±0.3°C and ½×¾ cup of sugar                      ")
     );
 }
 

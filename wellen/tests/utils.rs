@@ -4,7 +4,7 @@
 
 use rustc_hash::FxHashMap;
 use wellen::simple::Waveform;
-use wellen::{Hierarchy, SignalRef, SignalValue, Time, TimeTableIdx, Var};
+use wellen::{Hierarchy, SignalRef, SignalValueRef, States, Time, TimeTableIdx, Var};
 
 #[allow(dead_code)]
 pub fn load_all_signals(our: &mut Waveform) {
@@ -14,11 +14,7 @@ pub fn load_all_signals(our: &mut Waveform) {
 
 #[allow(dead_code)]
 pub fn get_all_signals(h: &Hierarchy) -> Vec<SignalRef> {
-    h.get_unique_signals_vars()
-        .iter()
-        .flatten()
-        .map(|v| v.signal_ref())
-        .collect()
+    h.signals().collect()
 }
 
 #[allow(dead_code)]
@@ -33,16 +29,9 @@ pub fn diff_signals(a: &mut Waveform, b: &mut Waveform, time_factor: u64) {
     let all_signals_fst = get_all_signals(b.hierarchy());
     assert_eq!(all_signals_ghw, all_signals_fst);
 
-    let a_signal_vars: Vec<_> = a
-        .hierarchy()
-        .get_unique_signals_vars()
-        .iter()
-        .flatten()
-        .cloned()
-        .collect();
+    let a_signals: Vec<_> = a.hierarchy().signals().collect();
 
-    for a_signal_var in a_signal_vars.iter() {
-        let signal = a_signal_var.signal_ref();
+    for signal in a_signals {
         let a_signal = a.get_signal(signal).unwrap();
         let b_signal = b.get_signal(signal).unwrap();
 
@@ -54,14 +43,7 @@ pub fn diff_signals(a: &mut Waveform, b: &mut Waveform, time_factor: u64) {
                     assert_eq!(og.elements, of.elements, "{signal:?} @ {time}");
                     let a_value = a_signal.get_value_at(&og, 0);
                     let b_value = b_signal.get_value_at(&of, 0);
-                    diff_signal_value(
-                        *time,
-                        signal,
-                        a_value,
-                        b_value,
-                        Some(a_signal_var),
-                        a.hierarchy(),
-                    );
+                    diff_signal_value(*time, signal, a_value, b_value, None, a.hierarchy());
                 }
                 _ => assert_eq!(offset_g, offset_f),
             }
@@ -75,7 +57,7 @@ pub fn get_value<'a>(
     signal_ref: SignalRef,
     time_table_idx: usize,
     delta_counter: &mut FxHashMap<SignalRef, u16>,
-) -> SignalValue<'a> {
+) -> SignalValueRef<'a> {
     let our_signal = our.get_signal(signal_ref).unwrap();
     let our_offset = our_signal.get_offset(time_table_idx as u32).unwrap();
     // deal with delta cycles
@@ -102,18 +84,18 @@ pub fn get_value<'a>(
 pub fn diff_signal_value(
     time: Time,
     signal: SignalRef,
-    a_value: SignalValue,
-    b_value: SignalValue,
+    a_value: SignalValueRef,
+    b_value: SignalValueRef,
     a_signal_var: Option<&Var>,
     h: &Hierarchy,
 ) {
     ensure_minimal_format(a_value);
     ensure_minimal_format(b_value);
     match (a_value, b_value) {
-        (SignalValue::String(gs), SignalValue::String(fs)) => {
+        (SignalValueRef::String(gs), SignalValueRef::String(fs)) => {
             assert_eq!(gs, fs, "{signal:?} @ {time}");
         }
-        (g_value, SignalValue::String(fs)) => {
+        (g_value, SignalValueRef::String(fs)) => {
             if let Some(signal_var) = a_signal_var {
                 if let Some((_, mapping)) = signal_var.enum_type(h) {
                     // find enum value
@@ -138,7 +120,7 @@ pub fn diff_signal_value(
                 }
             }
         }
-        (SignalValue::Real(a_real), SignalValue::Real(b_real)) => {
+        (SignalValueRef::Real(a_real), SignalValueRef::Real(b_real)) => {
             assert_eq!(a_real, b_real, "{signal:?} @ {time}");
         }
         (g_value, f_value) => {
@@ -157,26 +139,28 @@ pub fn diff_signal_value(
 
 #[allow(dead_code)]
 /// Checks to make sure that 4 and 9 state signals are only used when they are required.
-fn ensure_minimal_format(signal_value: SignalValue) {
-    match signal_value {
-        SignalValue::FourValue(_, _) => {
-            let value_str = signal_value.to_bit_string().unwrap();
-            assert!(
-                value_str.contains('x') || value_str.contains('z'),
-                "{value_str} does not need to be represented as a 4-state signal"
-            )
+fn ensure_minimal_format(signal_value: SignalValueRef) {
+    if let SignalValueRef::BitVec(bv) = signal_value {
+        match bv.states() {
+            States::Two => {}
+            States::Four => {
+                let value_str = bv.bit_string();
+                assert!(
+                    value_str.contains('x') || value_str.contains('z'),
+                    "{value_str} does not need to be represented as a 4-state signal"
+                )
+            }
+            States::Nine => {
+                let value_str = bv.bit_string();
+                assert!(
+                    value_str.contains('h')
+                        || value_str.contains('u')
+                        || value_str.contains('w')
+                        || value_str.contains('l')
+                        || value_str.contains('-'),
+                    "{value_str} does not need to be represented as a 9-state signal"
+                )
+            }
         }
-        SignalValue::NineValue(_, _) => {
-            let value_str = signal_value.to_bit_string().unwrap();
-            assert!(
-                value_str.contains('h')
-                    || value_str.contains('u')
-                    || value_str.contains('w')
-                    || value_str.contains('l')
-                    || value_str.contains('-'),
-                "{value_str} does not need to be represented as a 9-state signal"
-            )
-        }
-        _ => {} // no check
     }
 }

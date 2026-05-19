@@ -25,6 +25,22 @@ fn check_no_duplicate_scopes(h: &Hierarchy) {
     }
 }
 
+fn check_no_duplicate_var(h: &Hierarchy) {
+    let mut todo = Vec::from_iter(h.all_scopes());
+    while let Some(scope) = todo.pop() {
+        let mut seen = FxHashSet::default();
+        for child in scope.vars(h) {
+            let name = h[child].name(h);
+            assert!(
+                !seen.contains(name),
+                "Duplicate var of same name `{name}` found in {}",
+                scope.full_name(h)
+            );
+            seen.insert(name.to_string());
+        }
+    }
+}
+
 #[test]
 fn test_vcd_not_starting_at_zero() {
     let filename = "inputs/gameroy/trace_prefix.vcd";
@@ -164,10 +180,10 @@ fn amaranth_array_support_issue_36() {
     let waves = read(filename).expect("failed to parse");
     let h = waves.hierarchy();
     let o_md_0_0 = &h[h
-        .lookup_var(&["bench", "top", "\\o_md", "[0]"], &"[0]")
+        .lookup_var(&["bench", "top", "\\o_md", "[0]"], "[0]")
         .expect("failed to find bench.top.o_md.[0].[0]")];
     assert!(o_md_0_0.index().is_none());
-    assert_eq!(o_md_0_0.length(), Some(32));
+    assert_eq!(o_md_0_0.length(h), Some(32));
 }
 
 #[test]
@@ -223,7 +239,7 @@ fn enum_definitions_from_vcd_issue_43() {
     let waves = read(filename).expect("failed to parse");
     let h = waves.hierarchy();
     let swap_var = h
-        .lookup_var(&["ve_manual_tb", "memreg_c_i"], &"swap")
+        .lookup_var(&["ve_manual_tb", "memreg_c_i"], "swap")
         .expect("failed to find variable");
     let (swap_enum_name, swap_enum_map) = h[swap_var].enum_type(h).expect("enum type is missing");
     assert_eq!(swap_enum_name, "swap_t");
@@ -250,7 +266,7 @@ fn vcd_delta_cycle_at_zero() {
 
     let mut wave =
         wellen::simple::read_with_options("inputs/pymtl3/CGRA.vcd", &single_thread).unwrap();
-    let clk = wave.hierarchy().lookup_var(&["top"], &"clk").unwrap();
+    let clk = wave.hierarchy().lookup_var(&["top"], "clk").unwrap();
     let clk_signal_ref = wave.hierarchy()[clk].signal_ref();
     wave.load_signals(&[clk_signal_ref]);
     let clk_signal = wave.get_signal(clk_signal_ref).unwrap();
@@ -292,16 +308,50 @@ fn vcd_character_encoding() {
     let offset = signal.get_offset(0).unwrap();
     assert_eq!(
         signal.get_value_at(&offset, 1),
-        SignalValue::String("En lång röd räv                                   ")
+        SignalValueRef::String("En lång röd räv                                   ")
     );
     let offset = signal.get_offset(1).unwrap();
     assert_eq!(
         signal.get_value_at(&offset, 0),
-        SignalValue::String("Viel \"spaß\" und überraschung¡                     ")
+        SignalValueRef::String("Viel \"spaß\" und überraschung¡                     ")
     );
     let offset = signal.get_offset(2).unwrap();
     assert_eq!(
         signal.get_value_at(&offset, 0),
-        SignalValue::String("3±0.3°C and ½×¾ cup of sugar                      ")
+        SignalValueRef::String("3±0.3°C and ½×¾ cup of sugar                      ")
     );
+}
+
+/// QuestaSim splits up bit-vectors into their individual bits in some cases.
+/// We need to undo this split similar to what GTKWave does.
+#[test]
+fn vcd_questa_sim_undo_bit_split() {
+    let filename = "inputs/questa-sim/wellen-issue-57-uart.vcd";
+    let mut waves = read(filename).expect("failed to parse");
+    let prescale_ref = waves
+        .hierarchy()
+        .lookup_var(&[&"tb_uart", &"dut"], &"prescale")
+        .expect("failed to find prescale!");
+    let prescale = waves.hierarchy()[prescale_ref].clone();
+    assert_eq!(
+        prescale.full_name(waves.hierarchy()),
+        "tb_uart.dut.prescale"
+    );
+
+    check_no_duplicate_var(waves.hierarchy());
+    // we expect prescale to be reassembled from the individual bit signals
+    assert_eq!(prescale.index().unwrap().msb(), 15);
+    assert_eq!(prescale.index().unwrap().lsb(), 0);
+    assert_eq!(prescale.length(waves.hierarchy()), Some(16));
+
+    check_no_duplicate_var(waves.hierarchy());
+
+    // load and verify the values of the prescale variable which have been assembled from individual bit signals
+    waves.load_signals(&[prescale.signal_ref()]);
+    let prescale_signal = waves.get_signal(prescale.signal_ref()).unwrap();
+    let values: Vec<_> = prescale_signal
+        .iter_changes()
+        .map(|(time_idx, value)| format!("{time_idx}: {value}"))
+        .collect();
+    assert_eq!(values, ["0: 0000000000010100"]);
 }

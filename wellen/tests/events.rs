@@ -3,7 +3,7 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use wellen::simple::{Waveform, read};
-use wellen::{Signal, SignalRef, SignalValue, Time};
+use wellen::{Signal, SignalRef, SignalValueRef, Time};
 
 /// The test files were provided by Roman Popov here: https://github.com/ekiwi/wellen/pull/67
 #[test]
@@ -30,10 +30,10 @@ fn collect_events(w: &Waveform, s: &Signal) -> Vec<Time> {
     s.iter_changes()
         .map(|(time_idx, value)| {
             assert!(
-                matches!(value, SignalValue::Event),
+                matches!(value, SignalValueRef::Event),
                 "{value:?} is not an event"
             );
-            assert_eq!(value.bits().unwrap(), 0);
+            assert_eq!(value.width().unwrap(), 0);
             w.time_table()[time_idx as usize]
         })
         .collect()

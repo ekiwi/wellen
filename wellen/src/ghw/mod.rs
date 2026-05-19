@@ -9,7 +9,7 @@ mod signals;
 
 pub use crate::ghw::common::GhwParseError;
 use crate::ghw::common::{GhwDecodeInfo, HeaderData};
-use crate::signals::SignalSource;
+use crate::signal::SignalSource;
 use crate::viewers::ProgressCount;
 use crate::{Hierarchy, LoadOptions, TimeTable};
 use std::io::{BufRead, Seek, SeekFrom};

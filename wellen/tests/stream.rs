@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use std::fs::File;
 use std::io::BufReader;
 use wellen::stream::*;
-use wellen::{LoadOptions, TimeTableIdx};
+use wellen::{Hierarchy, LoadOptions, SignalRef, SignalValue, SignalValueRef, TimeTableIdx};
 
 mod utils;
 
@@ -26,6 +26,10 @@ fn diff_stream(filename: &str) {
     );
 
     let mut delta_counter = FxHashMap::default();
+    // keeps track of the times when we see a signal changing in the stream
+    let mut observed_changes = FxHashMap::default();
+    // remember previous value in order to filter out no-op changes
+    let mut prev_value: FxHashMap<SignalRef, SignalValue> = FxHashMap::default();
 
     let filter = Filter::all();
     streamed
@@ -35,9 +39,48 @@ fn diff_stream(filename: &str) {
                 .get(&time)
                 .expect("failed to find time in time table") as usize;
             let b_value = get_value(&batch, sig, idx, &mut delta_counter);
+            // println!("{time}, {a_value} vs {b_value}");
             diff_signal_value(time, sig, a_value, b_value, None, batch.hierarchy());
+            // record observed change if the value actually changed (or if we are dealing with an event)
+            if !prev_value.contains_key(&sig)
+                || a_value.is_event()
+                || SignalValueRef::from(&prev_value[&sig]) != a_value
+            {
+                observed_changes
+                    .entry(sig)
+                    .or_insert_with(Vec::new)
+                    .push(time);
+            }
+            let value: SignalValue = a_value.into();
+            prev_value.insert(sig, value);
         })
         .unwrap();
+
+    // make sure we actually saw all the changes!
+    for signal in batch.hierarchy().signals() {
+        let time_indices = batch.get_signal(signal).unwrap().time_indices();
+        let expected: Vec<_> = time_indices
+            .iter()
+            .map(|ii| batch.time_table()[*ii as usize])
+            .collect();
+        let empty = vec![];
+        let observed = observed_changes.get(&signal).unwrap_or(&empty);
+        assert_eq!(
+            &expected,
+            observed,
+            "{} sees different changes (batch vs. stream)",
+            find_signal_name(batch.hierarchy(), signal)
+        );
+    }
+}
+
+fn find_signal_name(h: &Hierarchy, s: SignalRef) -> String {
+    for var in h.all_vars() {
+        if var.signal_ref() == s {
+            return var.full_name(h);
+        }
+    }
+    "unknown".into()
 }
 
 fn load_streaming(filename: &str) -> StreamingWaveform<BufReader<File>> {
@@ -181,6 +224,11 @@ fn diff_stream_questa_sim_test() {
 }
 
 #[test]
+fn diff_stream_questa_wellen_issue_57() {
+    diff_stream("inputs/questa-sim/wellen-issue-57-uart.vcd");
+}
+
+#[test]
 fn diff_stream_riviera_pro_dump() {
     diff_stream("inputs/riviera-pro/dump.vcd");
 }
@@ -288,6 +336,11 @@ fn diff_stream_verilator_surfer_issue_201_fst() {
 #[test]
 fn diff_stream_verilator_verilator_incomplete() {
     diff_stream("inputs/verilator/verilator-incomplete.fst");
+}
+
+#[test]
+fn diff_stream_verilator_complex_structs() {
+    diff_stream("inputs/verilator/verilator-pull-7255-t_trace_complex_structs_cc_fst.fst");
 }
 
 #[test]
