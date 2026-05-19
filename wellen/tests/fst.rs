@@ -291,5 +291,27 @@ fn fst_character_encoding() {
 #[test]
 fn test_new_verilator_fst_attributes() {
     let filename = "inputs/verilator/verilator-pull-7255-t_trace_complex_structs_cc_fst.fst";
-    let _waves = read(filename).expect("failed to parse");
+    let waves = read(filename).expect("failed to parse");
+    let h = waves.hierarchy();
+
+    // v_arru is an unpacked bit array: typedef bit arru_t[2:1];
+    let v_arru = &h[h.lookup_scope(&[&"top", &"t", &"v_arru"]).unwrap()];
+    assert_eq!(v_arru.full_name(h), "top.t.v_arru");
+    assert!(v_arru.is_unpacked_array());
+    let child_scopes: Vec<_> = v_arru.scopes(h).map(|v| h[v].name(h)).collect();
+    assert!(
+        child_scopes.is_empty(),
+        "unexpected child scopes: {:?}",
+        child_scopes
+    );
+    let child_vars: Vec<_> = v_arru
+        .vars(h)
+        .map(|v| format!("{} {:?}", h[v].name(h), h[v].index()))
+        .collect();
+    assert_eq!(
+        child_vars.len(),
+        2,
+        "entries of unpacked arrays should never be merged!"
+    );
+    assert_eq!(child_vars, ["[1]", "[2]"]);
 }
