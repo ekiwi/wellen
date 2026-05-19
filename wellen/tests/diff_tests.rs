@@ -123,7 +123,8 @@ fn diff_test_one(vcd_filename: &str, mut our: Waveform, skip_content_comparison:
     };
 
     if our.hierarchy().has_derived_signals() {
-        println!("WARN: skipping VCD test from questa sim with merged signals");
+        println!("WARN: skipping VCD comparison test because of merged signals");
+        load_all_signals(&mut our);
     } else {
         let mut id_map = FxHashMap::default();
         diff_hierarchy(our.hierarchy(), &ref_header, &mut id_map);

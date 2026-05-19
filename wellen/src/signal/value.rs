@@ -287,7 +287,7 @@ impl<'a> From<&'a BitVecValue> for BitVecRef<'a> {
 const NINE_STATE_LOOKUP: [char; 9] = ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-'];
 
 #[repr(u8)]
-#[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq, Eq)]
+#[derive(TryFromPrimitive, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
 pub enum States {
@@ -420,6 +420,16 @@ impl States {
         let other_bits = !(self.mask() << shift_by);
         data[big_endian_byte_index] =
             (data[big_endian_byte_index] & other_bits) | (raw_value << shift_by);
+    }
+}
+
+impl std::fmt::Debug for States {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            States::Two => write!(f, "2-state"),
+            States::Four => write!(f, "4-state"),
+            States::Nine => write!(f, "9-state"),
+        }
     }
 }
 

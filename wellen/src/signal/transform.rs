@@ -318,7 +318,12 @@ impl BitVectorBuilder {
     fn add_change(&mut self, time_idx: TimeTableIdx, value: BitVecRef) {
         debug_assert_eq!(value.width(), self.width);
         let local_encoding = value.states();
-        debug_assert!(local_encoding.bits() >= self.max_states.bits());
+        debug_assert!(
+            self.max_states.bits() >= local_encoding.bits(),
+            "Cannot append a {:?} value to a {:?} signal.",
+            local_encoding,
+            self.max_states
+        );
         if self.width == 1 {
             let value = u8::from(value.get_bit(0));
             let meta_data = (local_encoding as u8) << 6;
