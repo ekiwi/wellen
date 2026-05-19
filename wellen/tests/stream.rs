@@ -58,7 +58,8 @@ fn diff_stream(filename: &str) {
     for signal in batch.hierarchy().signals() {
         assert!(
             observed_changes.contains_key(&signal),
-            "The stream is missing changes for {signal:?}"
+            "The stream is missing changes for {} ({signal:?})",
+            find_signal_name(batch.hierarchy(), signal)
         );
         let time_indices = batch.get_signal(signal).unwrap().time_indices();
         let expected: Vec<_> = time_indices
