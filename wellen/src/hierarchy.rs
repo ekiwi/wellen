@@ -1048,14 +1048,11 @@ impl HierarchyBuilder {
         let var_to_derived = std::mem::take(&mut self.var_to_derived);
         for (var, signal) in var_to_derived {
             let signal_enc = signal.output_encoding();
-            let signal_ref = signal_to_ref
-                .entry(signal)
-                .or_insert_with(|| {
-                    let r = SignalRef::derived_from_index(self.signal_encodings.len()).unwrap();
-                    self.signal_encodings.push(signal_enc);
-                    r
-                })
-                .clone();
+            let signal_ref = *signal_to_ref.entry(signal).or_insert_with(|| {
+                let r = SignalRef::derived_from_index(self.signal_encodings.len()).unwrap();
+                self.signal_encodings.push(signal_enc);
+                r
+            });
             self.vars[var.index()].signal_idx = signal_ref;
         }
 

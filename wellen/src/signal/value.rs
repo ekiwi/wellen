@@ -50,7 +50,7 @@ impl Bit {
     }
 
     #[inline]
-    pub fn to_ascii(&self) -> char {
+    pub fn as_ascii(&self) -> char {
         NINE_STATE_LOOKUP[self.0 as usize]
     }
 }
@@ -113,7 +113,7 @@ impl<'a> BitVecRef<'a> {
 
     /// Returns a string with one ASCII character for each bit.
     pub fn bit_string(&self) -> String {
-        String::from_iter(self.iter_msb_to_lsb().map(|b| b.to_ascii()))
+        String::from_iter(self.iter_msb_to_lsb().map(|b| b.as_ascii()))
     }
 
     /// Find the minimum number of states required to represent all bits.
@@ -422,10 +422,10 @@ mod tests {
 
     #[test]
     fn test_bit_constants() {
-        assert_eq!(Bit::ZERO.to_ascii(), '0');
-        assert_eq!(Bit::ONE.to_ascii(), '1');
-        assert_eq!(Bit::X.to_ascii(), 'x');
-        assert_eq!(Bit::Z.to_ascii(), 'z');
+        assert_eq!(Bit::ZERO.as_ascii(), '0');
+        assert_eq!(Bit::ONE.as_ascii(), '1');
+        assert_eq!(Bit::X.as_ascii(), 'x');
+        assert_eq!(Bit::Z.as_ascii(), 'z');
     }
 
     #[test]

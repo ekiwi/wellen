@@ -35,7 +35,7 @@ fn transform_bv_signal(
     // iteration - todo: split into its own function
     let mut time = inputs
         .iter()
-        .map(|i| i.time_indices.get(0).cloned().unwrap_or(0))
+        .map(|i| i.time_indices.first().cloned().unwrap_or(0))
         .min()
         .unwrap_or(0);
     let mut offsets: Vec<Option<u32>> = inputs
@@ -61,8 +61,8 @@ fn transform_bv_signal(
         .map(|(i, offset)| {
             offset.map(|o| {
                 let value = i.data.get_value_at(o as usize);
-                let out = value.as_bit_vec().unwrap();
-                out
+
+                value.as_bit_vec().unwrap()
             })
         })
         .collect();
@@ -226,7 +226,7 @@ impl DerivedBitVecSignal {
         &self.inputs
     }
 
-    pub fn on_change<'a>(&'a self, values: &[Option<BitVecRef<'_>>]) -> BitVecValue {
+    pub fn on_change(&self, values: &[Option<BitVecRef<'_>>]) -> BitVecValue {
         let max_states = values
             .iter()
             .flat_map(|v| v.map(|v| v.states()))
