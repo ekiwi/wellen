@@ -298,22 +298,60 @@ fn test_new_verilator_fst_attributes() {
     let v_arru = &h[h.lookup_scope(&[&"top", &"t", &"v_arru"]).unwrap()];
     assert_eq!(v_arru.full_name(h), "top.t.v_arru");
     assert!(v_arru.is_unpacked_array());
-    let child_scopes: Vec<_> = v_arru.scopes(h).map(|v| h[v].name(h)).collect();
+    assert_no_scopes(h, v_arru);
+    let v_arru_elements = child_vars(h, v_arru);
+    assert_eq!(
+        v_arru_elements.len(),
+        2,
+        "entries of unpacked arrays should never be merged!"
+    );
+    assert_eq!(v_arru_elements[0].name(h), "[2]");
+    assert_eq!(v_arru_elements[0].length(h).unwrap(), 1);
+    assert_eq!(v_arru_elements[0].var_type(), VarType::Bit);
+    assert_eq!(v_arru_elements[1].name(h), "[1]");
+
+    // v_arru_arru is an unpacked array of an unpacked array:
+    // typedef bit arru_t[2:1];
+    // typedef arru_t arru_arru_t[4:3];
+    let v_arru_arru = &h[h.lookup_scope(&[&"top", &"t", &"v_arru_arru"]).unwrap()];
+    assert_eq!(v_arru_arru.full_name(h), "top.t.v_arru_arru");
+    assert!(v_arru_arru.is_unpacked_array());
+    assert_no_vars(h, v_arru_arru);
+    let v_arru_arru_elements = child_scopes(h, v_arru_arru);
+    assert_eq!(v_arru_arru_elements.len(), 2);
+    assert_eq!(v_arru_arru_elements[0].name(h), "[4]");
+    assert!(v_arru_arru_elements[0].is_unpacked_array());
+    assert_no_scopes(h, &v_arru_arru_elements[0]);
+    assert_eq!(v_arru_arru_elements[1].name(h), "[3]");
+    assert!(v_arru_arru_elements[1].is_unpacked_array());
+    assert_no_scopes(h, &v_arru_arru_elements[1]);
+
+    let v_arru_arru_4_elements = child_scopes(h, &v_arru_arru_elements[0]);
+    assert_eq!(v_arru_arru_4_elements.len(), 2);
+}
+
+fn child_scopes<'a>(h: &'a Hierarchy, scope: &Scope) -> Vec<&'a Scope> {
+    scope.scopes(h).map(|v| &h[v]).collect()
+}
+
+fn child_vars<'a>(h: &'a Hierarchy, scope: &Scope) -> Vec<&'a Var> {
+    scope.vars(h).map(|v| &h[v]).collect()
+}
+
+fn assert_no_scopes(h: &Hierarchy, scope: &Scope) {
+    let child_scopes: Vec<_> = scope.scopes(h).map(|v| h[v].name(h)).collect();
     assert!(
         child_scopes.is_empty(),
         "unexpected child scopes: {:?}",
         child_scopes
     );
-    let child_vars: Vec<_> = v_arru.vars(h).map(|v| &h[v]).collect();
-    assert_eq!(
-        child_vars.len(),
-        2,
-        "entries of unpacked arrays should never be merged!"
-    );
-    assert_eq!(child_vars[0].name(h), "[2]");
-    assert_eq!(child_vars[0].length(h).unwrap(), 1);
-    assert_eq!(child_vars[0].var_type(), VarType::Bit);
-    assert_eq!(child_vars[1].name(h), "[1]");
+}
 
-    //
+fn assert_no_vars(h: &Hierarchy, scope: &Scope) {
+    let child_vars: Vec<_> = scope.vars(h).map(|v| h[v].name(h)).collect();
+    assert!(
+        child_vars.is_empty(),
+        "unexpected child vars: {:?}",
+        child_vars
+    );
 }

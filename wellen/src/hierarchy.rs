@@ -1445,6 +1445,9 @@ impl HierarchyBuilder {
             if parent.is_array() {
                 let name = &self.strings[name_id.index()];
                 let parent_name = &self.strings[parent.name.index()];
+
+                println!("Inspecting: {parent_name}.{name} {index:?}");
+
                 let n1 = if let Some(suffix) = name.strip_prefix(parent_name) {
                     suffix
                 } else {
@@ -1456,10 +1459,13 @@ impl HierarchyBuilder {
                     && let Some(index) = index
                     && index.width() == 1
                 {
-                    let new_name_id = self.add_string(format!("{n1}[{}]", index.lsb()).into());
+                    let new_name = format!("{n1}[{}]", index.lsb());
+                    println!(" --> {new_name}");
+                    let new_name_id = self.add_string(new_name.into());
                     return (new_name_id, None);
                 } else if n1 != name {
                     let n1 = n1.to_string();
+                    println!(" --> {n1}");
                     let new_name_id = self.add_string(n1.into());
                     return (new_name_id, index);
                 }
