@@ -557,7 +557,7 @@ enum ExtractSuffixIndexState {
     LookingForName(VarIndex),
 }
 
-type ScopeNames<'a> = Vec<std::borrow::Cow<'a, str>>;
+pub type ScopeNames<'a> = Vec<std::borrow::Cow<'a, str>>;
 
 /// Splits a full name into:
 /// 1. the variable name

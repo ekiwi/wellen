@@ -6,7 +6,7 @@
 use crate::FileFormat;
 use crate::fst::{Attribute, parse_var_attributes};
 use crate::signal::DerivedBitVecSignal;
-use crate::vcd::parse_name;
+use crate::vcd::{ScopeNames, parse_name};
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::fmt::{Debug, Formatter};
@@ -1449,20 +1449,37 @@ impl HierarchyBuilder {
         &mut self,
         name_id: HierarchyStringId,
         index: Option<VarIndex>,
+        array_scopes: &mut ScopeNames,
     ) -> (HierarchyStringId, Option<VarIndex>) {
-        if let (Some(parent), _) = self.get_parent_and_prev_child() {
-            let parent = &self.scopes[parent.index()];
+        if let (Some(parent_id), _) = self.get_parent_and_prev_child() {
+            let parent = &self.scopes[parent_id.index()];
             if parent.is_array() {
                 let name = &self.strings[name_id.index()];
                 let parent_name = &self.strings[parent.name.index()];
-
-                println!("Inspecting: {parent_name}.{name} {index:?}");
-
                 let n1 = if let Some(suffix) = name.strip_prefix(parent_name) {
                     suffix
                 } else {
                     name
                 };
+
+                // remove array scopes if they already exist
+                let mut pp = if n1 == name {
+                    Some(parent_id)
+                } else {
+                    parent.parent
+                };
+                while let Some(parent_id) = pp {
+                    let parent = &self.scopes[parent_id.index()];
+                    let parent_name = &self.strings[parent.name.index()];
+                    if let Some(name) = array_scopes.last()
+                        && name.as_ref() == parent_name
+                    {
+                        array_scopes.pop();
+                        pp = parent.parent;
+                    } else {
+                        break;
+                    }
+                }
 
                 // for unpacked array elements, the "index" is most likely the actual array index instead of a bit index
                 if parent.is_unpacked_array()
@@ -1470,12 +1487,10 @@ impl HierarchyBuilder {
                     && index.width() == 1
                 {
                     let new_name = format!("{n1}[{}]", index.lsb());
-                    println!(" --> {new_name}");
                     let new_name_id = self.add_string(new_name.into());
                     return (new_name_id, None);
                 } else if n1 != name {
                     let n1 = n1.to_string();
-                    println!(" --> {n1}");
                     let new_name_id = self.add_string(n1.into());
                     return (new_name_id, index);
                 }
@@ -1497,12 +1512,15 @@ impl HierarchyBuilder {
         direction: VarDirection,
         signal_idx: SignalRef,
     ) -> crate::vcd::Result<()> {
-        let (var_name, index, scopes) = parse_name(name, length)?;
+        let (var_name, index, mut scopes) = parse_name(name, length)?;
         let (type_name, var_type, enum_type) =
             parse_var_attributes(attributes, raw_tpe, &var_name)?;
         let vhdl_type_name = type_name.map(|s| self.add_string(s.into()));
         let name = self.add_string(var_name);
-        let (name, index) = self.handle_verilator_array_element(name, index);
+
+        // verilator specific variable name fixes
+        let (name, index) = self.handle_verilator_array_element(name, index, &mut scopes);
+
         let num_scopes = scopes.len();
         self.add_array_scopes(scopes);
 
