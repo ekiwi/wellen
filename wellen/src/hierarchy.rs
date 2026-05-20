@@ -4,7 +4,9 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::FileFormat;
+use crate::fst::{Attribute, parse_var_attributes};
 use crate::signal::DerivedBitVecSignal;
+use crate::vcd::{ScopeNames, parse_name};
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::fmt::{Debug, Formatter};
@@ -535,11 +537,13 @@ pub struct Scope {
 
 impl Scope {
     /// Local name of the scope.
+    #[inline]
     pub fn name<'a>(&self, hierarchy: &'a Hierarchy) -> &'a str {
         &hierarchy[self.name]
     }
 
     /// Local name of the component, e.g., the name of the module that was instantiated.
+    #[inline]
     pub fn component<'a>(&self, hierarchy: &'a Hierarchy) -> Option<&'a str> {
         self.component.map(|n| &hierarchy[n])
     }
@@ -561,12 +565,52 @@ impl Scope {
         out
     }
 
+    #[inline]
     pub fn scope_type(&self) -> ScopeType {
         self.tpe
     }
 
+    #[inline]
     pub fn pack_info(&self) -> Option<ScopePackInfo> {
         self.pack
+    }
+
+    #[inline]
+    pub fn is_array(&self) -> bool {
+        matches!(self.tpe, ScopeType::VhdlArray | ScopeType::SvArray)
+    }
+
+    #[inline]
+    pub fn is_packed_array(&self) -> bool {
+        self.is_array() && self.is_packed()
+    }
+
+    #[inline]
+    pub fn is_unpacked_array(&self) -> bool {
+        self.is_array() && self.is_unpacked()
+    }
+
+    #[inline]
+    pub fn is_packed(&self) -> bool {
+        matches!(
+            self.pack,
+            Some(ScopePackInfo::Packed) | Some(ScopePackInfo::TaggedPacked)
+        )
+    }
+
+    #[inline]
+    pub fn is_unpacked(&self) -> bool {
+        matches!(self.pack, Some(ScopePackInfo::Unpacked))
+    }
+
+    #[inline]
+    pub fn is_record(&self) -> bool {
+        matches!(self.tpe, ScopeType::Struct | ScopeType::VhdlRecord)
+    }
+
+    #[inline]
+    pub fn is_packed_record(&self) -> bool {
+        self.is_record() && self.is_packed()
     }
 
     pub fn source_loc<'a>(&self, hierarchy: &'a Hierarchy) -> Option<(&'a str, u64)> {
@@ -636,6 +680,7 @@ impl Iterator for HierarchyItemIdIterator<'_> {
     }
 }
 
+#[inline]
 fn to_var_ref_iterator(iter: impl Iterator<Item = ScopeOrVarRef>) -> impl Iterator<Item = VarRef> {
     iter.flat_map(|i| match i {
         ScopeOrVarRef::Scope(_) => None,
@@ -1137,6 +1182,17 @@ impl HierarchyBuilder {
         }
     }
 
+    fn get_parent_and_prev_child(&self) -> (Option<ScopeRef>, Option<ScopeOrVarRef>) {
+        let entry_pos = find_parent_scope(&self.scope_stack);
+        let entry = &self.scope_stack[entry_pos];
+        let parent_ref = ScopeRef::from_index(entry.scope_id).unwrap();
+        if parent_ref == FAKE_TOP_SCOPE {
+            (None, entry.last_child)
+        } else {
+            (Some(parent_ref), entry.last_child)
+        }
+    }
+
     /// Checks to see if a scope of the same name already exists.
     fn find_duplicate_scope(&self, name_id: HierarchyStringId) -> Option<ScopeRef> {
         let parent = &self.scope_stack[find_parent_scope(&self.scope_stack)];
@@ -1316,10 +1372,15 @@ impl HierarchyBuilder {
         signal_idx: SignalRef,
     ) -> bool {
         // lookup previous item
-        let entry_pos = find_parent_scope(&self.scope_stack);
-        let entry = &mut self.scope_stack[entry_pos];
-        // is it a variable?
-        if let Some(ScopeOrVarRef::Var(prev_var_ref)) = entry.last_child {
+        if let (Some(parent), Some(ScopeOrVarRef::Var(prev_var_ref))) =
+            self.get_parent_and_prev_child()
+        {
+            // for unpacked arrays, we specifically do _not_ want to merge entries into a single
+            // (packed) bit-vector
+            if self.scopes[parent.index()].is_unpacked_array() {
+                return false;
+            }
+
             let prev_var = &mut self.vars[prev_var_ref.index()];
             // does the name match? does the variable have an index?
             if prev_var.name == new_name
@@ -1380,6 +1441,101 @@ impl HierarchyBuilder {
             self.strings[name.index()],
         );
         self.signal_encodings[ii] = encoding;
+    }
+
+    // Verilator has the bad habit of expanding the full name for the final scalar in an array.
+    // So instead of producing v_arru.[2] it will produce v_arru.v_arru[2]
+    fn handle_verilator_array_element(
+        &mut self,
+        name_id: HierarchyStringId,
+        index: Option<VarIndex>,
+        array_scopes: &mut ScopeNames,
+    ) -> (HierarchyStringId, Option<VarIndex>) {
+        if let (Some(parent_id), _) = self.get_parent_and_prev_child() {
+            let parent = &self.scopes[parent_id.index()];
+            if parent.is_array() {
+                let name = &self.strings[name_id.index()];
+                let parent_name = &self.strings[parent.name.index()];
+                let n1 = if let Some(suffix) = name.strip_prefix(parent_name) {
+                    suffix
+                } else {
+                    name
+                };
+
+                // remove array scopes if they already exist
+                let mut pp = if n1 == name {
+                    Some(parent_id)
+                } else {
+                    parent.parent
+                };
+                while let Some(parent_id) = pp {
+                    let parent = &self.scopes[parent_id.index()];
+                    let parent_name = &self.strings[parent.name.index()];
+                    if let Some(name) = array_scopes.last()
+                        && name.as_ref() == parent_name
+                    {
+                        array_scopes.pop();
+                        pp = parent.parent;
+                    } else {
+                        break;
+                    }
+                }
+
+                // for unpacked array elements, the "index" is most likely the actual array index instead of a bit index
+                if parent.is_unpacked_array()
+                    && let Some(index) = index
+                    && index.width() == 1
+                {
+                    let new_name = format!("{n1}[{}]", index.lsb());
+                    let new_name_id = self.add_string(new_name.into());
+                    return (new_name_id, None);
+                } else if n1 != name {
+                    let n1 = n1.to_string();
+                    let new_name_id = self.add_string(n1.into());
+                    return (new_name_id, index);
+                }
+            }
+        }
+        (name_id, index)
+    }
+
+    /// Adds a variable with a "raw" name directly from the VCD/FST
+    /// This name will be further processed in order to extract index and possible array scopes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_var_raw_name(
+        &mut self,
+        name: &[u8],
+        length: u32,
+        raw_tpe: VarType,
+        attributes: &mut Vec<Attribute>,
+        signal_encoding: SignalEncoding,
+        direction: VarDirection,
+        signal_idx: SignalRef,
+    ) -> crate::vcd::Result<()> {
+        let (var_name, index, mut scopes) = parse_name(name, length)?;
+        let (type_name, var_type, enum_type) =
+            parse_var_attributes(attributes, raw_tpe, &var_name)?;
+        let vhdl_type_name = type_name.map(|s| self.add_string(s.into()));
+        let name = self.add_string(var_name);
+
+        // verilator specific variable name fixes
+        let (name, index) = self.handle_verilator_array_element(name, index, &mut scopes);
+
+        let num_scopes = scopes.len();
+        self.add_array_scopes(scopes);
+
+        self.add_var(
+            name,
+            var_type,
+            signal_encoding,
+            direction,
+            index,
+            signal_idx,
+            enum_type,
+            vhdl_type_name,
+        );
+        self.pop_scopes(num_scopes);
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]

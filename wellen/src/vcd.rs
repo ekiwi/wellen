@@ -3,7 +3,7 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use crate::fst::{Attribute, parse_scope_attributes, parse_var_attributes};
+use crate::fst::{Attribute, parse_scope_attributes};
 use crate::hierarchy::*;
 use crate::signal::{Bit, SignalSource, States};
 use crate::stream::{Filter, StreamEncoder};
@@ -429,7 +429,6 @@ fn read_hierarchy_inner(
                     ));
                 }
             };
-            let (var_name, index, scopes) = parse_name(name, length)?;
             let raw_vcd_var_tpe = convert_var_tpe(tpe)?;
             // we derive the signal type from the vcd var directly, the VHDL type should never factor in!
             let signal_tpe = match raw_vcd_var_tpe {
@@ -446,26 +445,16 @@ fn read_hierarchy_inner(
                 }
                 _ => SignalEncoding::bit_vec_of_len(length),
             };
-            // combine the raw variable type with VHDL type attributes
-            let (type_name, var_type, enum_type) =
-                parse_var_attributes(&mut attributes, raw_vcd_var_tpe, &var_name)?;
-            let name = h.add_string(var_name);
-            let type_name = type_name.map(|s| h.add_string(s.into()));
-            let num_scopes = scopes.len();
-            h.add_array_scopes(scopes);
 
-            h.add_var(
+            h.add_var_raw_name(
                 name,
-                var_type,
+                length,
+                raw_vcd_var_tpe,
+                &mut attributes,
                 signal_tpe,
                 VarDirection::vcd_default(),
-                index,
                 id_to_signal_ref(id)?,
-                enum_type,
-                type_name,
-            );
-            h.pop_scopes(num_scopes);
-            Ok(())
+            )
         }
         HeaderCmd::Date(value) => {
             h.set_date(String::from_utf8_lossy(value).to_string());
@@ -568,7 +557,7 @@ enum ExtractSuffixIndexState {
     LookingForName(VarIndex),
 }
 
-type ScopeNames<'a> = Vec<std::borrow::Cow<'a, str>>;
+pub type ScopeNames<'a> = Vec<std::borrow::Cow<'a, str>>;
 
 /// Splits a full name into:
 /// 1. the variable name
