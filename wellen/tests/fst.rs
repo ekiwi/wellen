@@ -304,14 +304,16 @@ fn test_new_verilator_fst_attributes() {
         "unexpected child scopes: {:?}",
         child_scopes
     );
-    let child_vars: Vec<_> = v_arru
-        .vars(h)
-        .map(|v| format!("{} {:?}", h[v].name(h), h[v].index()))
-        .collect();
+    let child_vars: Vec<_> = v_arru.vars(h).map(|v| &h[v]).collect();
     assert_eq!(
         child_vars.len(),
         2,
         "entries of unpacked arrays should never be merged!"
     );
-    assert_eq!(child_vars, ["[1]", "[2]"]);
+    assert_eq!(child_vars[0].name(h), "[2]");
+    assert_eq!(child_vars[0].length(h).unwrap(), 1);
+    assert_eq!(child_vars[0].var_type(), VarType::Bit);
+    assert_eq!(child_vars[1].name(h), "[1]");
+
+    //
 }

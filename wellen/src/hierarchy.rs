@@ -1432,6 +1432,42 @@ impl HierarchyBuilder {
         self.signal_encodings[ii] = encoding;
     }
 
+    // Verilator has the bad habit of expanding the full name for the final scalar in an array.
+    // So instead of producing v_arru.[2] it will produce v_arru.v_arru[2]
+    fn handle_verilator_array_element(
+        &mut self,
+        parent: Option<ScopeRef>,
+        name_id: HierarchyStringId,
+        index: Option<VarIndex>,
+    ) -> (HierarchyStringId, Option<VarIndex>) {
+        if let Some(parent) = parent {
+            let parent = &self.scopes[parent.index()];
+            if parent.is_array() {
+                let name = &self.strings[name_id.index()];
+                let parent_name = &self.strings[parent.name.index()];
+                let n1 = if let Some(suffix) = name.strip_prefix(parent_name) {
+                    suffix
+                } else {
+                    name
+                };
+
+                // for unpacked array elements, the "index" is most likely the actual array index instead of a bit index
+                if parent.is_unpacked_array()
+                    && let Some(index) = index
+                    && index.width() == 1
+                {
+                    let new_name_id = self.add_string(format!("{n1}[{}]", index.lsb()).into());
+                    return (new_name_id, None);
+                } else if n1 != name {
+                    let n1 = n1.to_string();
+                    let new_name_id = self.add_string(n1.into());
+                    return (new_name_id, index);
+                }
+            }
+        }
+        (name_id, index)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn add_var(
         &mut self,
@@ -1454,6 +1490,8 @@ impl HierarchyBuilder {
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
         let parent = self.add_to_hierarchy_tree(var_id.into());
+
+        let (name, index) = self.handle_verilator_array_element(parent, name, index);
 
         // update signal encoding
         self.set_signal_encoding(signal_idx, signal_encoding, name);
