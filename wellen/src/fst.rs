@@ -8,7 +8,6 @@ use crate::signal::{
     FixedWidthEncoding, Signal, SignalSource, SignalSourceImplementation, States, TimeTableIdx,
 };
 use crate::stream::{Filter, StreamEncoder};
-use crate::vcd::parse_name;
 use crate::wavemem::{check_if_changed_and_truncate, write_n_state_from_ascii};
 use crate::{FileFormat, LoadOptions, TimeTable, WellenError};
 use fst_reader::*;
@@ -682,13 +681,6 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                 handle,
                 ..
             } => {
-                // the fst name often contains the variable name + the index
-                let (var_name, index, scopes) = parse_name(name.as_bytes(), length).unwrap();
-                let (type_name, var_type, enum_type) =
-                    parse_var_attributes(&mut attributes, convert_var_tpe(tpe), &var_name).unwrap();
-                let name_id = h.add_string(var_name);
-                let type_name = type_name.map(|s| h.add_string(s.into()));
-                let num_scopes = scopes.len();
                 // we derive the signal type from the fst tpe directly, the VHDL type should never factor in!
                 let signal_tpe = match tpe {
                     FstVarType::GenericString => SignalEncoding::String,
@@ -699,18 +691,16 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                     FstVarType::Event => SignalEncoding::Event,
                     _ => SignalEncoding::bit_vec_of_len(length),
                 };
-                h.add_array_scopes(scopes);
-                h.add_var(
-                    name_id,
-                    var_type,
+                h.add_var_raw_name(
+                    name.as_bytes(),
+                    length,
+                    convert_var_tpe(tpe),
+                    &mut attributes,
                     signal_tpe,
                     convert_var_direction(direction),
-                    index,
                     SignalRef::from_index(handle.get_index()).unwrap(),
-                    enum_type,
-                    type_name,
-                );
-                h.pop_scopes(num_scopes);
+                )
+                .unwrap();
             }
             FstHierarchyEntry::PathName { id, name } => {
                 let string_ref = h.add_string(name.into());

@@ -4,7 +4,9 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::FileFormat;
+use crate::fst::{Attribute, parse_var_attributes};
 use crate::signal::DerivedBitVecSignal;
+use crate::vcd::parse_name;
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::fmt::{Debug, Formatter};
@@ -1472,6 +1474,41 @@ impl HierarchyBuilder {
             }
         }
         (name_id, index)
+    }
+
+    /// Adds a variable with a "raw" name directly from the VCD/FST
+    /// This name will be further processed in order to extract index and possible array scopes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_var_raw_name(
+        &mut self,
+        name: &[u8],
+        length: u32,
+        raw_tpe: VarType,
+        attributes: &mut Vec<Attribute>,
+        signal_encoding: SignalEncoding,
+        direction: VarDirection,
+        signal_idx: SignalRef,
+    ) -> crate::vcd::Result<()> {
+        let (var_name, index, scopes) = parse_name(name, length)?;
+        let (type_name, var_type, enum_type) =
+            parse_var_attributes(attributes, raw_tpe, &var_name)?;
+        let vhdl_type_name = type_name.map(|s| self.add_string(s.into()));
+        let name = self.add_string(var_name);
+        let num_scopes = scopes.len();
+        self.add_array_scopes(scopes);
+
+        self.add_var(
+            name,
+            var_type,
+            signal_encoding,
+            direction,
+            index,
+            signal_idx,
+            enum_type,
+            vhdl_type_name,
+        );
+        self.pop_scopes(num_scopes);
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
