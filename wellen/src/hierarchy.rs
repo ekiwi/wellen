@@ -1182,6 +1182,17 @@ impl HierarchyBuilder {
         }
     }
 
+    fn get_parent_and_prev_child(&self) -> (Option<ScopeRef>, Option<ScopeOrVarRef>) {
+        let entry_pos = find_parent_scope(&self.scope_stack);
+        let entry = &self.scope_stack[entry_pos];
+        let parent_ref = ScopeRef::from_index(entry.scope_id).unwrap();
+        if parent_ref == FAKE_TOP_SCOPE {
+            (None, entry.last_child)
+        } else {
+            (Some(parent_ref), entry.last_child)
+        }
+    }
+
     /// Checks to see if a scope of the same name already exists.
     fn find_duplicate_scope(&self, name_id: HierarchyStringId) -> Option<ScopeRef> {
         let parent = &self.scope_stack[find_parent_scope(&self.scope_stack)];
@@ -1361,17 +1372,15 @@ impl HierarchyBuilder {
         signal_idx: SignalRef,
     ) -> bool {
         // lookup previous item
-        let entry_pos = find_parent_scope(&self.scope_stack);
-        let entry = &mut self.scope_stack[entry_pos];
+        if let (Some(parent), Some(ScopeOrVarRef::Var(prev_var_ref))) =
+            self.get_parent_and_prev_child()
+        {
+            // for unpacked arrays, we specifically do _not_ want to merge entries into a single
+            // (packed) bit-vector
+            if self.scopes[parent.index()].is_unpacked_array() {
+                return false;
+            }
 
-        // for unpacked arrays, we specifically do _not_ want to merge entries into a single
-        // (packed) bit-vector
-        if self.scopes[entry.scope_id].is_unpacked_array() {
-            return false;
-        }
-
-        // is it a variable?
-        if let Some(ScopeOrVarRef::Var(prev_var_ref)) = entry.last_child {
             let prev_var = &mut self.vars[prev_var_ref.index()];
             // does the name match? does the variable have an index?
             if prev_var.name == new_name
@@ -1438,11 +1447,10 @@ impl HierarchyBuilder {
     // So instead of producing v_arru.[2] it will produce v_arru.v_arru[2]
     fn handle_verilator_array_element(
         &mut self,
-        parent: Option<ScopeRef>,
         name_id: HierarchyStringId,
         index: Option<VarIndex>,
     ) -> (HierarchyStringId, Option<VarIndex>) {
-        if let Some(parent) = parent {
+        if let (Some(parent), _) = self.get_parent_and_prev_child() {
             let parent = &self.scopes[parent.index()];
             if parent.is_array() {
                 let name = &self.strings[name_id.index()];
@@ -1494,6 +1502,7 @@ impl HierarchyBuilder {
             parse_var_attributes(attributes, raw_tpe, &var_name)?;
         let vhdl_type_name = type_name.map(|s| self.add_string(s.into()));
         let name = self.add_string(var_name);
+        let (name, index) = self.handle_verilator_array_element(name, index);
         let num_scopes = scopes.len();
         self.add_array_scopes(scopes);
 
@@ -1533,8 +1542,6 @@ impl HierarchyBuilder {
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
         let parent = self.add_to_hierarchy_tree(var_id.into());
-
-        let (name, index) = self.handle_verilator_array_element(parent, name, index);
 
         // update signal encoding
         self.set_signal_encoding(signal_idx, signal_encoding, name);
