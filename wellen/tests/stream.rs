@@ -5,9 +5,10 @@
 use crate::utils::*;
 use rustc_hash::FxHashMap;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader, Seek};
+use wellen::simple::Waveform;
 use wellen::stream::*;
-use wellen::{Hierarchy, LoadOptions, SignalRef, SignalValue, SignalValueRef, TimeTableIdx};
+use wellen::{Hierarchy, LoadOptions, SignalRef, SignalValue, SignalValueRef, Time, TimeTableIdx};
 
 mod utils;
 
@@ -16,7 +17,6 @@ fn diff_stream(filename: &str) {
     let mut streamed = load_streaming(filename);
     let mut batch = wellen::simple::read(filename).expect("failed to open file in batch mode");
     load_all_signals(&mut batch);
-
     let time_to_idx = FxHashMap::from_iter(
         batch
             .time_table()
@@ -25,6 +25,19 @@ fn diff_stream(filename: &str) {
             .map(|(ii, &t)| (t, ii as TimeTableIdx)),
     );
 
+    // simply stream each individual signal change
+    diff_stream_changes(&batch, &mut streamed, &time_to_idx);
+    // make sure we can stream twice
+    diff_stream_changes(&batch, &mut streamed, &time_to_idx);
+    // batch changes in a single time step
+    diff_stream_time_change(&batch, &mut streamed, &time_to_idx);
+}
+
+fn diff_stream_changes<R: BufRead + Seek>(
+    batch: &Waveform,
+    streamed: &mut StreamingWaveform<R>,
+    time_to_idx: &FxHashMap<Time, TimeTableIdx>,
+) {
     let mut delta_counter = FxHashMap::default();
     // keeps track of the times when we see a signal changing in the stream
     let mut observed_changes = FxHashMap::default();
@@ -33,7 +46,7 @@ fn diff_stream(filename: &str) {
 
     let filter = Filter::all();
     streamed
-        .stream(&filter, |time, sig, a_value| {
+        .stream_changes(&filter, |time, sig, a_value| {
             // find corresponding signal value in memory
             let idx = *time_to_idx
                 .get(&time)
@@ -72,6 +85,14 @@ fn diff_stream(filename: &str) {
             find_signal_name(batch.hierarchy(), signal)
         );
     }
+}
+
+fn diff_stream_time_change<R: BufRead + Seek>(
+    batch: &Waveform,
+    streamed: &mut StreamingWaveform<R>,
+    time_to_idx: &FxHashMap<Time, TimeTableIdx>,
+) {
+    todo!()
 }
 
 fn find_signal_name(h: &Hierarchy, s: SignalRef) -> String {

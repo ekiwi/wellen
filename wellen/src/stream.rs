@@ -101,7 +101,8 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
         &self.hierarchy
     }
 
-    pub fn stream(
+    /// Calls the callback for each change of a signal.
+    pub fn stream_changes(
         &mut self,
         filter: &Filter,
         callback: impl FnMut(Time, SignalRef, SignalValueRef<'_>),
@@ -117,6 +118,10 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
             viewers::ReadBodyData::Ghw(_) => panic!("streaming GHW files is not supported"),
         }
         Ok(())
+    }
+
+    pub fn stream_time_steps(&mut self, filter: &Filter) -> Result<()> {
+        todo!()
     }
 }
 
