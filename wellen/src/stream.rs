@@ -5,7 +5,7 @@
 //! This interface is useful when you want to batch process waveform data instead
 //! of displaying it in a waveform viewer.
 
-use crate::signal::{DerivedBitVecSignal, States};
+use crate::signal::{DerivedBitVecSignal, SignalMap, States};
 use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
 use crate::wavemem::write_n_state_from_ascii;
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
     SignalValueRef, Time, WellenError, viewers,
 };
 use fst_reader::FstSignalValue;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 use smallvec::{SmallVec, smallvec};
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
@@ -120,7 +120,11 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
         Ok(())
     }
 
-    pub fn stream_time_steps(&mut self, filter: &Filter) -> Result<()> {
+    pub fn stream_time_steps(
+        &mut self,
+        filter: &Filter,
+        // callback: impl FnMut(Time, &impl Fn(SignalRef) -> Option<SignalValueRef>),
+    ) -> Result<()> {
         todo!()
     }
 }
@@ -135,15 +139,15 @@ where
     time: Option<Time>,
     skipping_time_step: bool,
     /// contains encoding for all _included_ signals (depending on the [Filter] provided)
-    encoding: Vec<SignalEncoding>,
+    encoding: SignalMap<SignalEncoding>,
     buf: Vec<u8>,
     /// signal value cache, used for derived signals and their inputs
-    values: FxHashMap<SignalRef, SignalValue>,
+    values: SignalMap<SignalValue>,
     /// what signals are derived from the key?
-    to_derived: FxHashMap<SignalRef, SmallVec<[SignalRef; 4]>>,
+    to_derived: SignalMap<SmallVec<[SignalRef; 4]>>,
     /// keep track of which derived signals had changes this time step
     has_changed: FxHashSet<SignalRef>,
-    transforms: FxHashMap<SignalRef, DerivedBitVecSignal>,
+    transforms: SignalMap<DerivedBitVecSignal>,
 }
 
 impl<C> StreamEncoder<C>
@@ -152,10 +156,10 @@ where
 {
     pub(crate) fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> Self {
         // data for derived signals
-        let mut transforms = FxHashMap::default();
+        let mut transforms = SignalMap::sparse();
 
         // remember encoding information for all included signals
-        let mut encoding = match filter.signals {
+        let mut encoding: SignalMap<SignalEncoding> = match filter.signals {
             None => {
                 // collect info for derived signals
                 for (signal_ref, transform) in hierarchy.all_derived_signals() {
@@ -167,34 +171,39 @@ where
             }
             Some([]) => {
                 // nothing
-                vec![]
+                SignalMap::sparse()
             }
             Some(signals) => {
-                let max_index = signals.iter().map(|r| r.index()).max().unwrap();
-                let mut enc = vec![SignalEncoding::Unknown; max_index + 1];
+                let mut enc = SignalMap::sparse();
                 for &signal in signals {
                     if let Some(transform) = hierarchy.get_derived_signal(signal) {
                         debug_assert!(signal.is_derived_signal());
                         transforms.insert(signal, transform.clone());
                     } else {
                         debug_assert!(!signal.is_derived_signal());
-                        enc[signal.index()] = hierarchy.get_signal_tpe(signal).unwrap();
+                        enc.insert(signal, hierarchy.get_signal_tpe(signal).unwrap());
                     }
                 }
                 enc
             }
         };
 
-        let mut to_derived = FxHashMap::default();
+        let mut to_derived = SignalMap::sparse();
         for (&signal_ref, transform) in transforms.iter() {
             for &input in transform.inputs() {
                 to_derived
                     .entry(input)
                     .or_insert_with(|| smallvec![])
                     .push(signal_ref);
-                encoding[input.index()] = hierarchy.get_signal_tpe(input).unwrap();
+                encoding.insert(input, hierarchy.get_signal_tpe(input).unwrap());
             }
         }
+
+        let values = if filter.signals.is_some() {
+            SignalMap::dense()
+        } else {
+            SignalMap::sparse()
+        };
 
         Self {
             callback,
@@ -202,7 +211,7 @@ where
             skipping_time_step: false,
             encoding,
             buf: Vec::with_capacity(128),
-            values: FxHashMap::default(),
+            values,
             to_derived,
             has_changed: Default::default(),
             transforms,
@@ -223,7 +232,7 @@ where
         // check to see if the signal should be included
         let tpe = self
             .encoding
-            .get(id as usize)
+            .get_index(id)
             .cloned()
             .unwrap_or(SignalEncoding::Unknown);
         #[allow(unused_assignments)]
@@ -292,7 +301,7 @@ where
         // check to see if the signal should be included
         let tpe = self
             .encoding
-            .get(id as usize)
+            .get_index(id)
             .cloned()
             .unwrap_or(SignalEncoding::Unknown);
         if tpe != SignalEncoding::Unknown {
@@ -392,7 +401,7 @@ where
                 .time
                 .expect("time cannot be None when there are changes");
             for signal in self.has_changed.drain() {
-                let t = &self.transforms[&signal];
+                let t = &self.transforms.get(&signal).unwrap();
                 let inputs: Vec<_> = t
                     .inputs()
                     .iter()

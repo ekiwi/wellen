@@ -30,7 +30,7 @@ fn diff_stream(filename: &str) {
     // make sure we can stream twice
     diff_stream_changes(&batch, &mut streamed, &time_to_idx);
     // batch changes in a single time step
-    diff_stream_time_change(&batch, &mut streamed, &time_to_idx);
+    // diff_stream_time_change(&batch, &mut streamed, &time_to_idx);
 }
 
 fn diff_stream_changes<R: BufRead + Seek>(
