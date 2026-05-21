@@ -3,7 +3,6 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::utils::*;
-use itertools::Itertools;
 use rand::rngs::Xoshiro256PlusPlus;
 use rand::{Rng, RngExt, SeedableRng};
 use rustc_hash::{FxHashMap, FxHashSet};

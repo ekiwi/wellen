@@ -6,7 +6,7 @@
 use crate::fst::{Attribute, parse_scope_attributes};
 use crate::hierarchy::*;
 use crate::signal::{Bit, SignalSource, States};
-use crate::stream::{Filter, StreamEncoder};
+use crate::stream::StreamEncoder;
 use crate::viewers::ProgressCount;
 use crate::wavemem::Encoder;
 use crate::{FileFormat, LoadOptions, SignalValueRef, Time, TimeTable};
@@ -1424,14 +1424,12 @@ enum BodyState {
 
 //-------------- VCD Streaming ------------
 
-pub fn stream_body<R: BufRead + Seek>(
+pub fn stream_body<R: BufRead + Seek, C: FnMut(Time, SignalRef, SignalValueRef<'_>)>(
     data: &mut ReadBodyContinuation<R>,
-    hierarchy: &Hierarchy,
-    filter: &Filter,
-    callback: impl FnMut(Time, SignalRef, SignalValueRef<'_>),
+    enc: StreamEncoder<C>,
 ) -> Result<()> {
     let mut disp = VcdStreamDispatcher {
-        enc: StreamEncoder::new(hierarchy, filter, callback),
+        enc,
         lookup: &data.lookup,
     };
 

@@ -120,14 +120,12 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
         filter: &Filter,
         callback: impl FnMut(Time, SignalRef, SignalValueRef<'_>),
     ) -> Result<()> {
+        let enc = StreamEncoder::new(self.hierarchy(), filter, callback);
+
         // ensure that none of the signals are slices
         match &mut self.body {
-            viewers::ReadBodyData::Vcd(data) => {
-                crate::vcd::stream_body(data, &self.hierarchy, filter, callback)?
-            }
-            viewers::ReadBodyData::Fst(data) => {
-                crate::fst::stream_body(data, &self.hierarchy, filter, callback)?
-            }
+            viewers::ReadBodyData::Vcd(data) => crate::vcd::stream_body(data, enc)?,
+            viewers::ReadBodyData::Fst(data) => crate::fst::stream_body(data, enc, filter)?,
             viewers::ReadBodyData::Ghw(_) => panic!("streaming GHW files is not supported"),
         }
         Ok(())
