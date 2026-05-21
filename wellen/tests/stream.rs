@@ -48,6 +48,39 @@ fn diff_stream(filename: &str) {
     // }
 }
 
+fn diff_stream_for_vars(filename: &str, vars: &[&str]) {
+    let mut streamed = load_streaming(filename);
+    let mut batch = wellen::simple::read(filename).expect("failed to open file in batch mode");
+    let time_to_idx = FxHashMap::from_iter(
+        batch
+            .time_table()
+            .iter()
+            .enumerate()
+            .map(|(ii, &t)| (t, ii as TimeTableIdx)),
+    );
+
+    let signals: Vec<_> = vars
+        .iter()
+        .map(|name| {
+            let mut parts: Vec<_> = name.split('.').collect();
+            let basename = parts.pop().unwrap();
+            let var_ref = batch
+                .hierarchy()
+                .lookup_var(&parts, basename)
+                .expect("unable to find var!");
+            batch.hierarchy()[var_ref].signal_ref()
+        })
+        .collect();
+    batch.load_signals(&signals);
+
+    diff_stream_changes(
+        &batch,
+        &mut streamed,
+        &time_to_idx,
+        &Filter::include_signals(&signals),
+    );
+}
+
 fn random_signals(rnd: &mut impl Rng, h: &Hierarchy) -> Vec<SignalRef> {
     let all_signals: Vec<_> = h.signals().collect();
     let mut signals = FxHashSet::default();
@@ -487,4 +520,11 @@ fn diff_stream_scope_with_comment() {
 #[test]
 fn diff_stream_yosys_smtbmc_surfer_issue_315() {
     diff_stream("inputs/yosys_smtbmc/surfer_issue_315.vcd");
+}
+
+#[test]
+fn diff_stream_questa_sim_derived_signal() {
+    let filename = "inputs/questa-sim/wellen-issue-57-uart.vcd";
+    let vars = ["tb_uart.dut.prescale"];
+    diff_stream_for_vars(filename, vars.as_slice());
 }
