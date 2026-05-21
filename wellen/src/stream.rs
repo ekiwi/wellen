@@ -120,15 +120,10 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
         filter: &Filter,
         callback: impl FnMut(Time, SignalRef, SignalValueRef<'_>),
     ) -> Result<()> {
-        let enc = StreamEncoder::new(self.hierarchy(), filter, callback);
-
-        // ensure that none of the signals are slices
-        match &mut self.body {
-            viewers::ReadBodyData::Vcd(data) => crate::vcd::stream_body(data, enc)?,
-            viewers::ReadBodyData::Fst(data) => crate::fst::stream_body(data, enc, filter)?,
-            viewers::ReadBodyData::Ghw(_) => panic!("streaming GHW files is not supported"),
-        }
-        Ok(())
+        self.do_stream(
+            filter,
+            StreamEncoder::new(self.hierarchy(), filter, callback),
+        )
     }
 
     pub fn stream_time_steps(
@@ -138,7 +133,23 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
     ) -> Result<()> {
         todo!()
     }
+
+    fn do_stream<C: FnMut(Time, SignalRef, SignalValueRef<'_>)>(
+        &mut self,
+        filter: &Filter,
+        enc: StreamEncoder<C>,
+    ) -> Result<()> {
+        // ensure that none of the signals are slices
+        match &mut self.body {
+            viewers::ReadBodyData::Vcd(data) => crate::vcd::stream_body(data, enc)?,
+            viewers::ReadBodyData::Fst(data) => crate::fst::stream_body(data, enc, filter)?,
+            viewers::ReadBodyData::Ghw(_) => panic!("streaming GHW files is not supported"),
+        }
+        Ok(())
+    }
 }
+
+// enum StreamEncoderMode
 
 /// Takes on the role of the [Encoder] when streaming instead of encoding to
 /// a wavemem.

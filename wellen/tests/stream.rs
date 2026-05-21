@@ -39,7 +39,13 @@ fn diff_stream(filename: &str) {
         diff_stream_changes(&batch, &mut streamed, &time_to_idx, &filter);
     }
     // batch changes in a single time step
-    // diff_stream_time_change(&batch, &mut streamed, &time_to_idx);
+    // diff_stream_time_change(&batch, &mut streamed, &time_to_idx, &Filter::all());
+    // // batch changes with three random signal subselections
+    // for _ in 0..3 {
+    //     let signals = random_signals(&mut rnd, batch.hierarchy());
+    //     let filter = Filter::include_signals(&signals);
+    //     diff_stream_time_change(&batch, &mut streamed, &time_to_idx, &filter);
+    // }
 }
 
 fn random_signals(rnd: &mut impl Rng, h: &Hierarchy) -> Vec<SignalRef> {
@@ -113,8 +119,70 @@ fn diff_stream_time_change<R: BufRead + Seek>(
     batch: &Waveform,
     streamed: &mut StreamingWaveform<R>,
     time_to_idx: &FxHashMap<Time, TimeTableIdx>,
+    filter: &Filter,
 ) {
-    todo!()
+    let mut prev_time = None;
+    let mut observed_times = FxHashSet::default();
+    let signals = filter
+        .signals
+        .map(|s| s.to_vec())
+        .unwrap_or_else(|| batch.hierarchy().signals().collect());
+
+    streamed
+        .stream_time_steps(filter, |time, values| {
+            if let Some(prev_time) = prev_time {
+                assert!(time > prev_time, "time must be incrementing!");
+            }
+            prev_time = Some(time);
+
+            let idx = *time_to_idx
+                .get(&time)
+                .expect("failed to find time in time table") as usize;
+            observed_times.insert(time);
+
+            // compare all signals at this time step
+            for sig in &signals {
+                let a_value: SignalValueRef = values.get(sig).unwrap().into();
+                let b_value = get_final_value(batch, *sig, idx);
+                diff_signal_value(time, *sig, a_value, b_value, None, batch.hierarchy());
+            }
+        })
+        .expect("failed to stream!");
+
+    // make sure we did not skip a time step
+    for (time_idx, time) in batch.time_table().iter().enumerate() {
+        let time_idx = time_idx as TimeTableIdx;
+        if observed_times.contains(time) {
+            // ensure that a change occurred for at least one signal
+            for &sig in &signals {
+                let sig = batch.get_signal(sig).unwrap();
+                let changed = sig
+                    .get_offset(time_idx)
+                    .map(|o| o.time_match)
+                    .unwrap_or(false);
+                if changed {
+                    // a change occurred -> we are good!
+                    break;
+                }
+            }
+            unreachable!(
+                "The callback was called, but there was no change in the observed signals!"
+            );
+        } else {
+            // ensure that no change occurred!
+            for &sig in &signals {
+                let sig = batch.get_signal(sig).unwrap();
+                let changed = sig
+                    .get_offset(time_idx)
+                    .map(|o| o.time_match)
+                    .unwrap_or(false);
+                assert!(
+                    !changed,
+                    "Signal {sig:?} changed at {time}, but the callback was not called!"
+                );
+            }
+        }
+    }
 }
 
 fn find_signal_name(h: &Hierarchy, s: SignalRef) -> String {
