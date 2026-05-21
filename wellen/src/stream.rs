@@ -94,6 +94,19 @@ impl<'a> Filter<'a> {
             signals: Some(signals),
         }
     }
+
+    pub fn include_signals(signals: &'a [SignalRef]) -> Self {
+        Filter {
+            start: 0,
+            end: None,
+            signals: Some(signals),
+        }
+    }
+
+    pub fn includes_signal(&self, signal: SignalRef) -> bool {
+        // if we do not have a singal slice, then that means that all signals are included
+        self.signals.map(|s| s.contains(&signal)).unwrap_or(true)
+    }
 }
 
 impl<R: BufRead + Seek> StreamingWaveform<R> {
@@ -123,7 +136,7 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
     pub fn stream_time_steps(
         &mut self,
         filter: &Filter,
-        // callback: impl FnMut(Time, &impl Fn(SignalRef) -> Option<SignalValueRef>),
+        callback: impl FnMut(Time, &SignalMap<SignalValue>),
     ) -> Result<()> {
         todo!()
     }

@@ -3,7 +3,10 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::utils::*;
-use rustc_hash::FxHashMap;
+use itertools::Itertools;
+use rand::rngs::Xoshiro256PlusPlus;
+use rand::{Rng, RngExt, SeedableRng};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek};
 use wellen::simple::Waveform;
@@ -26,17 +29,36 @@ fn diff_stream(filename: &str) {
     );
 
     // simply stream each individual signal change
-    diff_stream_changes(&batch, &mut streamed, &time_to_idx);
+    diff_stream_changes(&batch, &mut streamed, &time_to_idx, &Filter::all());
     // make sure we can stream twice
-    diff_stream_changes(&batch, &mut streamed, &time_to_idx);
+    diff_stream_changes(&batch, &mut streamed, &time_to_idx, &Filter::all());
+    // compare for three random signal subselections
+    let mut rnd = Xoshiro256PlusPlus::from_seed([0; 32]);
+    for _ in 0..3 {
+        let signals = random_signals(&mut rnd, batch.hierarchy());
+        let filter = Filter::include_signals(&signals);
+        diff_stream_changes(&batch, &mut streamed, &time_to_idx, &filter);
+    }
     // batch changes in a single time step
     // diff_stream_time_change(&batch, &mut streamed, &time_to_idx);
+}
+
+fn random_signals(rnd: &mut impl Rng, h: &Hierarchy) -> Vec<SignalRef> {
+    let all_signals: Vec<_> = h.signals().collect();
+    let mut signals = FxHashSet::default();
+    let include_num = rnd.random_range(0..all_signals.len());
+    while signals.len() < include_num {
+        let index = rnd.random_range(0..all_signals.len());
+        signals.insert(all_signals[index]);
+    }
+    signals.into_iter().collect()
 }
 
 fn diff_stream_changes<R: BufRead + Seek>(
     batch: &Waveform,
     streamed: &mut StreamingWaveform<R>,
     time_to_idx: &FxHashMap<Time, TimeTableIdx>,
+    filter: &Filter,
 ) {
     let mut delta_counter = FxHashMap::default();
     // keeps track of the times when we see a signal changing in the stream
@@ -44,7 +66,6 @@ fn diff_stream_changes<R: BufRead + Seek>(
     // remember previous value in order to filter out no-op changes
     let mut prev_value: FxHashMap<SignalRef, SignalValue> = FxHashMap::default();
 
-    let filter = Filter::all();
     streamed
         .stream_changes(&filter, |time, sig, a_value| {
             // find corresponding signal value in memory
@@ -71,19 +92,21 @@ fn diff_stream_changes<R: BufRead + Seek>(
 
     // make sure we actually saw all the changes!
     for signal in batch.hierarchy().signals() {
-        let time_indices = batch.get_signal(signal).unwrap().time_indices();
-        let expected: Vec<_> = time_indices
-            .iter()
-            .map(|ii| batch.time_table()[*ii as usize])
-            .collect();
-        let empty = vec![];
-        let observed = observed_changes.get(&signal).unwrap_or(&empty);
-        assert_eq!(
-            &expected,
-            observed,
-            "{} sees different changes (batch vs. stream)",
-            find_signal_name(batch.hierarchy(), signal)
-        );
+        if filter.includes_signal(signal) {
+            let time_indices = batch.get_signal(signal).unwrap().time_indices();
+            let expected: Vec<_> = time_indices
+                .iter()
+                .map(|ii| batch.time_table()[*ii as usize])
+                .collect();
+            let empty = vec![];
+            let observed = observed_changes.get(&signal).unwrap_or(&empty);
+            assert_eq!(
+                &expected,
+                observed,
+                "{} sees different changes (batch vs. stream)",
+                find_signal_name(batch.hierarchy(), signal)
+            );
+        }
     }
 }
 

@@ -39,6 +39,7 @@ clap.workspace = true
 indicatif.workspace = true
 proptest.workspace = true
 bytesize = "2.3"
+rand.workspace = true
 
 
 [features]
