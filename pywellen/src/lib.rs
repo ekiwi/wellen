@@ -76,6 +76,7 @@ impl Hierarchy {
             wellen::FileFormat::Fst => "FST".to_string(),
             wellen::FileFormat::Ghw => "GHW".to_string(),
             wellen::FileFormat::Unknown => "Unknown".to_string(),
+            wellen::FileFormat::Memory => "Memory".to_string(),
         }
     }
 }

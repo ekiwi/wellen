@@ -20,6 +20,7 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::io::Read;
 use std::num::NonZeroU32;
+use std::sync::Arc;
 
 /// Holds queryable waveform data. Use the `Encoder` to generate.
 pub struct Reader {
@@ -403,13 +404,14 @@ fn load_signal_strings(
 /// A block that contains all value changes in a certain time segment.
 /// Note that while in FST blocks can be skipped, here we only use blocks
 /// in order to combine data from different threads and to compress partial data.
+#[derive(Clone)]
 struct Block {
     start_time: Time,
-    time_table: Vec<Time>,
+    time_table: Arc<[Time]>,
     /// Offsets of (potentially compressed) signal data.
-    offsets: Vec<Option<SignalDataOffset>>,
+    offsets: Arc<[Option<SignalDataOffset>]>,
     /// Data for all signals in block
-    data: Vec<u8>,
+    data: Arc<[u8]>,
 }
 
 impl Block {
@@ -570,6 +572,10 @@ impl Encoder {
         }
     }
 
+    /// Finalizes the encoder and returns a read-only signal source with its merged time table.
+    ///
+    /// This consumes the encoder, which makes it the preferred API at end-of-stream when no
+    /// further changes will be appended.
     pub fn finish(mut self) -> (SignalSource, TimeTable) {
         // ensure that we have no open blocks
         self.finish_block();
@@ -580,6 +586,22 @@ impl Encoder {
         let time_table = Self::combine_time_tables(&reader.blocks);
         (SignalSource::new(Box::new(reader)), time_table)
     }
+
+    /// Creates a read-only snapshot of all encoded data seen so far.
+    ///
+    /// Unlike [`Self::finish`], this does not consume the encoder, allowing callers to continue
+    /// appending changes after taking the snapshot.
+    pub fn snapshot(&mut self) -> (SignalSource, TimeTable) {
+        // ensure that we have no open blocks
+        self.finish_block();
+        // create a new reader with the blocks that we have
+        let reader = Reader {
+            blocks: self.blocks.clone(),
+        };
+        let time_table = Self::combine_time_tables(&reader.blocks);
+        (SignalSource::new(Box::new(reader)), time_table)
+    }
+
     fn combine_time_tables(blocks: &[Block]) -> TimeTable {
         // create a combined time table from all blocks
         let max_len = blocks.iter().map(|b| b.time_table.len()).sum::<usize>();
@@ -666,9 +688,9 @@ impl Encoder {
         data.shrink_to_fit();
         let block = Block {
             start_time,
-            time_table,
-            offsets,
-            data,
+            time_table: time_table.into(),
+            offsets: offsets.into(),
+            data: data.into(),
         };
         self.blocks.push(block);
         self.has_new_data = false;
