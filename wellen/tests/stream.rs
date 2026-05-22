@@ -110,7 +110,11 @@ fn diff_stream_changes<R: BufRead + Seek>(
             let idx = *time_to_idx
                 .get(&time)
                 .expect("failed to find time in time table") as usize;
-            let b_value = get_value(&batch, sig, idx, &mut delta_counter);
+            if batch.get_signal(sig).is_none() {
+                panic!("Received a change for a signal that we did not request: {time} {sig:?} {a_value:?}");
+            }
+
+            let b_value = get_value(batch, sig, idx, &mut delta_counter);
             // println!("{time}, {a_value} vs {b_value}");
             diff_signal_value(time, sig, a_value, b_value, None, batch.hierarchy());
             // record observed change if the value actually changed (or if we are dealing with an event)

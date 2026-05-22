@@ -163,6 +163,8 @@ where
     /// contains encoding for all _included_ signals (depending on the [Filter] provided)
     encoding: SignalMap<SignalEncoding>,
     buf: Vec<u8>,
+    /// signals that were requested by the user, None means all signals were requested
+    requested: Option<FxHashSet<SignalRef>>,
     /// signal value cache, used for derived signals and their inputs
     values: SignalMap<SignalValue>,
     /// what signals are derived from the key?
@@ -181,7 +183,7 @@ where
         let mut transforms = SignalMap::sparse();
 
         // remember encoding information for all included signals
-        let mut encoding: SignalMap<SignalEncoding> = match filter.signals {
+        let (mut encoding, requested) = match filter.signals {
             None => {
                 // collect info for derived signals
                 for (signal_ref, transform) in hierarchy.all_derived_signals() {
@@ -189,11 +191,11 @@ where
                 }
 
                 // all signals
-                hierarchy.signal_encodings().into()
+                (hierarchy.signal_encodings().into(), None)
             }
             Some([]) => {
                 // nothing
-                SignalMap::sparse()
+                (SignalMap::sparse(), Some(FxHashSet::default()))
             }
             Some(signals) => {
                 let mut enc = SignalMap::sparse();
@@ -206,7 +208,7 @@ where
                         enc.insert(signal, hierarchy.get_signal_tpe(signal).unwrap());
                     }
                 }
-                enc
+                (enc, Some(FxHashSet::from_iter(signals.iter().cloned())))
             }
         };
 
@@ -237,6 +239,7 @@ where
             to_derived,
             has_changed: Default::default(),
             transforms,
+            requested,
         }
     }
 
@@ -312,7 +315,14 @@ where
                     self.has_changed.insert(signal);
                 }
             }
-            (self.callback)(time, signal_ref, signal_value);
+            if self
+                .requested
+                .as_ref()
+                .map(|r| r.contains(&signal_ref))
+                .unwrap_or(true)
+            {
+                (self.callback)(time, signal_ref, signal_value);
+            }
         }
     }
 
@@ -383,7 +393,14 @@ where
                     self.has_changed.insert(signal);
                 }
             }
-            (self.callback)(time, signal_ref, signal_value);
+            if self
+                .requested
+                .as_ref()
+                .map(|r| r.contains(&signal_ref))
+                .unwrap_or(true)
+            {
+                (self.callback)(time, signal_ref, signal_value);
+            }
         }
     }
 
