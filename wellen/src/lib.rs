@@ -22,6 +22,7 @@ pub enum FileFormat {
     Vcd,
     Fst,
     Ghw,
+    Memory, // For interactive simulation, where data is provided directly instead of through a file
     Unknown,
 }
 #[derive(Debug, Copy, Clone)]
@@ -64,3 +65,4 @@ pub use signal::{
     Time, TimeTableIdx,
 };
 pub use signal::{CompressedSignal, CompressedTimeTable, Compression};
+pub use wavemem::Encoder;
