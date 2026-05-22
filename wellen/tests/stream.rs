@@ -152,12 +152,27 @@ fn diff_stream_changes<R: BufRead + Seek>(
     }
 }
 
+/// Checks that the filter has no duplicates.
+fn check_filter(filter: Filter) {
+    if let Some(signals) = filter.signals {
+        let mut seen = FxHashSet::default();
+        for signal in signals {
+            assert!(
+                !seen.contains(signal),
+                "Duplicate signal in filter: {signal:?}"
+            );
+            seen.insert(*signal);
+        }
+    }
+}
+
 fn diff_stream_time_change<R: BufRead + Seek>(
     batch: &Waveform,
     streamed: &mut StreamingWaveform<R>,
     time_to_idx: &FxHashMap<Time, TimeTableIdx>,
     filter: Filter,
 ) {
+    check_filter(filter);
     let mut prev_time = None;
     let mut observed_times = FxHashSet::default();
     let signals = filter
@@ -170,6 +185,7 @@ fn diff_stream_time_change<R: BufRead + Seek>(
             if let Some(prev_time) = prev_time {
                 assert!(time > prev_time, "time must be incrementing!");
             }
+            println!("OBSERVED: {time}  ({prev_time:?})");
             prev_time = Some(time);
 
             let idx = *time_to_idx
@@ -191,13 +207,18 @@ fn diff_stream_time_change<R: BufRead + Seek>(
         .expect("failed to stream!");
 
     // make sure we did not skip a time step
+    let mut prev_time = None;
     for (time_idx, time) in batch.time_table().iter().enumerate() {
         let time_idx = time_idx as TimeTableIdx;
+        if let Some(prev) = prev_time {
+            assert!(time > prev);
+        }
+        prev_time = Some(time);
         if observed_times.contains(time) {
             let mut change_exists = false;
             // ensure that a change occurred for at least one signal
-            for &sig in &signals {
-                let sig = batch.get_signal(sig).unwrap();
+            for &sig_ref in &signals {
+                let sig = batch.get_signal(sig_ref).unwrap();
                 let off = sig.get_offset(time_idx);
                 change_exists |= off.map(|o| o.time_match).unwrap_or(false);
                 if change_exists {
