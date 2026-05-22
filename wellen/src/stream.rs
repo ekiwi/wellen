@@ -686,6 +686,8 @@ where
         if changed {
             self.values.insert(signal, value.into());
             self.update_has_changed(signal);
+        }
+        if value.is_event() || changed {
             self.observed_change = true;
         }
     }
