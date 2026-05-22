@@ -39,13 +39,13 @@ fn diff_stream(filename: &str) {
         diff_stream_changes(&batch, &mut streamed, &time_to_idx, filter);
     }
     // batch changes in a single time step
-    // diff_stream_time_change(&batch, &mut streamed, &time_to_idx, &Filter::all());
+    diff_stream_time_change(&batch, &mut streamed, &time_to_idx, Filter::all());
     // // batch changes with three random signal subselections
-    // for _ in 0..3 {
-    //     let signals = random_signals(&mut rnd, batch.hierarchy());
-    //     let filter = Filter::include_signals(&signals);
-    //     diff_stream_time_change(&batch, &mut streamed, &time_to_idx, &filter);
-    // }
+    for _ in 0..3 {
+        let signals = random_signals(&mut rnd, batch.hierarchy());
+        let filter = Filter::include_signals(&signals);
+        diff_stream_time_change(&batch, &mut streamed, &time_to_idx, filter);
+    }
 }
 
 fn diff_stream_for_vars(filename: &str, vars: &[&str]) {
@@ -156,7 +156,7 @@ fn diff_stream_time_change<R: BufRead + Seek>(
     batch: &Waveform,
     streamed: &mut StreamingWaveform<R>,
     time_to_idx: &FxHashMap<Time, TimeTableIdx>,
-    filter: &Filter,
+    filter: Filter,
 ) {
     let mut prev_time = None;
     let mut observed_times = FxHashSet::default();
@@ -190,20 +190,21 @@ fn diff_stream_time_change<R: BufRead + Seek>(
     for (time_idx, time) in batch.time_table().iter().enumerate() {
         let time_idx = time_idx as TimeTableIdx;
         if observed_times.contains(time) {
+            let mut change_exists = false;
             // ensure that a change occurred for at least one signal
             for &sig in &signals {
                 let sig = batch.get_signal(sig).unwrap();
-                let changed = sig
-                    .get_offset(time_idx)
-                    .map(|o| o.time_match)
-                    .unwrap_or(false);
-                if changed {
+                let off = sig.get_offset(time_idx);
+                change_exists |= off.map(|o| o.time_match).unwrap_or(false);
+                if change_exists {
                     // a change occurred -> we are good!
                     break;
                 }
             }
-            unreachable!(
-                "The callback was called, but there was no change in the observed signals!"
+            assert!(
+                change_exists,
+                "The callback was called at time {}, but there was no change in the observed signals!",
+                time
             );
         } else {
             // ensure that no change occurred!

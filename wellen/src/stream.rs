@@ -124,8 +124,6 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
         let (mut dispatcher, maybe_augmented_filter) =
             StreamDispatcherOnChange::new(self.hierarchy(), &filter, callback);
 
-        println!("{maybe_augmented_filter:?}");
-
         let sub_filter = maybe_augmented_filter
             .as_ref()
             .map(|refs| Filter::include_signals(refs))
@@ -143,10 +141,25 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
 
     pub fn stream_time_steps(
         &mut self,
-        filter: &Filter,
+        filter: Filter,
         callback: impl FnMut(Time, &SignalMap<SignalValue>),
     ) -> Result<()> {
-        todo!()
+        let (mut dispatcher, maybe_augmented_filter) =
+            StreamDispatcherOnTimeStep::new(self.hierarchy(), &filter, callback);
+
+        let sub_filter = maybe_augmented_filter
+            .as_ref()
+            .map(|refs| Filter::include_signals(refs))
+            .unwrap_or(filter);
+
+        self.do_stream(
+            &sub_filter,
+            StreamEncoder::new(self.hierarchy(), &sub_filter, |time, signal, value| {
+                dispatcher.on_change(time, signal, value)
+            }),
+        )?;
+        dispatcher.finish();
+        Ok(())
     }
 
     fn do_stream<C: FnMut(Time, SignalRef, SignalValueRef<'_>)>(
@@ -176,26 +189,6 @@ where
     /// contains encoding for all _included_ signals (depending on the [Filter] provided)
     encoding: SignalMap<SignalEncoding>,
     buf: SignalValueBuffer,
-}
-
-/// Handles derived signals for a callback that is invoked at every change.
-/// Gets hooked into the [[StreamEncoder]] through a closure.
-struct StreamDispatcherOnChange<C>
-where
-    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
-{
-    callback: C,
-    /// to track when a time change occures
-    time: Option<Time>,
-    /// signals that were requested by the user, None means all signals were requested
-    requested: Option<FxHashSet<SignalRef>>,
-    /// signal value cache, used for derived signals and their inputs
-    values: SignalMap<SignalValue>,
-    /// what signals are derived from the key?
-    to_derived: SignalMap<SmallVec<[SignalRef; 4]>>,
-    /// keep track of which derived signals had changes this time step
-    has_changed: FxHashSet<SignalRef>,
-    transforms: SignalMap<DerivedBitVecSignal>,
 }
 
 /// Designed to work around the fact that we cannot have a reference to an element of the same struct.
@@ -359,8 +352,6 @@ where
             }
         };
 
-        println!("ENCODING in StreamEncoder: {encoding:?}");
-
         Self {
             callback,
             time: Default::default(),
@@ -393,7 +384,6 @@ where
         if encoding != SignalEncoding::Unknown {
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
             self.buf.update_fst(encoding, value);
-            println!("FST: {signal_ref:?}");
             (self.callback)(time, signal_ref, (&self.buf).into())
         }
     }
@@ -444,11 +434,17 @@ where
     }
 }
 
-impl<C> StreamDispatcherOnChange<C>
-where
-    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
-{
-    fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> (Self, Option<Vec<SignalRef>>) {
+/// Contains information derived from the filter for streaming.
+/// Used by several stream dispatchers.
+struct StreamDerivedSignalInfo {
+    requested: Option<FxHashSet<SignalRef>>,
+    to_derived: SignalMap<SmallVec<[SignalRef; 4]>>,
+    transforms: SignalMap<DerivedBitVecSignal>,
+    new_filter: Option<Vec<SignalRef>>,
+}
+
+impl StreamDerivedSignalInfo {
+    fn compute(hierarchy: &Hierarchy, filter: &Filter) -> Self {
         // data for derived signals
         let mut transforms = SignalMap::sparse();
 
@@ -512,14 +508,50 @@ where
             None
         };
 
+        Self {
+            requested,
+            to_derived,
+            transforms,
+            new_filter,
+        }
+    }
+}
+
+/// Handles derived signals for a callback that is invoked at every change.
+/// Gets hooked into the [[StreamEncoder]] through a closure.
+struct StreamDispatcherOnChange<C>
+where
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
+{
+    callback: C,
+    /// to track when a time change occures
+    time: Option<Time>,
+    /// signals that were requested by the user, None means all signals were requested
+    requested: Option<FxHashSet<SignalRef>>,
+    /// signal value cache, used for derived signals and their inputs
+    values: SignalMap<SignalValue>,
+    /// what signals are derived from the key?
+    to_derived: SignalMap<SmallVec<[SignalRef; 4]>>,
+    /// keep track of which derived signals had changes this time step
+    has_changed: FxHashSet<SignalRef>,
+    transforms: SignalMap<DerivedBitVecSignal>,
+}
+
+impl<C> StreamDispatcherOnChange<C>
+where
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
+{
+    fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> (Self, Option<Vec<SignalRef>>) {
+        let info = StreamDerivedSignalInfo::compute(hierarchy, filter);
+        let new_filter = info.new_filter;
         let out = Self {
             callback,
             time: None,
-            requested,
+            requested: info.requested,
             values: SignalMap::sparse(),
-            to_derived,
+            to_derived: info.to_derived,
             has_changed: Default::default(),
-            transforms,
+            transforms: info.transforms,
         };
 
         (out, new_filter)
@@ -586,5 +618,104 @@ where
     /// Must be called at the end of a stream. Dispatches any pending derived signal changes.
     pub(crate) fn finish(&mut self) {
         self.emit_derived_signal_changes();
+    }
+}
+
+/// Buffers signal changes and only invokes the call back once at the end of each time step.
+/// Gets hooked into the [[StreamEncoder]] through a closure.
+struct StreamDispatcherOnTimeStep<C>
+where
+    C: FnMut(Time, &SignalMap<SignalValue>),
+{
+    callback: C,
+    /// to track when a time change occurres
+    time: Option<Time>,
+    /// most recent value of each signal
+    values: SignalMap<SignalValue>,
+    /// what signals are derived from the key?
+    to_derived: SignalMap<SmallVec<[SignalRef; 4]>>,
+    transforms: SignalMap<DerivedBitVecSignal>,
+    /// keep track of which derived signals had changes this time step
+    has_changed: FxHashSet<SignalRef>,
+}
+
+impl<C> StreamDispatcherOnTimeStep<C>
+where
+    C: FnMut(Time, &SignalMap<SignalValue>),
+{
+    fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> (Self, Option<Vec<SignalRef>>) {
+        let info = StreamDerivedSignalInfo::compute(hierarchy, filter);
+        let new_filter = info.new_filter;
+
+        let values = if filter.signals.is_none() {
+            SignalMap::dense()
+        } else {
+            SignalMap::sparse()
+        };
+
+        let out = Self {
+            callback,
+            time: None,
+            values,
+            to_derived: info.to_derived,
+            transforms: info.transforms,
+            has_changed: FxHashSet::default(),
+        };
+
+        (out, new_filter)
+    }
+
+    /// Will be called by the [[StreamEncoder]]
+    fn on_change(&mut self, time: Time, signal: SignalRef, value: SignalValueRef) {
+        // emit derived signal changes at the end of a a timestep
+        if let Some(prev) = self.time
+            && time > prev
+        {
+            self.dispatch();
+        }
+        self.time = Some(time);
+        self.values.insert(signal, value.into());
+        self.update_has_changed(signal);
+    }
+
+    fn dispatch(&mut self) {
+        self.update_derived_signal_changes();
+        let time = self
+            .time
+            .expect("dispatch should only be called when we know the time");
+        (self.callback)(time, &self.values);
+    }
+
+    #[inline]
+    fn update_has_changed(&mut self, signal_ref: SignalRef) {
+        if let Some(derived) = self.to_derived.get(&signal_ref) {
+            for &signal in derived.iter() {
+                self.has_changed.insert(signal);
+            }
+        }
+    }
+
+    fn update_derived_signal_changes(&mut self) {
+        if !self.has_changed.is_empty() {
+            for signal in self.has_changed.drain() {
+                let t = &self.transforms.get(&signal).unwrap();
+                let inputs: Vec<_> = t
+                    .inputs()
+                    .iter()
+                    .map(|i| {
+                        self.values
+                            .get(i)
+                            .map(|v| SignalValueRef::from(v).as_bit_vec().unwrap())
+                    })
+                    .collect();
+                let value = t.on_change(&inputs);
+                self.values.insert(signal, value.into());
+            }
+        }
+    }
+
+    /// Must be called at the end of a stream. Dispatches any pending derived signal changes.
+    pub(crate) fn finish(&mut self) {
+        self.dispatch();
     }
 }

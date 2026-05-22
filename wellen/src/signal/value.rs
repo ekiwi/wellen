@@ -65,6 +65,12 @@ impl<'a> From<&'a SignalValue> for SignalValueRef<'a> {
     }
 }
 
+impl From<BitVecValue> for SignalValue {
+    fn from(value: BitVecValue) -> Self {
+        Self(SignalValueE::BitVec(value))
+    }
+}
+
 /// References the value of a (2/4/9 value) bit vector signal.
 #[derive(Debug, Clone, Copy)]
 pub struct BitVecRef<'a> {
