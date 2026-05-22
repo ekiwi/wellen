@@ -4,6 +4,7 @@
 
 use crate::SignalRef;
 use rustc_hash::FxHashMap;
+use std::fmt::{Debug, Formatter};
 
 /// A map that is indexed by SignalRef.
 pub struct SignalMap<V>(SMI<V>);
@@ -21,6 +22,10 @@ impl<V> SignalMap<V> {
 
     pub fn sparse() -> Self {
         Self(SMI::Sparse(FxHashMap::default()))
+    }
+
+    pub fn from_iter<T: IntoIterator<Item = (SignalRef, V)>>(iter: T) -> Self {
+        Self(SMI::Sparse(FxHashMap::from_iter(iter)))
     }
 
     pub fn insert(&mut self, k: SignalRef, v: V) -> Option<V> {
@@ -83,6 +88,15 @@ impl<V: Clone> From<&[V]> for SignalMap<V> {
 impl<V> From<FxHashMap<SignalRef, V>> for SignalMap<V> {
     fn from(value: FxHashMap<SignalRef, V>) -> Self {
         Self(SMI::Sparse(value))
+    }
+}
+
+impl<V: Debug> Debug for SignalMap<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            SMI::Dense(v) => v.fmt(f),
+            SMI::Sparse(m) => m.fmt(f),
+        }
     }
 }
 

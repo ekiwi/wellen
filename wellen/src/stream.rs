@@ -68,6 +68,7 @@ impl<R: BufRead + Seek> Debug for StreamingWaveform<R> {
 }
 
 /// Defines which time interval and signals to include when streaming value changes.
+#[derive(Debug, Copy, Clone)]
 pub struct Filter<'a> {
     /// First time change.
     pub start: Time,
@@ -117,13 +118,27 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
     /// Calls the callback for each change of a signal.
     pub fn stream_changes(
         &mut self,
-        filter: &Filter,
+        filter: Filter,
         callback: impl FnMut(Time, SignalRef, SignalValueRef<'_>),
     ) -> Result<()> {
+        let (mut dispatcher, maybe_augmented_filter) =
+            StreamDispatcherOnChange::new(self.hierarchy(), &filter, callback);
+
+        println!("{maybe_augmented_filter:?}");
+
+        let sub_filter = maybe_augmented_filter
+            .as_ref()
+            .map(|refs| Filter::include_signals(refs))
+            .unwrap_or(filter);
+
         self.do_stream(
-            filter,
-            StreamEncoder::new(self.hierarchy(), filter, callback),
-        )
+            &sub_filter,
+            StreamEncoder::new(self.hierarchy(), &sub_filter, |time, signal, value| {
+                dispatcher.on_change(time, signal, value)
+            }),
+        )?;
+        dispatcher.finish();
+        Ok(())
     }
 
     pub fn stream_time_steps(
@@ -149,8 +164,6 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
     }
 }
 
-// enum StreamEncoderMode
-
 /// Takes on the role of the [Encoder] when streaming instead of encoding to
 /// a wavemem.
 pub(crate) struct StreamEncoder<C>
@@ -163,6 +176,17 @@ where
     /// contains encoding for all _included_ signals (depending on the [Filter] provided)
     encoding: SignalMap<SignalEncoding>,
     buf: SignalValueBuffer,
+}
+
+/// Handles derived signals for a callback that is invoked at every change.
+/// Gets hooked into the [[StreamEncoder]] through a closure.
+struct StreamDispatcherOnChange<C>
+where
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
+{
+    callback: C,
+    /// to track when a time change occures
+    time: Option<Time>,
     /// signals that were requested by the user, None means all signals were requested
     requested: Option<FxHashSet<SignalRef>>,
     /// signal value cache, used for derived signals and their inputs
@@ -318,55 +342,24 @@ where
     C: FnMut(Time, SignalRef, SignalValueRef<'_>),
 {
     pub(crate) fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> Self {
-        // data for derived signals
-        let mut transforms = SignalMap::sparse();
-
         // remember encoding information for all included signals
-        let (mut encoding, requested) = match filter.signals {
-            None => {
-                // collect info for derived signals
-                for (signal_ref, transform) in hierarchy.all_derived_signals() {
-                    transforms.insert(signal_ref, transform.clone());
-                }
-
-                // all signals
-                (hierarchy.signal_encodings().into(), None)
-            }
-            Some([]) => {
-                // nothing
-                (SignalMap::sparse(), Some(FxHashSet::default()))
-            }
+        let encoding = match filter.signals {
+            None => hierarchy.signal_encodings().into(),
+            Some([]) => SignalMap::sparse(),
             Some(signals) => {
-                let mut enc = SignalMap::sparse();
-                for &signal in signals {
-                    if let Some(transform) = hierarchy.get_derived_signal(signal) {
-                        debug_assert!(signal.is_derived_signal());
-                        transforms.insert(signal, transform.clone());
-                    } else {
-                        debug_assert!(!signal.is_derived_signal());
-                        enc.insert(signal, hierarchy.get_signal_tpe(signal).unwrap());
-                    }
-                }
-                (enc, Some(FxHashSet::from_iter(signals.iter().cloned())))
+                debug_assert!(
+                    signals.iter().all(|s| !s.is_derived_signal()),
+                    "derived signals are not supported in the StreamEncoder!"
+                );
+                SignalMap::from_iter(
+                    signals
+                        .iter()
+                        .map(|&s| (s, hierarchy.get_signal_tpe(s).unwrap())),
+                )
             }
         };
 
-        let mut to_derived = SignalMap::sparse();
-        for (&signal_ref, transform) in transforms.iter() {
-            for &input in transform.inputs() {
-                to_derived
-                    .entry(input)
-                    .or_insert_with(|| smallvec![])
-                    .push(signal_ref);
-                encoding.insert(input, hierarchy.get_signal_tpe(input).unwrap());
-            }
-        }
-
-        let values = if filter.signals.is_some() {
-            SignalMap::dense()
-        } else {
-            SignalMap::sparse()
-        };
+        println!("ENCODING in StreamEncoder: {encoding:?}");
 
         Self {
             callback,
@@ -374,11 +367,6 @@ where
             skipping_time_step: false,
             encoding,
             buf: SignalValueBuffer::default(),
-            values,
-            to_derived,
-            has_changed: Default::default(),
-            transforms,
-            requested,
         }
     }
 
@@ -387,29 +375,6 @@ where
             .get_index(id)
             .cloned()
             .unwrap_or(SignalEncoding::Unknown)
-    }
-
-    /// Checks whether the signal is an input to a derived signal and deals with that.
-    fn update_derived(&mut self, signal_ref: SignalRef) {
-        if let Some(derived) = self.to_derived.get(&signal_ref) {
-            let value_ref: SignalValueRef = (&self.buf).into();
-            self.values.insert(signal_ref, value_ref.into());
-            for &signal in derived.iter() {
-                self.has_changed.insert(signal);
-            }
-        }
-    }
-
-    fn dispatch_change(&mut self, time: Time, signal_ref: SignalRef) {
-        if self
-            .requested
-            .as_ref()
-            .map(|r| r.contains(&signal_ref))
-            .unwrap_or(true)
-        {
-            let signal_value = (&self.buf).into();
-            (self.callback)(time, signal_ref, signal_value);
-        }
     }
 
     pub(crate) fn fst_value_change(&mut self, time: u64, id: u64, value: &FstSignalValue) {
@@ -428,8 +393,8 @@ where
         if encoding != SignalEncoding::Unknown {
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
             self.buf.update_fst(encoding, value);
-            self.update_derived(signal_ref);
-            self.dispatch_change(time, signal_ref);
+            println!("FST: {signal_ref:?}");
+            (self.callback)(time, signal_ref, (&self.buf).into())
         }
     }
 
@@ -443,8 +408,7 @@ where
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
             let time = self.time.unwrap();
             self.buf.update_vcd(encoding, value);
-            self.update_derived(signal_ref);
-            self.dispatch_change(time, signal_ref);
+            (self.callback)(time, signal_ref, (&self.buf).into())
         }
     }
 
@@ -465,17 +429,136 @@ where
                 }
             }
         }
-        // Emit derived signals.
-        self.emit_derived_signal_changes();
 
         // TODO: check filter to see if we are done or what!
         self.time = Some(time);
         self.skipping_time_step = false;
     }
 
-    /// Must be called at the end of a stream. Dispatches any pending derived signal changes.
-    pub(crate) fn finish(&mut self) {
-        self.emit_derived_signal_changes();
+    pub(crate) fn time_is_none(&self) -> bool {
+        self.time.is_none()
+    }
+
+    pub fn finish(&mut self) {
+        //  nothing to do right now
+    }
+}
+
+impl<C> StreamDispatcherOnChange<C>
+where
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
+{
+    fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> (Self, Option<Vec<SignalRef>>) {
+        // data for derived signals
+        let mut transforms = SignalMap::sparse();
+
+        // any extra signals that were not included in the original filter
+        let mut extras = vec![];
+
+        // remember encoding information for all included signals
+        let requested = match filter.signals {
+            None => {
+                transforms = SignalMap::from_iter(
+                    hierarchy.all_derived_signals().map(|(s, t)| (s, t.clone())),
+                );
+                None
+            }
+            Some([]) => Some(FxHashSet::default()),
+            Some(signals) => {
+                let requested = FxHashSet::from_iter(signals.iter().cloned());
+                for &signal in signals {
+                    if let Some(transform) = hierarchy.get_derived_signal(signal) {
+                        debug_assert!(signal.is_derived_signal());
+                        for &input in transform.inputs() {
+                            if !requested.contains(&input) {
+                                extras.push(input);
+                            }
+                        }
+                        transforms.insert(signal, transform.clone());
+                    } else {
+                        debug_assert!(!signal.is_derived_signal());
+                    }
+                }
+                Some(requested)
+            }
+        };
+
+        // save all transforms
+        let mut to_derived = SignalMap::sparse();
+        for (&signal_ref, transform) in transforms.iter() {
+            for &input in transform.inputs() {
+                to_derived
+                    .entry(input)
+                    .or_insert_with(|| smallvec![])
+                    .push(signal_ref);
+            }
+        }
+
+        // construct a new filter if necessary
+        let new_filter = if !extras.is_empty()
+            && let Some(orig) = filter.signals
+        {
+            extras.sort();
+            extras.dedup();
+            // there are extra signals and the filter does not just include all signals
+            let mut new_signals: Vec<_> = orig
+                .iter()
+                .filter(|s| !s.is_derived_signal())
+                .cloned()
+                .collect();
+            new_signals.append(&mut extras);
+            Some(new_signals)
+        } else {
+            None
+        };
+
+        let out = Self {
+            callback,
+            time: None,
+            requested,
+            values: SignalMap::sparse(),
+            to_derived,
+            has_changed: Default::default(),
+            transforms,
+        };
+
+        (out, new_filter)
+    }
+
+    /// Will be called by the [[StreamEncoder]]
+    fn on_change(&mut self, time: Time, signal: SignalRef, value: SignalValueRef) {
+        // emit derived signal changes at the end of a a timestep
+        if let Some(prev) = self.time
+            && time > prev
+        {
+            self.emit_derived_signal_changes();
+        }
+        self.time = Some(time);
+        self.update_derived(signal, value);
+        self.dispatch_change(time, signal, value)
+    }
+
+    /// Checks whether the signal is an input to a derived signal and deals with that.
+    #[inline]
+    fn update_derived(&mut self, signal_ref: SignalRef, value: SignalValueRef) {
+        if let Some(derived) = self.to_derived.get(&signal_ref) {
+            self.values.insert(signal_ref, value.into());
+            for &signal in derived.iter() {
+                self.has_changed.insert(signal);
+            }
+        }
+    }
+
+    #[inline]
+    fn dispatch_change(&mut self, time: Time, signal_ref: SignalRef, value: SignalValueRef) {
+        if self
+            .requested
+            .as_ref()
+            .map(|r| r.contains(&signal_ref))
+            .unwrap_or(true)
+        {
+            (self.callback)(time, signal_ref, value);
+        }
     }
 
     fn emit_derived_signal_changes(&mut self) {
@@ -500,7 +583,8 @@ where
         }
     }
 
-    pub(crate) fn time_is_none(&self) -> bool {
-        self.time.is_none()
+    /// Must be called at the end of a stream. Dispatches any pending derived signal changes.
+    pub(crate) fn finish(&mut self) {
+        self.emit_derived_signal_changes();
     }
 }

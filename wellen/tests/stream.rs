@@ -28,15 +28,15 @@ fn diff_stream(filename: &str) {
     );
 
     // simply stream each individual signal change
-    diff_stream_changes(&batch, &mut streamed, &time_to_idx, &Filter::all());
+    diff_stream_changes(&batch, &mut streamed, &time_to_idx, Filter::all());
     // make sure we can stream twice
-    diff_stream_changes(&batch, &mut streamed, &time_to_idx, &Filter::all());
+    diff_stream_changes(&batch, &mut streamed, &time_to_idx, Filter::all());
     // compare for three random signal subselections
     let mut rnd = Xoshiro256PlusPlus::from_seed([0; 32]);
     for _ in 0..3 {
         let signals = random_signals(&mut rnd, batch.hierarchy());
         let filter = Filter::include_signals(&signals);
-        diff_stream_changes(&batch, &mut streamed, &time_to_idx, &filter);
+        diff_stream_changes(&batch, &mut streamed, &time_to_idx, filter);
     }
     // batch changes in a single time step
     // diff_stream_time_change(&batch, &mut streamed, &time_to_idx, &Filter::all());
@@ -77,7 +77,7 @@ fn diff_stream_for_vars(filename: &str, vars: &[&str]) {
         &batch,
         &mut streamed,
         &time_to_idx,
-        &Filter::include_signals(&signals),
+        Filter::include_signals(&signals),
     );
 }
 
@@ -96,7 +96,7 @@ fn diff_stream_changes<R: BufRead + Seek>(
     batch: &Waveform,
     streamed: &mut StreamingWaveform<R>,
     time_to_idx: &FxHashMap<Time, TimeTableIdx>,
-    filter: &Filter,
+    filter: Filter,
 ) {
     let mut delta_counter = FxHashMap::default();
     // keeps track of the times when we see a signal changing in the stream
@@ -105,7 +105,7 @@ fn diff_stream_changes<R: BufRead + Seek>(
     let mut prev_value: FxHashMap<SignalRef, SignalValue> = FxHashMap::default();
 
     streamed
-        .stream_changes(&filter, |time, sig, a_value| {
+        .stream_changes(filter, |time, sig, a_value| {
             // find corresponding signal value in memory
             let idx = *time_to_idx
                 .get(&time)
