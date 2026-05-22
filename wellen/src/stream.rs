@@ -716,6 +716,9 @@ where
 
     /// Must be called at the end of a stream. Dispatches any pending derived signal changes.
     pub(crate) fn finish(&mut self) {
-        self.dispatch();
+        // time can be none if we never observed a single change
+        if self.time.is_some() {
+            self.dispatch();
+        }
     }
 }

@@ -40,7 +40,7 @@ fn diff_stream(filename: &str) {
     }
     // batch changes in a single time step
     diff_stream_time_change(&batch, &mut streamed, &time_to_idx, Filter::all());
-    // // batch changes with three random signal subselections
+    // batch changes with three random signal subselections
     for _ in 0..3 {
         let signals = random_signals(&mut rnd, batch.hierarchy());
         let filter = Filter::include_signals(&signals);
@@ -179,9 +179,13 @@ fn diff_stream_time_change<R: BufRead + Seek>(
 
             // compare all signals at this time step
             for sig in &signals {
-                let a_value: SignalValueRef = values.get(sig).unwrap().into();
-                let b_value = get_final_value(batch, *sig, idx);
-                diff_signal_value(time, *sig, a_value, b_value, None, batch.hierarchy());
+                // only check if there is a value at this time in the reference
+                if let Some(b_value) = get_maybe_final_value(batch, *sig, idx) {
+                    let maybe_a_value = values.get(sig);
+                    assert!(maybe_a_value.is_some(), "Failed to get value of signal {sig:?} at time {time} from the dispatcher map.,The expected value is: {b_value:?}");
+                    let a_value: SignalValueRef = maybe_a_value.unwrap().into();
+                    diff_signal_value(time, *sig, a_value, b_value, None, batch.hierarchy());
+                }
             }
         })
         .expect("failed to stream!");

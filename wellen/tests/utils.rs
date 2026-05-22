@@ -87,9 +87,18 @@ pub fn get_final_value(
     signal_ref: SignalRef,
     time_table_idx: usize,
 ) -> SignalValueRef<'_> {
+    get_maybe_final_value(our, signal_ref, time_table_idx).expect("failed to get value for signal")
+}
+
+#[allow(dead_code)]
+pub fn get_maybe_final_value(
+    our: &Waveform,
+    signal_ref: SignalRef,
+    time_table_idx: usize,
+) -> Option<SignalValueRef<'_>> {
     let our_signal = our.get_signal(signal_ref).unwrap();
-    let our_offset = our_signal.get_offset(time_table_idx as u32).unwrap();
-    our_signal.get_value_at(&our_offset, our_offset.elements - 1)
+    let our_offset = our_signal.get_offset(time_table_idx as u32);
+    our_offset.map(|of| our_signal.get_value_at(&of, of.elements - 1))
 }
 
 pub fn diff_signal_value(
