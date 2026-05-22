@@ -22,6 +22,7 @@ pub enum FileFormat {
     Vcd,
     Fst,
     Ghw,
+    Memory, // For interactive simulation, where data is provided directly instead of through a file
     Unknown,
 }
 #[derive(Debug, Copy, Clone)]
@@ -56,10 +57,12 @@ pub enum WellenError {
 pub type Result<T> = std::result::Result<T, WellenError>;
 
 pub use hierarchy::{
-    Hierarchy, Scope, ScopeOrVar, ScopeOrVarRef, ScopeRef, ScopeType, SignalEncoding, SignalRef,
-    Timescale, TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
+    Hierarchy, HierarchyBuilder, Scope, ScopeOrVar, ScopeOrVarRef, ScopeRef, ScopeType,
+    SignalEncoding, SignalRef, Timescale, TimescaleUnit, Var, VarDirection, VarIndex, VarRef,
+    VarType,
 };
 pub use signal::{
     BitVecRef, Real, Signal, SignalSource, SignalValue, SignalValueRef, States, Time, TimeTableIdx,
 };
 pub use signal::{CompressedSignal, CompressedTimeTable, Compression};
+pub use wavemem::Encoder;

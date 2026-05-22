@@ -50,6 +50,10 @@ fn test_detect_file_format() {
                     assert!(!filename_str.ends_with(".ghw"), "{filename_str}");
                 }
             }
+            FileFormat::Memory => {
+                // Should not happen, since this is only for interactive simulation
+                panic!("Memory file format should not be detected from a file: {filename_str}");
+            }
         }
     }
 }
