@@ -636,7 +636,9 @@ where
     to_derived: SignalMap<SmallVec<[SignalRef; 4]>>,
     transforms: SignalMap<DerivedBitVecSignal>,
     /// keep track of which derived signals had changes this time step
-    has_changed: FxHashSet<SignalRef>,
+    derived_input_has_changed: FxHashSet<SignalRef>,
+    /// has there been a change since the last dispatch
+    observed_change: bool,
 }
 
 impl<C> StreamDispatcherOnTimeStep<C>
@@ -659,7 +661,8 @@ where
             values,
             to_derived: info.to_derived,
             transforms: info.transforms,
-            has_changed: FxHashSet::default(),
+            derived_input_has_changed: FxHashSet::default(),
+            observed_change: false,
         };
 
         (out, new_filter)
@@ -674,30 +677,42 @@ where
             self.dispatch();
         }
         self.time = Some(time);
-        self.values.insert(signal, value.into());
-        self.update_has_changed(signal);
+
+        let changed = self
+            .values
+            .get(&signal)
+            .map(|old| SignalValueRef::from(old) != value)
+            .unwrap_or(true);
+        if changed {
+            self.values.insert(signal, value.into());
+            self.update_has_changed(signal);
+            self.observed_change = true;
+        }
     }
 
     fn dispatch(&mut self) {
-        self.update_derived_signal_changes();
-        let time = self
-            .time
-            .expect("dispatch should only be called when we know the time");
-        (self.callback)(time, &self.values);
+        if self.observed_change {
+            self.update_derived_signal_changes();
+            let time = self
+                .time
+                .expect("dispatch should only be called when we know the time");
+            (self.callback)(time, &self.values);
+            self.observed_change = false;
+        }
     }
 
     #[inline]
     fn update_has_changed(&mut self, signal_ref: SignalRef) {
         if let Some(derived) = self.to_derived.get(&signal_ref) {
             for &signal in derived.iter() {
-                self.has_changed.insert(signal);
+                self.derived_input_has_changed.insert(signal);
             }
         }
     }
 
     fn update_derived_signal_changes(&mut self) {
-        if !self.has_changed.is_empty() {
-            for signal in self.has_changed.drain() {
+        if !self.derived_input_has_changed.is_empty() {
+            for signal in self.derived_input_has_changed.drain() {
                 let t = &self.transforms.get(&signal).unwrap();
                 let inputs: Vec<_> = t
                     .inputs()
