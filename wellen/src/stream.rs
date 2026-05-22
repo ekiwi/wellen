@@ -162,7 +162,7 @@ where
     skipping_time_step: bool,
     /// contains encoding for all _included_ signals (depending on the [Filter] provided)
     encoding: SignalMap<SignalEncoding>,
-    buf: Vec<u8>,
+    buf: SignalValueBuffer,
     /// signals that were requested by the user, None means all signals were requested
     requested: Option<FxHashSet<SignalRef>>,
     /// signal value cache, used for derived signals and their inputs
@@ -172,6 +172,145 @@ where
     /// keep track of which derived signals had changes this time step
     has_changed: FxHashSet<SignalRef>,
     transforms: SignalMap<DerivedBitVecSignal>,
+}
+
+/// Designed to work around the fact that we cannot have a reference to an element of the same struct.
+/// Also simplifies ownership.
+#[derive(Debug, Default)]
+struct SignalValueBuffer {
+    data: Vec<u8>,
+    string: String,
+    kind: SignalKind,
+}
+
+#[derive(Debug, Default)]
+enum SignalKind {
+    #[default]
+    Event,
+    String,
+    BitVec(States, u32),
+    Real(Real),
+}
+
+impl SignalValueBuffer {
+    fn update_fst(&mut self, encoding: SignalEncoding, value: &FstSignalValue) {
+        self.data.clear();
+        self.string.clear();
+        self.kind = match value {
+            FstSignalValue::String(value) => match encoding {
+                SignalEncoding::Event => {
+                    debug_assert!(value.is_empty(), "events do not carry data");
+                    SignalKind::Event
+                }
+                SignalEncoding::String => {
+                    debug_assert!(self.string.is_empty());
+                    self.string
+                        .push_str(String::from_utf8_lossy(value).as_ref());
+                    SignalKind::String
+                }
+
+                SignalEncoding::BitVector(len) => {
+                    let width = len.get();
+
+                    debug_assert_eq!(
+                        value.len(),
+                        width as usize,
+                        "{}",
+                        String::from_utf8_lossy(value)
+                    );
+
+                    let states = States::from_ascii(value).unwrap_or_else(|| {
+                        panic!(
+                            "Unexpected signal value: {}",
+                            String::from_utf8_lossy(value)
+                        )
+                    });
+
+                    // convert from ASCII characters to packed encoding
+                    debug_assert!(self.data.is_empty());
+                    write_n_state_from_ascii(states, value, &mut self.data, None);
+                    SignalKind::BitVec(states, width)
+                }
+                SignalEncoding::Real => panic!(
+                    "Expecting reals, but got: {}",
+                    String::from_utf8_lossy(value)
+                ),
+                SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
+            },
+            FstSignalValue::Real(value) => {
+                debug_assert_eq!(encoding, SignalEncoding::Real);
+                SignalKind::Real(*value)
+            }
+        };
+    }
+
+    fn update_vcd(&mut self, encoding: SignalEncoding, value: &[u8]) {
+        self.data.clear();
+        self.string.clear();
+        self.kind = match encoding {
+            SignalEncoding::Event => {
+                debug_assert!(
+                    value.len() <= 1,
+                    "event changes carry no value, or a 1-bit value"
+                );
+                SignalKind::Event
+            }
+            SignalEncoding::BitVector(width) => {
+                let (data, states) = decode_vcd_bit_vec_change(width, value);
+                debug_assert!(self.data.is_empty());
+
+                // put data into buffer
+                match data {
+                    VcdBitVecChange::SingleBit(bit_value) => {
+                        self.data.push(bit_value.into());
+                    }
+                    VcdBitVecChange::MultiBit(data_to_write) => {
+                        write_n_state_from_ascii(states, &data_to_write, &mut self.data, None);
+                    }
+                }
+                SignalKind::BitVec(states, width.get())
+            }
+            SignalEncoding::String => {
+                assert!(
+                    matches!(value[0], b's' | b'S'),
+                    "expected a string, not {}",
+                    String::from_utf8_lossy(value)
+                );
+                let characters = &value[1..];
+                debug_assert!(self.string.is_empty());
+                self.string
+                    .push_str(std::str::from_utf8(characters).unwrap());
+                SignalKind::String
+            }
+            SignalEncoding::Real => {
+                assert!(
+                    matches!(value[0], b'r' | b'R'),
+                    "expected a real, not {}",
+                    String::from_utf8_lossy(value)
+                );
+                // parse float
+                let float_value: Real = std::str::from_utf8(&value[1..])
+                    .unwrap()
+                    .parse::<Real>()
+                    .unwrap();
+                SignalKind::Real(float_value)
+            }
+            SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
+        };
+    }
+}
+
+impl<'a> From<&'a SignalValueBuffer> for SignalValueRef<'a> {
+    fn from(value: &'a SignalValueBuffer) -> Self {
+        match value.kind {
+            SignalKind::Event => SignalValueRef::Event,
+            SignalKind::String => SignalValueRef::String(&value.string),
+            SignalKind::BitVec(states, width) => {
+                SignalValueRef::bit_vec(states, width, &value.data)
+            }
+            SignalKind::Real(value) => SignalValueRef::Real(value),
+        }
+    }
 }
 
 impl<C> StreamEncoder<C>
@@ -234,12 +373,42 @@ where
             time: Default::default(),
             skipping_time_step: false,
             encoding,
-            buf: Vec::with_capacity(128),
+            buf: SignalValueBuffer::default(),
             values,
             to_derived,
             has_changed: Default::default(),
             transforms,
             requested,
+        }
+    }
+
+    fn get_encoding(&self, id: u64) -> SignalEncoding {
+        self.encoding
+            .get_index(id)
+            .cloned()
+            .unwrap_or(SignalEncoding::Unknown)
+    }
+
+    /// Checks whether the signal is an input to a derived signal and deals with that.
+    fn update_derived(&mut self, signal_ref: SignalRef) {
+        if let Some(derived) = self.to_derived.get(&signal_ref) {
+            let value_ref: SignalValueRef = (&self.buf).into();
+            self.values.insert(signal_ref, value_ref.into());
+            for &signal in derived.iter() {
+                self.has_changed.insert(signal);
+            }
+        }
+    }
+
+    fn dispatch_change(&mut self, time: Time, signal_ref: SignalRef) {
+        if self
+            .requested
+            .as_ref()
+            .map(|r| r.contains(&signal_ref))
+            .unwrap_or(true)
+        {
+            let signal_value = (&self.buf).into();
+            (self.callback)(time, signal_ref, signal_value);
         }
     }
 
@@ -255,74 +424,12 @@ where
         }
 
         // check to see if the signal should be included
-        let tpe = self
-            .encoding
-            .get_index(id)
-            .cloned()
-            .unwrap_or(SignalEncoding::Unknown);
-        #[allow(unused_assignments)]
-        let mut maybe_str = None;
-        if tpe != SignalEncoding::Unknown {
+        let encoding = self.get_encoding(id);
+        if encoding != SignalEncoding::Unknown {
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
-            let signal_value = match value {
-                FstSignalValue::String(value) => match tpe {
-                    SignalEncoding::Event => {
-                        debug_assert!(value.is_empty(), "events do not carry data");
-                        SignalValueRef::Event
-                    }
-                    SignalEncoding::String => {
-                        maybe_str = Some(String::from_utf8_lossy(value));
-                        SignalValueRef::String(maybe_str.as_ref().unwrap())
-                    }
-
-                    SignalEncoding::BitVector(len) => {
-                        let width = len.get();
-
-                        debug_assert_eq!(
-                            value.len(),
-                            width as usize,
-                            "{}",
-                            String::from_utf8_lossy(value)
-                        );
-
-                        let states = States::from_ascii(value).unwrap_or_else(|| {
-                            panic!(
-                                "Unexpected signal value: {}",
-                                String::from_utf8_lossy(value)
-                            )
-                        });
-
-                        // convert from ASCII characters to packed encoding
-                        self.buf.clear();
-                        write_n_state_from_ascii(states, value, &mut self.buf, None);
-                        SignalValueRef::bit_vec(states, width, &self.buf)
-                    }
-                    SignalEncoding::Real => panic!(
-                        "Expecting reals, but got: {}",
-                        String::from_utf8_lossy(value)
-                    ),
-                    SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
-                },
-                FstSignalValue::Real(value) => {
-                    debug_assert_eq!(tpe, SignalEncoding::Real);
-                    SignalValueRef::Real(*value)
-                }
-            };
-
-            if let Some(derived) = self.to_derived.get(&signal_ref) {
-                self.values.insert(signal_ref, signal_value.into());
-                for &signal in derived.iter() {
-                    self.has_changed.insert(signal);
-                }
-            }
-            if self
-                .requested
-                .as_ref()
-                .map(|r| r.contains(&signal_ref))
-                .unwrap_or(true)
-            {
-                (self.callback)(time, signal_ref, signal_value);
-            }
+            self.buf.update_fst(encoding, value);
+            self.update_derived(signal_ref);
+            self.dispatch_change(time, signal_ref);
         }
     }
 
@@ -331,76 +438,13 @@ where
             return;
         }
         // check to see if the signal should be included
-        let tpe = self
-            .encoding
-            .get_index(id)
-            .cloned()
-            .unwrap_or(SignalEncoding::Unknown);
-        if tpe != SignalEncoding::Unknown {
+        let encoding = self.get_encoding(id);
+        if encoding != SignalEncoding::Unknown {
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
             let time = self.time.unwrap();
-            self.buf.clear();
-            let signal_value = match tpe {
-                SignalEncoding::Event => {
-                    debug_assert!(
-                        value.len() <= 1,
-                        "event changes carry no value, or a 1-bit value"
-                    );
-                    SignalValueRef::Event
-                }
-                SignalEncoding::BitVector(width) => {
-                    let (data, states) = decode_vcd_bit_vec_change(width, value);
-
-                    // put data into buffer
-                    match data {
-                        VcdBitVecChange::SingleBit(bit_value) => {
-                            self.buf.push(bit_value.into());
-                        }
-                        VcdBitVecChange::MultiBit(data_to_write) => {
-                            write_n_state_from_ascii(states, &data_to_write, &mut self.buf, None);
-                        }
-                    }
-                    SignalValueRef::bit_vec(states, width.get(), &self.buf)
-                }
-                SignalEncoding::String => {
-                    assert!(
-                        matches!(value[0], b's' | b'S'),
-                        "expected a string, not {}",
-                        String::from_utf8_lossy(value)
-                    );
-                    let characters = &value[1..];
-                    SignalValueRef::String(std::str::from_utf8(characters).unwrap())
-                }
-                SignalEncoding::Real => {
-                    assert!(
-                        matches!(value[0], b'r' | b'R'),
-                        "expected a real, not {}",
-                        String::from_utf8_lossy(value)
-                    );
-                    // parse float
-                    let float_value: Real = std::str::from_utf8(&value[1..])
-                        .unwrap()
-                        .parse::<Real>()
-                        .unwrap();
-                    SignalValueRef::Real(float_value)
-                }
-                SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
-            };
-
-            if let Some(derived) = self.to_derived.get(&signal_ref) {
-                self.values.insert(signal_ref, signal_value.into());
-                for &signal in derived.iter() {
-                    self.has_changed.insert(signal);
-                }
-            }
-            if self
-                .requested
-                .as_ref()
-                .map(|r| r.contains(&signal_ref))
-                .unwrap_or(true)
-            {
-                (self.callback)(time, signal_ref, signal_value);
-            }
+            self.buf.update_vcd(encoding, value);
+            self.update_derived(signal_ref);
+            self.dispatch_change(time, signal_ref);
         }
     }
 
