@@ -1,10 +1,6 @@
-mod convert;
-use std::sync::Arc;
-
-use convert::Mappable;
-use num_bigint::BigUint;
 use pyo3::types::PyInt;
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
+use std::sync::Arc;
 
 use wellen::{
     viewers::{self},
@@ -36,7 +32,7 @@ fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pyclass(from_py_object)]
 #[derive(Clone)]
-struct Hierarchy(pub(crate) Arc<wellen::Hierarchy>);
+struct Hierarchy(Arc<wellen::Hierarchy>);
 
 #[pymethods]
 impl Hierarchy {
@@ -44,14 +40,18 @@ impl Hierarchy {
         ScopeIter(Box::new({
             let hier = self.0.clone();
             hier.scopes()
-                .map(|val| Scope(hier[val].clone()))
+                .map(|val| Scope {
+                    h: hier.clone(),
+                    id: val,
+                })
                 .collect::<Vec<_>>()
                 .into_iter()
         }))
     }
 
     fn all_vars(&self) -> Vec<Var> {
-        self.0.all_vars().map(|v| Var(v.clone())).collect()
+        todo!()
+        //self.0.all_vars().map(|v| Var { h: self.0.clone(), id: v }).collect()
     }
 
     /// Get the date metadata from the waveform file
@@ -81,19 +81,22 @@ impl Hierarchy {
 }
 
 #[pyclass]
-struct Scope(pub(crate) wellen::Scope);
+struct Scope {
+    h: Arc<wellen::Hierarchy>,
+    id: wellen::ScopeRef,
+}
 
 #[pymethods]
 impl Scope {
-    pub fn name(&self, hier: Bound<'_, Hierarchy>) -> String {
-        self.0.name(&hier.borrow().0).to_string()
+    pub fn name(&self) -> String {
+        self.h[self.id].name(&self.h).to_string()
     }
-    pub fn full_name(&self, hier: Bound<'_, Hierarchy>) -> String {
-        self.0.full_name(&hier.borrow().0).to_string()
+    pub fn full_name(&self) -> String {
+        self.h[self.id].full_name(&self.h).to_string()
     }
 
     pub fn scope_type(&self) -> String {
-        match self.0.scope_type() {
+        match self.h[self.id].scope_type() {
             ScopeType::Module => "module",
             ScopeType::Task => "task",
             ScopeType::Function => "function",
@@ -125,37 +128,39 @@ impl Scope {
         .to_string()
     }
 
-    pub fn vars(&self, hier: Bound<'_, Hierarchy>) -> VarIter {
-        let locahier = hier.borrow().clone();
-        let scope = self.0.clone();
-
+    pub fn vars(&self) -> VarIter {
         //TODO: optimize me! need to rewrite the logic from `HierarchyItemIdIterator` to use
         // Arc<Hierarchy> instead of lifetimes
         //
         // This is because python does not like lifetimes :)
+        let hier = self.h.clone();
+        let scope_id = self.id;
         VarIter(Box::new({
-            let hier = locahier.clone();
-            scope
-                .vars(&hier.0)
-                .map(|val| Var(hier.0[val].clone()))
+            hier[scope_id]
+                .vars(&hier)
+                .map(|val| Var {
+                    h: hier.clone(),
+                    id: val,
+                })
                 .collect::<Vec<_>>()
                 .into_iter()
         }))
     }
 
-    pub fn scopes(&self, hier: Bound<'_, Hierarchy>) -> ScopeIter {
-        let locahier = hier.borrow().clone();
-        let scope = self.0.clone();
-
+    pub fn scopes(&self) -> ScopeIter {
         //TODO: optimize me! need to rewrite the logic from `HierarchyItemIdIterator` to use
         // Arc<Hierarchy> instead of lifetimes
         //
         // This is because python does not like lifetimes :)
+        let hier = self.h.clone();
+        let scope_id = self.id;
         ScopeIter(Box::new({
-            let hier = locahier.clone();
-            scope
-                .scopes(&hier.0)
-                .map(|val| Scope(hier.0[val].clone()))
+            hier[scope_id]
+                .scopes(&hier)
+                .map(|val| Scope {
+                    h: hier.clone(),
+                    id: val,
+                })
                 .collect::<Vec<_>>()
                 .into_iter()
         }))
@@ -175,24 +180,27 @@ impl ScopeIter {
 }
 
 #[pyclass]
-struct Var(pub(crate) wellen::Var);
+struct Var {
+    h: Arc<wellen::Hierarchy>,
+    id: wellen::VarRef,
+}
 
 #[pymethods]
 impl Var {
-    pub fn name(&self, hier: Bound<'_, Hierarchy>) -> String {
-        self.0.name(&hier.borrow().0).to_string()
+    pub fn name(&self) -> String {
+        self.h[self.id].name(&self.h).to_string()
     }
-    pub fn full_name(&self, hier: Bound<'_, Hierarchy>) -> String {
-        self.0.full_name(&hier.borrow().0).to_string()
+    pub fn full_name(&self) -> String {
+        self.h[self.id].full_name(&self.h).to_string()
     }
-    pub fn bitwidth(&self, hier: Bound<'_, Hierarchy>) -> Option<u32> {
-        self.0.length(&hier.borrow().0)
+    pub fn bitwidth(&self) -> Option<u32> {
+        self.h[self.id].length(&self.h)
     }
     pub fn var_type(&self) -> String {
-        format!("{:?}", self.0.var_type())
+        format!("{:?}", self.h[self.id].var_type())
     }
-    pub fn enum_type(&self, hier: Bound<'_, Hierarchy>) -> Option<(String, Vec<(String, String)>)> {
-        self.0.enum_type(&hier.borrow().0).map(|(name, values)| {
+    pub fn enum_type(&self) -> Option<(String, Vec<(String, String)>)> {
+        self.h[self.id].enum_type(&self.h).map(|(name, values)| {
             (
                 name.to_string(),
                 values
@@ -202,28 +210,32 @@ impl Var {
             )
         })
     }
-    pub fn vhdl_type_name(&self, hier: Bound<'_, Hierarchy>) -> Option<String> {
-        self.0
-            .vhdl_type_name(&hier.borrow().0)
+    pub fn vhdl_type_name(&self) -> Option<String> {
+        self.h[self.id]
+            .vhdl_type_name(&self.h)
             .map(|s| s.to_string())
     }
     pub fn direction(&self) -> String {
-        format!("{:?}", self.0.direction())
+        format!("{:?}", self.h[self.id].direction())
     }
-    pub fn length(&self, hier: Bound<'_, Hierarchy>) -> Option<u32> {
-        self.0.length(&hier.borrow().0)
+    pub fn length(&self) -> Option<u32> {
+        self.h[self.id].length(&self.h)
     }
-    pub fn is_real(&self, hier: Bound<'_, Hierarchy>) -> bool {
-        self.0.is_real(&hier.borrow().0)
+    pub fn is_real(&self) -> bool {
+        self.h[self.id].is_real(&self.h)
     }
-    pub fn is_string(&self, hier: Bound<'_, Hierarchy>) -> bool {
-        self.0.is_string(&hier.borrow().0)
+    pub fn is_string(&self) -> bool {
+        self.h[self.id].is_string(&self.h)
     }
-    pub fn is_bit_vector(&self, hier: Bound<'_, Hierarchy>) -> bool {
-        self.0.is_bit_vector(&hier.borrow().0)
+    pub fn is_bit_vector(&self) -> bool {
+        self.h[self.id].is_bit_vector(&self.h)
     }
-    pub fn is_1bit(&self, hier: Bound<'_, Hierarchy>) -> bool {
-        self.0.is_1bit(&hier.borrow().0)
+    pub fn is_1bit(&self) -> bool {
+        self.h[self.id].is_1bit(&self.h)
+    }
+
+    fn signal_ref(&self) -> usize {
+        self.h[self.id].signal_ref().index()
     }
 }
 
@@ -363,9 +375,10 @@ impl Waveform {
         })
     }
     fn get_signal<'py>(&mut self, var: &Var, py: Python<'py>) -> PyResult<Bound<'py, Signal>> {
-        let mut signal =
-            self.wave_source
-                .load_signals(&[var.0.signal_ref()], &self.hierarchy.0, true);
+        let signal_ref = wellen::SignalRef::from_index(var.signal_ref()).unwrap();
+        let mut signal = self
+            .wave_source
+            .load_signals(&[signal_ref], &self.hierarchy.0, true);
         let sig = signal.swap_remove(0);
         Bound::new(
             py,
@@ -389,15 +402,18 @@ impl Waveform {
             path.last()
                 .ok_or(PyRuntimeError::new_err("Path could not be parsed!")),
         );
-        let maybe_var =
-            self.hierarchy
-                .0
-                .lookup_var(path, names?)
-                .ok_or(PyRuntimeError::new_err(format!(
-                    "No var at path {abs_hierarchy_path}"
-                )))?;
-        let var = &self.hierarchy.0[maybe_var];
-        self.get_signal(&Var(var.clone()), py)
+        let var_id = self
+            .hierarchy
+            .0
+            .lookup_var(path, names?)
+            .ok_or(PyRuntimeError::new_err(format!(
+                "No var at path {abs_hierarchy_path}"
+            )))?;
+        let var = Var {
+            h: self.hierarchy.0.clone(),
+            id: var_id,
+        };
+        self.get_signal(&var, py)
     }
 }
 
@@ -433,15 +449,16 @@ impl Signal {
             let output = match signal {
                 SignalValueRef::Real(inner) => Some(inner.into_pyobject(py).unwrap().into_any()),
                 SignalValueRef::String(str) => Some(str.into_pyobject(py).unwrap().into_any()),
-                _ => match BigUint::try_from_signal(signal) {
-                    // If this signal is 2bits, this function will return an int
-                    Some(number) => Some(number.into_pyobject(py).unwrap().into_any()),
-                    // if this signal is not 2bits (e.g. it contains z,x, etc) then this function
-                    // will return a string
-                    None => signal
-                        .to_bit_string()
-                        .map(|val| val.into_pyobject(py).unwrap().into_any()),
-                },
+                _ => todo!(),
+                // _ => match BigUint::try_from_signal(signal) {
+                //     // If this signal is 2bits, this function will return an int
+                //     Some(number) => Some(number.into_pyobject(py).unwrap().into_any()),
+                //     // if this signal is not 2bits (e.g. it contains z,x, etc) then this function
+                //     // will return a string
+                //     None => signal
+                //         .to_bit_string()
+                //         .map(|val| val.into_pyobject(py).unwrap().into_any()),
+                // },
             };
             output
         } else {
