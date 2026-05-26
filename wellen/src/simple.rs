@@ -61,8 +61,25 @@ impl Debug for Waveform {
     }
 }
 
+fn is_strictly_increasing(tt: &TimeTable) -> bool {
+    let mut prev = None;
+    for time_idx in tt.iter() {
+        if let Some(prev) = prev
+            && prev >= *time_idx
+        {
+            return false;
+        }
+        prev = Some(*time_idx);
+    }
+    true
+}
+
 impl Waveform {
     fn new(hierarchy: Hierarchy, source: SignalSource, time_table: TimeTable) -> Self {
+        debug_assert!(
+            is_strictly_increasing(&time_table),
+            "Time table must be strictly increasing: {time_table:?}"
+        );
         Waveform {
             hierarchy,
             source,

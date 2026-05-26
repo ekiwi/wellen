@@ -29,6 +29,8 @@ impl<'a> From<BitVecRef<'a>> for SignalValueRef<'a> {
     }
 }
 
+impl<'a> Eq for SignalValueRef<'a> {}
+
 /// Owns a signal value.
 #[derive(Debug, Clone)]
 pub struct SignalValue(SignalValueE);
@@ -62,6 +64,12 @@ impl<'a> From<&'a SignalValue> for SignalValueRef<'a> {
             SignalValueE::String(v) => SignalValueRef::String(v),
             SignalValueE::Real(v) => SignalValueRef::Real(*v),
         }
+    }
+}
+
+impl From<BitVecValue> for SignalValue {
+    fn from(value: BitVecValue) -> Self {
+        Self(SignalValueE::BitVec(value))
     }
 }
 
@@ -184,7 +192,12 @@ impl<'a> BitVecRef<'a> {
 
 impl PartialEq for BitVecRef<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.bit_string() == other.bit_string()
+        if self.states == other.states {
+            debug_assert_eq!(self.data.len(), other.data.len());
+            self.data == other.data
+        } else {
+            self.bit_string() == other.bit_string()
+        }
     }
 }
 
@@ -202,11 +215,11 @@ impl Display for SignalValueRef<'_> {
 impl PartialEq for SignalValueRef<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (SignalValueRef::String(a), SignalValueRef::String(b)) => a == b,
             (SignalValueRef::Real(a), SignalValueRef::Real(b)) => a == b,
             (SignalValueRef::Event, SignalValueRef::Event) => true,
+            (SignalValueRef::String(a), SignalValueRef::String(b)) => a == b,
             (SignalValueRef::BitVec(a), SignalValueRef::BitVec(b)) => a == b,
-            _ => self.to_bit_string().unwrap() == other.to_bit_string().unwrap(),
+            _ => false,
         }
     }
 }

@@ -9,7 +9,7 @@ use crate::signal::{
 };
 use crate::stream::{Filter, StreamEncoder};
 use crate::wavemem::{check_if_changed_and_truncate, write_n_state_from_ascii};
-use crate::{FileFormat, LoadOptions, TimeTable, WellenError};
+use crate::{FileFormat, LoadOptions, SignalValueRef, Time, TimeTable, WellenError};
 use fst_reader::*;
 use rustc_hash::FxHashMap;
 use std::io::{BufRead, Seek};
@@ -815,11 +815,10 @@ fn fst_array_type_to_pack_info(t: FstArrayType) -> Option<ScopePackInfo> {
 
 // FST Streaming
 
-pub fn stream_body<R: BufRead + Seek>(
+pub fn stream_body<R: BufRead + Seek, C: FnMut(Time, SignalRef, SignalValueRef<'_>)>(
     data: &mut ReadBodyContinuation<R>,
-    hierarchy: &Hierarchy,
+    mut enc: StreamEncoder<C>,
     filter: &Filter,
-    callback: impl FnMut(crate::Time, SignalRef, crate::SignalValueRef<'_>),
 ) -> Result<()> {
     let reader = &mut data.0;
 
@@ -835,8 +834,6 @@ pub fn stream_body<R: BufRead + Seek>(
         end: filter.end,
         include: fst_ids,
     };
-
-    let mut enc = StreamEncoder::new(hierarchy, filter, callback);
 
     // map fst callback to wellen callback
     let fst_callback = |time: u64, handle: FstSignalHandle, value: FstSignalValue| {

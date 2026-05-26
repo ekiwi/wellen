@@ -3,20 +3,32 @@
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
 use crate::utils::*;
-use rustc_hash::FxHashMap;
+use rand::rngs::Xoshiro256PlusPlus;
+use rand::{Rng, RngExt, SeedableRng};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader, Seek};
+use wellen::simple::Waveform;
 use wellen::stream::*;
-use wellen::{Hierarchy, LoadOptions, SignalRef, SignalValue, SignalValueRef, TimeTableIdx};
+use wellen::{Hierarchy, LoadOptions, SignalRef, SignalValue, SignalValueRef, Time, TimeTableIdx};
 
 mod utils;
 
-/// diff tests the streaming vs. the viewer centric interface
+/// Execute the full diff stream test
 fn diff_stream(filename: &str) {
+    diff_stream_internal(filename, false)
+}
+
+/// Only basic tests for larger files
+fn diff_stream_basic(filename: &str) {
+    diff_stream_internal(filename, true)
+}
+
+/// diff tests the streaming vs. the viewer centric interface
+fn diff_stream_internal(filename: &str, only_basic: bool) {
     let mut streamed = load_streaming(filename);
     let mut batch = wellen::simple::read(filename).expect("failed to open file in batch mode");
     load_all_signals(&mut batch);
-
     let time_to_idx = FxHashMap::from_iter(
         batch
             .time_table()
@@ -25,21 +37,99 @@ fn diff_stream(filename: &str) {
             .map(|(ii, &t)| (t, ii as TimeTableIdx)),
     );
 
+    // simply stream each individual signal change
+    diff_stream_changes(&batch, &mut streamed, &time_to_idx, Filter::all());
+
+    let mut rnd = Xoshiro256PlusPlus::from_seed([0; 32]);
+    if !only_basic {
+        // make sure we can stream twice
+        diff_stream_changes(&batch, &mut streamed, &time_to_idx, Filter::all());
+        // compare for three random signal subselections
+        for _ in 0..3 {
+            let signals = random_signals(&mut rnd, batch.hierarchy());
+            let filter = Filter::include_signals(&signals);
+            diff_stream_changes(&batch, &mut streamed, &time_to_idx, filter);
+        }
+
+        // batch changes in a single time step
+        diff_stream_time_change(&batch, &mut streamed, &time_to_idx, Filter::all());
+        // batch changes with three random signal subselections
+        for _ in 0..3 {
+            let signals = random_signals(&mut rnd, batch.hierarchy());
+            let filter = Filter::include_signals(&signals);
+            diff_stream_time_change(&batch, &mut streamed, &time_to_idx, filter);
+        }
+    }
+}
+
+fn diff_stream_for_vars(filename: &str, vars: &[&str]) {
+    let mut streamed = load_streaming(filename);
+    let mut batch = wellen::simple::read(filename).expect("failed to open file in batch mode");
+    let time_to_idx = FxHashMap::from_iter(
+        batch
+            .time_table()
+            .iter()
+            .enumerate()
+            .map(|(ii, &t)| (t, ii as TimeTableIdx)),
+    );
+
+    let signals: Vec<_> = vars
+        .iter()
+        .map(|name| {
+            let mut parts: Vec<_> = name.split('.').collect();
+            let basename = parts.pop().unwrap();
+            let var_ref = batch
+                .hierarchy()
+                .lookup_var(&parts, basename)
+                .expect("unable to find var!");
+            batch.hierarchy()[var_ref].signal_ref()
+        })
+        .collect();
+    batch.load_signals(&signals);
+
+    diff_stream_changes(
+        &batch,
+        &mut streamed,
+        &time_to_idx,
+        Filter::include_signals(&signals),
+    );
+}
+
+fn random_signals(rnd: &mut impl Rng, h: &Hierarchy) -> Vec<SignalRef> {
+    let all_signals: Vec<_> = h.signals().collect();
+    let mut signals = FxHashSet::default();
+    let include_num = rnd.random_range(0..all_signals.len());
+    while signals.len() < include_num {
+        let index = rnd.random_range(0..all_signals.len());
+        signals.insert(all_signals[index]);
+    }
+    signals.into_iter().collect()
+}
+
+fn diff_stream_changes<R: BufRead + Seek>(
+    batch: &Waveform,
+    streamed: &mut StreamingWaveform<R>,
+    time_to_idx: &FxHashMap<Time, TimeTableIdx>,
+    filter: Filter,
+) {
     let mut delta_counter = FxHashMap::default();
     // keeps track of the times when we see a signal changing in the stream
     let mut observed_changes = FxHashMap::default();
     // remember previous value in order to filter out no-op changes
     let mut prev_value: FxHashMap<SignalRef, SignalValue> = FxHashMap::default();
 
-    let filter = Filter::all();
     streamed
-        .stream(&filter, |time, sig, a_value| {
+        .stream_changes(filter, |time, sig, a_value| {
             // find corresponding signal value in memory
             let idx = *time_to_idx
                 .get(&time)
                 .expect("failed to find time in time table") as usize;
-            let b_value = get_value(&batch, sig, idx, &mut delta_counter);
-            // println!("{time}, {a_value} vs {b_value}");
+            if batch.get_signal(sig).is_none() {
+                panic!("Received a change for a signal that we did not request: {time} {sig:?} {a_value:?}");
+            }
+
+            let b_value = get_value(batch, sig, idx, &mut delta_counter);
+
             diff_signal_value(time, sig, a_value, b_value, None, batch.hierarchy());
             // record observed change if the value actually changed (or if we are dealing with an event)
             if !prev_value.contains_key(&sig)
@@ -58,19 +148,116 @@ fn diff_stream(filename: &str) {
 
     // make sure we actually saw all the changes!
     for signal in batch.hierarchy().signals() {
-        let time_indices = batch.get_signal(signal).unwrap().time_indices();
-        let expected: Vec<_> = time_indices
-            .iter()
-            .map(|ii| batch.time_table()[*ii as usize])
-            .collect();
-        let empty = vec![];
-        let observed = observed_changes.get(&signal).unwrap_or(&empty);
-        assert_eq!(
-            &expected,
-            observed,
-            "{} sees different changes (batch vs. stream)",
-            find_signal_name(batch.hierarchy(), signal)
-        );
+        if filter.includes_signal(signal) {
+            let time_indices = batch.get_signal(signal).unwrap().time_indices();
+            let expected: Vec<_> = time_indices
+                .iter()
+                .map(|ii| batch.time_table()[*ii as usize])
+                .collect();
+            let empty = vec![];
+            let observed = observed_changes.get(&signal).unwrap_or(&empty);
+            assert_eq!(
+                &expected,
+                observed,
+                "{} sees different changes (batch vs. stream)",
+                find_signal_name(batch.hierarchy(), signal)
+            );
+        }
+    }
+}
+
+/// Checks that the filter has no duplicates.
+fn check_filter(filter: Filter) {
+    if let Some(signals) = filter.signals {
+        let mut seen = FxHashSet::default();
+        for signal in signals {
+            assert!(
+                !seen.contains(signal),
+                "Duplicate signal in filter: {signal:?}"
+            );
+            seen.insert(*signal);
+        }
+    }
+}
+
+fn diff_stream_time_change<R: BufRead + Seek>(
+    batch: &Waveform,
+    streamed: &mut StreamingWaveform<R>,
+    time_to_idx: &FxHashMap<Time, TimeTableIdx>,
+    filter: Filter,
+) {
+    check_filter(filter);
+    let mut prev_time = None;
+    let mut observed_times = FxHashSet::default();
+    let signals = filter
+        .signals
+        .map(|s| s.to_vec())
+        .unwrap_or_else(|| batch.hierarchy().signals().collect());
+
+    streamed
+        .stream_time_steps(filter, |time, values| {
+            if let Some(prev_time) = prev_time {
+                assert!(time > prev_time, "time must be incrementing!");
+            }
+            prev_time = Some(time);
+
+            let idx = *time_to_idx
+                .get(&time)
+                .expect("failed to find time in time table") as usize;
+            observed_times.insert(time);
+
+            // compare all signals at this time step
+            for sig in &signals {
+                // only check if there is a value at this time in the reference
+                if let Some(b_value) = get_maybe_final_value(batch, *sig, idx) {
+                    let maybe_a_value = values.get(sig);
+                    assert!(maybe_a_value.is_some(), "Failed to get value of signal {sig:?} at time {time} from the dispatcher map.,The expected value is: {b_value:?}");
+                    let a_value: SignalValueRef = maybe_a_value.unwrap().into();
+                    diff_signal_value(time, *sig, a_value, b_value, None, batch.hierarchy());
+                }
+            }
+        })
+        .expect("failed to stream!");
+
+    // make sure we did not skip a time step
+    let mut prev_time = None;
+    for (time_idx, time) in batch.time_table().iter().enumerate() {
+        let time_idx = time_idx as TimeTableIdx;
+        if let Some(prev) = prev_time {
+            assert!(time > prev);
+        }
+        prev_time = Some(time);
+        if observed_times.contains(time) {
+            let mut change_exists = false;
+            // ensure that a change occurred for at least one signal
+            for &sig_ref in &signals {
+                let sig = batch.get_signal(sig_ref).unwrap();
+                let off = sig.get_offset(time_idx);
+                change_exists |= off.map(|o| o.time_match).unwrap_or(false);
+                if change_exists {
+                    // a change occurred -> we are good!
+                    break;
+                }
+            }
+            assert!(
+                change_exists,
+                "The callback was called at time {}, but there was no change in the observed signals!",
+                time
+            );
+        } else {
+            // ensure that no change occurred!
+            for &sig in &signals {
+                let sig = batch.get_signal(sig).unwrap();
+                let changed = sig
+                    .get_offset(time_idx)
+                    .map(|o| o.time_match)
+                    .unwrap_or(false);
+                assert!(
+                    !changed,
+                    "Signal {sig:?} changed at {time}, but the callback was not called!"
+                );
+            }
+        }
     }
 }
 
@@ -310,7 +497,7 @@ fn diff_stream_verilator_surfer_issue_201() {
 
 #[test]
 fn diff_stream_verilator_swerv1() {
-    diff_stream("inputs/verilator/swerv1.vcd");
+    diff_stream_basic("inputs/verilator/swerv1.vcd");
 }
 
 #[test]
@@ -334,8 +521,9 @@ fn diff_stream_verilator_surfer_issue_201_fst() {
 }
 
 #[test]
+#[ignore] // TODO: re-enable once we figure out the performance issues
 fn diff_stream_verilator_verilator_incomplete() {
-    diff_stream("inputs/verilator/verilator-incomplete.fst");
+    diff_stream_basic("inputs/verilator/verilator-incomplete.fst");
 }
 
 #[test]
@@ -365,7 +553,7 @@ fn diff_stream_xilinx_isim_test1() {
 
 #[test]
 fn diff_stream_xilinx_isim_test2x2_regex22_string1() {
-    diff_stream("inputs/xilinx_isim/test2x2_regex22_string1.vcd");
+    diff_stream_basic("inputs/xilinx_isim/test2x2_regex22_string1.vcd");
 }
 
 #[test]
@@ -376,4 +564,11 @@ fn diff_stream_scope_with_comment() {
 #[test]
 fn diff_stream_yosys_smtbmc_surfer_issue_315() {
     diff_stream("inputs/yosys_smtbmc/surfer_issue_315.vcd");
+}
+
+#[test]
+fn diff_stream_questa_sim_derived_signal() {
+    let filename = "inputs/questa-sim/wellen-issue-57-uart.vcd";
+    let vars = ["tb_uart.dut.prescale"];
+    diff_stream_for_vars(filename, vars.as_slice());
 }

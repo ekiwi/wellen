@@ -9,7 +9,7 @@ members = ["wellen", "pywellen"]
 default-members = ["wellen"]
 
 [workspace.package]
-version = "0.21.1"
+version = "0.22.0"
 edition = "2024"
 rust-version = "1.90.0"
 authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]
@@ -20,7 +20,7 @@ keywords = ["vcd", "fst", "waveform", "wavedump"]
 
 
 [workspace.dependencies]
-fst-reader = "0.16.5"
+fst-reader = "0.16.6"
 leb128 = "0.2.5"
 lz4_flex = "0.13.0"
 memmap2 = "0.9.10"
@@ -40,6 +40,7 @@ clap = { version = "4.6", features = ["derive"] }
 indicatif = "0.18"
 proptest = "1.11"
 wellen = { path = "wellen" }
+rand = "0.10.1"
 
 [profile.release]
 debug = true
