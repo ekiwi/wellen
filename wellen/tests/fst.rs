@@ -247,12 +247,19 @@ fn test_nvc_issue_77() {
     let signal_ref = waves.hierarchy()[var_ref].signal_ref();
     waves.load_signals(&[signal_ref]);
     let signal = waves.get_signal(signal_ref).unwrap();
+    let tt = waves.time_table();
     let signal_trace = signal
         .iter_changes()
-        .map(|(time_idx, value)| format!("@{time_idx}={}", value.to_bit_string().unwrap()))
+        .map(|(time_idx, value)| {
+            format!(
+                "@{}={}",
+                tt[time_idx as usize],
+                value.to_bit_string().unwrap()
+            )
+        })
         .join(", ");
     assert_eq!(
-        "@0=zzzz, @5=hhhh, @11028=hhh1, @11144=hh11, @41722=hh1h, @41952=h11h",
+        "@0=zzzz, @46000=hhhh, @936652500=hhh1, @946652500=hh11, @2416675500=hh1h, @2436652500=h11h",
         signal_trace
     );
 }
