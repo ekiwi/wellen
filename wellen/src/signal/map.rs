@@ -7,30 +7,30 @@ use rustc_hash::FxHashMap;
 use std::fmt::{Debug, Formatter};
 
 /// A map that is indexed by SignalRef.
-pub struct SignalMap<V>(SMI<V>);
+pub struct SignalMap<V>(Smi<V>);
 
 /// Signal Map Implementation
-enum SMI<V> {
+enum Smi<V> {
     Dense(Vec<Option<V>>),
     Sparse(FxHashMap<SignalRef, V>),
 }
 
 impl<V> SignalMap<V> {
     pub fn dense() -> Self {
-        Self(SMI::Dense(vec![]))
+        Self(Smi::Dense(vec![]))
     }
 
     pub fn sparse() -> Self {
-        Self(SMI::Sparse(FxHashMap::default()))
+        Self(Smi::Sparse(FxHashMap::default()))
     }
 
     pub fn from_iter<T: IntoIterator<Item = (SignalRef, V)>>(iter: T) -> Self {
-        Self(SMI::Sparse(FxHashMap::from_iter(iter)))
+        Self(Smi::Sparse(FxHashMap::from_iter(iter)))
     }
 
     pub fn insert(&mut self, k: SignalRef, v: V) -> Option<V> {
         match &mut self.0 {
-            SMI::Dense(vec) => {
+            Smi::Dense(vec) => {
                 let index = k.index();
                 if vec.len() <= index {
                     vec.resize_with(index + 1, || None);
@@ -39,63 +39,63 @@ impl<V> SignalMap<V> {
                 std::mem::swap(&mut vec[index], &mut opt_v);
                 opt_v
             }
-            SMI::Sparse(m) => m.insert(k, v),
+            Smi::Sparse(m) => m.insert(k, v),
         }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&SignalRef, &V)> {
         match &self.0 {
-            SMI::Dense(_) => todo!(),
-            SMI::Sparse(m) => m.iter(),
+            Smi::Dense(_) => todo!(),
+            Smi::Sparse(m) => m.iter(),
         }
     }
 
     /// like `get`, but the key is a [[u64]] index which will be interpreted as a SignalRef
     pub fn get_index(&self, k: u64) -> Option<&V> {
         match &self.0 {
-            SMI::Dense(v) => v.get(k as usize).and_then(|o| o.as_ref()),
-            SMI::Sparse(m) => m.get(&SignalRef::from_index(k as usize).unwrap()),
+            Smi::Dense(v) => v.get(k as usize).and_then(|o| o.as_ref()),
+            Smi::Sparse(m) => m.get(&SignalRef::from_index(k as usize).unwrap()),
         }
     }
 
     pub fn get(&self, k: &SignalRef) -> Option<&V> {
         match &self.0 {
-            SMI::Dense(v) => v.get(k.index()).and_then(|o| o.as_ref()),
-            SMI::Sparse(m) => m.get(k),
+            Smi::Dense(v) => v.get(k.index()).and_then(|o| o.as_ref()),
+            Smi::Sparse(m) => m.get(k),
         }
     }
 
     pub fn entry(&mut self, key: SignalRef) -> Entry<'_, V> {
         match &mut self.0 {
-            SMI::Dense(v) => Entry(EI::Dense(v, key.index())),
-            SMI::Sparse(m) => Entry(EI::Sparse(m.entry(key))),
+            Smi::Dense(v) => Entry(EI::Dense(v, key.index())),
+            Smi::Sparse(m) => Entry(EI::Sparse(m.entry(key))),
         }
     }
 }
 
 impl<V> From<Vec<Option<V>>> for SignalMap<V> {
     fn from(value: Vec<Option<V>>) -> Self {
-        Self(SMI::Dense(value))
+        Self(Smi::Dense(value))
     }
 }
 
 impl<V: Clone> From<&[V]> for SignalMap<V> {
     fn from(value: &[V]) -> Self {
-        Self(SMI::Dense(value.iter().cloned().map(Some).collect()))
+        Self(Smi::Dense(value.iter().cloned().map(Some).collect()))
     }
 }
 
 impl<V> From<FxHashMap<SignalRef, V>> for SignalMap<V> {
     fn from(value: FxHashMap<SignalRef, V>) -> Self {
-        Self(SMI::Sparse(value))
+        Self(Smi::Sparse(value))
     }
 }
 
 impl<V: Debug> Debug for SignalMap<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
-            SMI::Dense(v) => v.fmt(f),
-            SMI::Sparse(m) => m.fmt(f),
+            Smi::Dense(v) => v.fmt(f),
+            Smi::Sparse(m) => m.fmt(f),
         }
     }
 }
