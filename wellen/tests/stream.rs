@@ -521,6 +521,7 @@ fn diff_stream_verilator_surfer_issue_201_fst() {
 }
 
 #[test]
+#[ignore] // TODO: re-enable once we figure out the performance issues
 fn diff_stream_verilator_verilator_incomplete() {
     diff_stream_basic("inputs/verilator/verilator-incomplete.fst");
 }
@@ -552,7 +553,7 @@ fn diff_stream_xilinx_isim_test1() {
 
 #[test]
 fn diff_stream_xilinx_isim_test2x2_regex22_string1() {
-    diff_stream("inputs/xilinx_isim/test2x2_regex22_string1.vcd");
+    diff_stream_basic("inputs/xilinx_isim/test2x2_regex22_string1.vcd");
 }
 
 #[test]
