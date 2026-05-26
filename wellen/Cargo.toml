@@ -44,12 +44,3 @@ rand.workspace = true
 
 [features]
 serde1 = ["dep:serde"]
-
-
-# https://github.com/flamegraph-rs/flamegraph#linux
-[target.x86_64-unknown-linux-gnu]
-rustflags = ["-Clink-arg=-Wl,--no-rosegment"]
-
-[profile.release]
-debug = true
-
