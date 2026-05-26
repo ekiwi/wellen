@@ -115,7 +115,7 @@ fn diff_stream_changes<R: BufRead + Seek>(
             }
 
             let b_value = get_value(batch, sig, idx, &mut delta_counter);
-            // println!("{time}, {a_value} vs {b_value}");
+
             diff_signal_value(time, sig, a_value, b_value, None, batch.hierarchy());
             // record observed change if the value actually changed (or if we are dealing with an event)
             if !prev_value.contains_key(&sig)
@@ -185,7 +185,6 @@ fn diff_stream_time_change<R: BufRead + Seek>(
             if let Some(prev_time) = prev_time {
                 assert!(time > prev_time, "time must be incrementing!");
             }
-            println!("OBSERVED: {time}  ({prev_time:?})");
             prev_time = Some(time);
 
             let idx = *time_to_idx

@@ -684,12 +684,6 @@ where
             .map(|old| SignalValueRef::from(old) != value)
             .unwrap_or(true);
         if changed {
-            if time == 605000000 {
-                println!(
-                    "{time} {signal:?} {:?} -> {value:?}",
-                    self.values.get(&signal)
-                );
-            }
             self.values.insert(signal, value.into());
             self.update_has_changed(signal);
         }
