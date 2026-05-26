@@ -14,8 +14,18 @@ use wellen::{Hierarchy, LoadOptions, SignalRef, SignalValue, SignalValueRef, Tim
 
 mod utils;
 
-/// diff tests the streaming vs. the viewer centric interface
+/// Execute the full diff stream test
 fn diff_stream(filename: &str) {
+    diff_stream_internal(filename, false)
+}
+
+/// Only basic tests for larger files
+fn diff_stream_basic(filename: &str) {
+    diff_stream_internal(filename, true)
+}
+
+/// diff tests the streaming vs. the viewer centric interface
+fn diff_stream_internal(filename: &str, only_basic: bool) {
     let mut streamed = load_streaming(filename);
     let mut batch = wellen::simple::read(filename).expect("failed to open file in batch mode");
     load_all_signals(&mut batch);
@@ -29,22 +39,26 @@ fn diff_stream(filename: &str) {
 
     // simply stream each individual signal change
     diff_stream_changes(&batch, &mut streamed, &time_to_idx, Filter::all());
-    // make sure we can stream twice
-    diff_stream_changes(&batch, &mut streamed, &time_to_idx, Filter::all());
-    // compare for three random signal subselections
+
     let mut rnd = Xoshiro256PlusPlus::from_seed([0; 32]);
-    for _ in 0..3 {
-        let signals = random_signals(&mut rnd, batch.hierarchy());
-        let filter = Filter::include_signals(&signals);
-        diff_stream_changes(&batch, &mut streamed, &time_to_idx, filter);
-    }
-    // batch changes in a single time step
-    diff_stream_time_change(&batch, &mut streamed, &time_to_idx, Filter::all());
-    // batch changes with three random signal subselections
-    for _ in 0..3 {
-        let signals = random_signals(&mut rnd, batch.hierarchy());
-        let filter = Filter::include_signals(&signals);
-        diff_stream_time_change(&batch, &mut streamed, &time_to_idx, filter);
+    if !only_basic {
+        // make sure we can stream twice
+        diff_stream_changes(&batch, &mut streamed, &time_to_idx, Filter::all());
+        // compare for three random signal subselections
+        for _ in 0..3 {
+            let signals = random_signals(&mut rnd, batch.hierarchy());
+            let filter = Filter::include_signals(&signals);
+            diff_stream_changes(&batch, &mut streamed, &time_to_idx, filter);
+        }
+
+        // batch changes in a single time step
+        diff_stream_time_change(&batch, &mut streamed, &time_to_idx, Filter::all());
+        // batch changes with three random signal subselections
+        for _ in 0..3 {
+            let signals = random_signals(&mut rnd, batch.hierarchy());
+            let filter = Filter::include_signals(&signals);
+            diff_stream_time_change(&batch, &mut streamed, &time_to_idx, filter);
+        }
     }
 }
 
@@ -483,7 +497,7 @@ fn diff_stream_verilator_surfer_issue_201() {
 
 #[test]
 fn diff_stream_verilator_swerv1() {
-    diff_stream("inputs/verilator/swerv1.vcd");
+    diff_stream_basic("inputs/verilator/swerv1.vcd");
 }
 
 #[test]
@@ -508,7 +522,7 @@ fn diff_stream_verilator_surfer_issue_201_fst() {
 
 #[test]
 fn diff_stream_verilator_verilator_incomplete() {
-    diff_stream("inputs/verilator/verilator-incomplete.fst");
+    diff_stream_basic("inputs/verilator/verilator-incomplete.fst");
 }
 
 #[test]
