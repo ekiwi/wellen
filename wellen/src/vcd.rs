@@ -1125,10 +1125,6 @@ fn read_values(
     }
 }
 
-fn is_white_space(b: u8) -> bool {
-    matches!(b, b' ' | b'\n' | b'\r' | b'\t')
-}
-
 enum FirstTokenResult {
     Time(u64),
     OneBitValue,
@@ -1219,7 +1215,7 @@ impl ParseBodyOutput for VcdEncoder<'_> {
     }
 
     #[inline]
-    fn value(&mut self, value: &[u8], id: &[u8]) -> Result<()> {
+    fn value(&mut self, value: &[u8], id: &[u8], has_escape: bool) -> Result<()> {
         // In the first thread, we might encounter a dump values which dumps all initial values
         // without specifying a timestamp
         if self.is_first_part_of_vcd && !self.found_first_time_step {
@@ -1238,12 +1234,17 @@ impl ParseBodyOutput for VcdEncoder<'_> {
                 },
                 Some(lookup) => lookup[id].index() as u64,
             };
-            // Substitute escape sequences as defined in libfst: "\\XXX" octal escapes and simple single-character escapes.
-            // See https://github.com/gtkwave/libfst/blob/6a52070cd62ec65c29832bc95e7db493504aa7ac/src/fstapi.c#L6774
-            // As well as hex escapes "\xHH" which pyvcd (used by Amaranth) produces.
-            // See https://github.com/SanDisk-Open-Source/pyvcd/blob/0890733e2fd77cc3483ddddac8f44053e902a2ef/vcd/writer.py#L605
-            let escaped = unescape_vcd_value(value);
-            self.enc.vcd_value_change(num_id, escaped.as_ref());
+
+            if has_escape {
+                // Substitute escape sequences as defined in libfst: "\\XXX" octal escapes and simple single-character escapes.
+                // See https://github.com/gtkwave/libfst/blob/6a52070cd62ec65c29832bc95e7db493504aa7ac/src/fstapi.c#L6774
+                // As well as hex escapes "\xHH" which pyvcd (used by Amaranth) produces.
+                // See https://github.com/SanDisk-Open-Source/pyvcd/blob/0890733e2fd77cc3483ddddac8f44053e902a2ef/vcd/writer.py#L605
+                let escaped = unescape_vcd_value(value);
+                self.enc.vcd_value_change(num_id, escaped.as_ref());
+            } else {
+                self.enc.vcd_value_change(num_id, value);
+            }
         }
         Ok(())
     }
@@ -1294,7 +1295,7 @@ fn read_single_stream_of_values<R: BufRead + Seek>(
 
 trait ParseBodyOutput {
     fn time(&mut self, value: u64) -> Result<()>;
-    fn value(&mut self, value: &[u8], id: &[u8]) -> Result<()>;
+    fn value(&mut self, value: &[u8], id: &[u8], has_escape: bool) -> Result<()>;
 }
 
 fn parse_body(
@@ -1310,6 +1311,7 @@ fn parse_body(
     let mut first = Vec::with_capacity(32);
     let mut id = Vec::with_capacity(32);
     let mut final_pos = 0;
+    let mut has_escape = false;
 
     for (pos, b) in input.bytes().enumerate() {
         final_pos = pos;
@@ -1323,7 +1325,7 @@ fn parse_body(
                 }
             }
             BodyState::ParsingFirstToken => {
-                if is_white_space(b) {
+                if b.is_ascii_whitespace() {
                     if first.is_empty() {
                         // we are in front of the token => nothing to do
                     } else {
@@ -1342,7 +1344,7 @@ fn parse_body(
                                 BodyState::ParsingFirstToken
                             }
                             FirstTokenResult::OneBitValue => {
-                                out.value(&first[0..1], &first[1..])?;
+                                out.value(&first[0..1], &first[1..], false)?;
                                 BodyState::ParsingFirstToken
                             }
                             FirstTokenResult::MultiBitValue => BodyState::ParsingIdToken,
@@ -1361,11 +1363,12 @@ fn parse_body(
             }
 
             BodyState::ParsingIdToken => {
-                if is_white_space(b) {
+                if b.is_ascii_whitespace() {
                     if id.is_empty() {
                         // we are in front of the token => nothing to do
                     } else {
-                        out.value(first.as_slice(), id.as_slice())?;
+                        debug_assert_eq!(first.iter().any(|&cc| cc == b'\\'), has_escape);
+                        out.value(first.as_slice(), id.as_slice(), has_escape)?;
                         first.clear();
                         id.clear();
                         state = BodyState::ParsingFirstToken;
@@ -1375,7 +1378,7 @@ fn parse_body(
                 }
             }
             BodyState::LookingForEndToken => {
-                if is_white_space(b) {
+                if b.is_ascii_whitespace() {
                     if first.is_empty() {
                         // we are in front of the token => nothing to do
                     } else {
@@ -1399,13 +1402,14 @@ fn parse_body(
                     out.time(value)?;
                 }
                 FirstTokenResult::OneBitValue => {
-                    out.value(&first[0..1], &first[1..])?;
+                    out.value(&first[0..1], &first[1..], false)?;
                 }
                 _ => {} // nothing to do
             };
         }
         BodyState::ParsingIdToken => {
-            out.value(first.as_slice(), id.as_slice())?;
+            debug_assert_eq!(first.iter().any(|&cc| cc == b'\\'), has_escape);
+            out.value(first.as_slice(), id.as_slice(), has_escape)?;
         }
         _ => {} // nothing to do
     }
@@ -1473,7 +1477,7 @@ where
     }
 
     #[inline]
-    fn value(&mut self, value: &[u8], id: &[u8]) -> Result<()> {
+    fn value(&mut self, value: &[u8], id: &[u8], has_escape: bool) -> Result<()> {
         // In the first thread, we might encounter a dump values which dumps all initial values
         // without specifying a timestamp
         if self.enc.time_is_none() {
@@ -1491,12 +1495,16 @@ where
             Some(lookup) => lookup[id].index() as u64,
         };
 
-        // Substitute escape sequences as defined in libfst: "\\XXX" octal escapes and simple single-character escapes.
-        // See https://github.com/gtkwave/libfst/blob/6a52070cd62ec65c29832bc95e7db493504aa7ac/src/fstapi.c#L6774
-        // As well as hex escapes "\xHH" which pyvcd (used by Amaranth) produces.
-        // See https://github.com/SanDisk-Open-Source/pyvcd/blob/0890733e2fd77cc3483ddddac8f44053e902a2ef/vcd/writer.py#L605
-        let escaped = unescape_vcd_value(value);
-        self.enc.vcd_value_change(num_id, escaped.as_ref());
+        if has_escape {
+            // Substitute escape sequences as defined in libfst: "\\XXX" octal escapes and simple single-character escapes.
+            // See https://github.com/gtkwave/libfst/blob/6a52070cd62ec65c29832bc95e7db493504aa7ac/src/fstapi.c#L6774
+            // As well as hex escapes "\xHH" which pyvcd (used by Amaranth) produces.
+            // See https://github.com/SanDisk-Open-Source/pyvcd/blob/0890733e2fd77cc3483ddddac8f44053e902a2ef/vcd/writer.py#L605
+            let escaped = unescape_vcd_value(value);
+            self.enc.vcd_value_change(num_id, escaped.as_ref());
+        } else {
+            self.enc.vcd_value_change(num_id, value);
+        }
         Ok(())
     }
 }
@@ -1712,7 +1720,7 @@ mod tests {
             Ok(())
         }
 
-        fn value(&mut self, value: &[u8], id: &[u8]) -> Result<()> {
+        fn value(&mut self, value: &[u8], id: &[u8], _has_escape: bool) -> Result<()> {
             let desc = format!(
                 "{} = {}",
                 std::str::from_utf8(id)?,
