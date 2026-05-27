@@ -108,7 +108,7 @@ impl Signal {
         if width > 0 {
             debug_assert_eq!(time_indices.len(), bytes.len() / width as usize);
         }
-        let data = SignalChangeData::FixedLength {
+        let data = ChangeData::FixedLength {
             encoding,
             bytes_per_entry: width,
             bytes,
@@ -116,7 +116,7 @@ impl Signal {
         Signal {
             idx,
             time_indices,
-            data,
+            data: SignalChangeData(data),
         }
     }
 
@@ -126,7 +126,7 @@ impl Signal {
         strings: Vec<String>,
     ) -> Self {
         assert_eq!(time_indices.len(), strings.len());
-        let data = SignalChangeData::VariableLength(strings);
+        let data = SignalChangeData(ChangeData::VariableLength(strings));
         Signal {
             idx,
             time_indices,
@@ -137,9 +137,9 @@ impl Signal {
     pub fn size_in_memory(&self) -> usize {
         let base = std::mem::size_of::<Self>();
         let time = self.time_indices.len() * std::mem::size_of::<TimeTableIdx>();
-        let data = match &self.data {
-            SignalChangeData::FixedLength { bytes, .. } => bytes.len(),
-            SignalChangeData::VariableLength(strings) => strings
+        let data = match &self.data.0 {
+            ChangeData::FixedLength { bytes, .. } => bytes.len(),
+            ChangeData::VariableLength(strings) => strings
                 .iter()
                 .map(|s| s.len() + std::mem::size_of::<String>())
                 .sum::<usize>(),
@@ -190,13 +190,17 @@ impl Signal {
     }
 
     pub fn max_states(&self) -> Option<States> {
-        if let SignalChangeData::FixedLength { encoding, .. } = self.data
+        if let ChangeData::FixedLength { encoding, .. } = self.data.0
             && let FixedWidthEncoding::BitVector { max_states, .. } = encoding
         {
             Some(max_states)
         } else {
             None
         }
+    }
+
+    pub fn data(&self) -> &SignalChangeData {
+        &self.data
     }
 }
 
@@ -298,7 +302,11 @@ pub struct DataOffset {
 
 #[derive(Eq, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-enum SignalChangeData {
+pub struct SignalChangeData(ChangeData);
+
+#[derive(Eq, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
+enum ChangeData {
     FixedLength {
         encoding: FixedWidthEncoding,
         bytes_per_entry: u32,
@@ -309,25 +317,25 @@ enum SignalChangeData {
 
 impl SignalChangeData {
     fn signal_encoding(&self) -> SignalEncoding {
-        match self {
-            SignalChangeData::FixedLength { encoding, .. } => encoding.signal_encoding(),
-            SignalChangeData::VariableLength(_) => SignalEncoding::String,
+        match self.0 {
+            ChangeData::FixedLength { encoding, .. } => encoding.signal_encoding(),
+            ChangeData::VariableLength(_) => SignalEncoding::String,
         }
     }
 
     #[allow(dead_code)]
     fn is_empty(&self) -> bool {
-        match self {
-            SignalChangeData::FixedLength { bytes, .. } => bytes.is_empty(),
-            SignalChangeData::VariableLength(data) => data.is_empty(),
+        match &self.0 {
+            ChangeData::FixedLength { bytes, .. } => bytes.is_empty(),
+            ChangeData::VariableLength(data) => data.is_empty(),
         }
     }
 }
 
 impl Debug for SignalChangeData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SignalChangeData::FixedLength {
+        match &self.0 {
+            ChangeData::FixedLength {
                 encoding, bytes, ..
             } => {
                 write!(
@@ -336,7 +344,7 @@ impl Debug for SignalChangeData {
                     bytes.len()
                 )
             }
-            SignalChangeData::VariableLength(values) => {
+            ChangeData::VariableLength(values) => {
                 write!(f, "SignalChangeData({} strings)", values.len())
             }
         }
@@ -344,9 +352,9 @@ impl Debug for SignalChangeData {
 }
 
 impl SignalChangeData {
-    fn get_value_at(&self, offset: usize) -> SignalValueRef<'_> {
-        match &self {
-            SignalChangeData::FixedLength {
+    pub fn get_value_at(&self, offset: usize) -> SignalValueRef<'_> {
+        match &self.0 {
+            ChangeData::FixedLength {
                 encoding,
                 bytes_per_entry,
                 bytes,
@@ -393,7 +401,7 @@ impl SignalChangeData {
                     )),
                 }
             }
-            SignalChangeData::VariableLength(strings) => SignalValueRef::String(&strings[offset]),
+            ChangeData::VariableLength(strings) => SignalValueRef::String(&strings[offset]),
         }
     }
 }
@@ -409,7 +417,7 @@ mod tests {
         // 4 bytes for length + tag + padding
         assert_eq!(std::mem::size_of::<FixedWidthEncoding>(), 8);
 
-        assert_eq!(std::mem::size_of::<SignalChangeData>(), 40);
+        assert_eq!(std::mem::size_of::<ChangeData>(), 40);
         assert_eq!(std::mem::size_of::<Signal>(), 72);
 
         // since there is some empty space in the Signal struct, we can make it an option for free!
