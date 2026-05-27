@@ -1,5 +1,5 @@
 use either::Either;
-use pyo3::exceptions::PyKeyError;
+use pyo3::exceptions::{PyIndexError, PyKeyError};
 use pyo3::types::PyInt;
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use rustc_hash::FxHashMap;
@@ -23,7 +23,6 @@ fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<VarIter>()?;
     m.add_class::<Waveform>()?;
     m.add_class::<Signal>()?;
-    m.add_class::<SignalChangeIter>()?;
     m.add_class::<Timescale>()?;
     m.add_class::<TimescaleUnit>()?;
     Ok(())
@@ -536,8 +535,7 @@ impl SharedWaves {
     }
 }
 
-#[pyclass(from_py_object)]
-#[derive(Clone)]
+#[pyclass(sequence)]
 struct Signal {
     signal: Arc<wellen::Signal>,
     time_table: Arc<wellen::TimeTable>,
@@ -545,36 +543,18 @@ struct Signal {
 
 #[pymethods]
 impl Signal {
-    pub fn __iter__(&self) -> SignalChangeIter {
-        SignalChangeIter {
-            signal: self.clone(),
-            offset: 0,
-        }
+    fn __len__(&self) -> usize {
+        self.signal.time_indices().len()
     }
-}
 
-#[pyclass(from_py_object)]
-#[derive(Clone)]
-/// Iterates across all changes -- the returned object is a tuple of (Time, Value)
-struct SignalChangeIter {
-    signal: Signal,
-    offset: usize,
-}
-
-#[pymethods]
-impl SignalChangeIter {
-    fn __iter__(&self) -> Self {
-        self.clone()
-    }
-    fn __next__(&mut self) -> Option<(wellen::Time, String)> {
-        if let Some(time_idx) = self.signal.signal.time_indices().get(self.offset) {
-            let data = self.signal.signal.data().get_value_at(self.offset);
-            self.offset += 1;
-            let time = self.signal.time_table[*time_idx as usize];
+    fn __getitem__(&self, offset: isize) -> PyResult<(wellen::Time, String)> {
+        if let Some(time_idx) = self.signal.time_indices().get(offset as usize) {
+            let data = self.signal.data().get_value_at(offset as usize);
+            let time = self.time_table[*time_idx as usize];
             let data = format!("{data}");
-            Some((time, data))
+            Ok((time, data))
         } else {
-            None
+            Err(PyIndexError::new_err(format!("out of bounds {offset}")))
         }
     }
 }
