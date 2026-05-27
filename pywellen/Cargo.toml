@@ -2,7 +2,7 @@
 name = "pywellen"
 version.workspace = true
 rust-version.workspace = true
-edition = "2021"
+edition.workspace = true
 authors = [
     "Kevin Laeufer <laeufer@cornell.edu>",
     "James Connolly <dogman3117@gmail.com>",
@@ -13,6 +13,8 @@ name = "pywellen"
 crate-type = ["cdylib"]
 
 [dependencies]
+either = "1.16.0"
 num-bigint = "0.4.6"
-pyo3 = { version = "0.28.3", features = ["num-bigint"] }
+pyo3 = { version = "0.28.3", features = ["num-bigint", "either"] }
 wellen = { workspace = true }
+rustc-hash.workspace = true
