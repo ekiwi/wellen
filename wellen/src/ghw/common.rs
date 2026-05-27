@@ -409,12 +409,12 @@ pub enum GhwHierarchyKind {
 }
 
 /// The order in which the nine values appear in the STD_LOGIC enum.
-pub const STD_LOGIC_VALUES: [u8; 9] = [b'u', b'x', b'0', b'1', b'z', b'w', b'l', b'h', b'-'];
+pub const STD_LOGIC_VALUES: [u8; 9] = *b"ux01zwlh-";
 /// Mapping from STD_LOGIC value to the `wellen` nine state encoding: ['0', '1', 'x', 'z', 'h', 'u', 'w', 'l', '-']
 pub const STD_LOGIC_LUT: [u8; 9] = [5, 2, 0, 1, 3, 6, 7, 4, 8];
 
 /// The order in which the two values appear in the BIT enum.
-pub const VHDL_BIT_VALUES: [u8; 2] = [b'0', b'1'];
+pub const VHDL_BIT_VALUES: [u8; 2] = *b"01";
 
 #[cfg(test)]
 mod tests {

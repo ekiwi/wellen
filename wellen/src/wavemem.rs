@@ -428,9 +428,9 @@ impl Block {
     }
 
     fn get_offset_and_length(&self, id: SignalRef) -> Option<(usize, usize)> {
-        let offset = match self.offsets[id.index()] {
-            None => return None,
-            Some(offset) => offset.get_index(),
+        let offset = {
+            let offset = self.offsets[id.index()]?;
+            offset.get_index()
         };
         // find the next offset or take the data len
         let next_offset = self

@@ -1369,7 +1369,7 @@ fn parse_body(
                     if id.is_empty() {
                         // we are in front of the token => nothing to do
                     } else {
-                        debug_assert_eq!(first.iter().any(|&cc| cc == b'\\'), has_escape);
+                        debug_assert_eq!(first.contains(&b'\\'), has_escape);
                         out.value(first.as_slice(), id.as_slice(), has_escape)?;
                         first.clear();
                         has_escape = false;
@@ -1412,7 +1412,7 @@ fn parse_body(
             };
         }
         BodyState::ParsingIdToken => {
-            debug_assert_eq!(first.iter().any(|&cc| cc == b'\\'), has_escape);
+            debug_assert_eq!(first.contains(&b'\\'), has_escape);
             out.value(first.as_slice(), id.as_slice(), has_escape)?;
         }
         _ => {} // nothing to do
