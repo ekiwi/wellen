@@ -36,5 +36,5 @@ dev = [
 ]
 
 [tool.uv]
-cache-keys = [{file = "pyproject.toml"}, {file = "Cargo.toml"}, {file = "src/*.rs"}]
+cache-keys = [{file = "pyproject.toml"}, {file = "Cargo.toml"}, {file = "src/*.rs"}, {file = "../wellen/src/*.rs"}, {file = "../wellen/src/**/*.rs"}]
 

@@ -15,6 +15,47 @@ def _git_root_rel(path: str) -> str:
         return path
 
 
+def test_var_and_scope_index_api():
+    """
+    Demonstrates the index based api to access variables and scopes.
+    """
+    filename = _git_root_rel("wellen/inputs/verilator/surfer_issue_201.fst")
+    wave = Waveform(filename)
+    assert wave["TOP"].type == "module"
+    d_ready = wave["TOP.top.pix_port.d_ready"]
+    assert d_ready.type == "logic"
+    assert d_ready.name == "d_ready"
+    assert d_ready.full_name == "TOP.top.pix_port.d_ready"
+    d_ready_by_another_way = wave["TOP"]["top"]["pix_port"]["d_ready"]
+    assert d_ready == d_ready_by_another_way
+
+    # ensure that var can be hashed
+    dd = {d_ready: 1, d_ready_by_another_way: 3}
+    assert len(dd) == 1
+
+
+def test_var_change_access():
+    """
+    We automagically load signals if needed in order to provide an interface similar to vcdvcd
+    """
+    filename = _git_root_rel("wellen/inputs/verilator/surfer_issue_201.fst")
+    wave = Waveform(filename)
+
+    d_trig = wave["TOP.top.pix_port.d_trig"]
+    assert d_trig.var_type == "logic"
+    assert d_trig.size == 1
+    assert list(d_trig.tv) == [
+        (0, "0"),
+        (27400000, "1"),
+        (47400000, "0"),
+        (53800000, "1"),
+        (73800000, "0"),
+        (80200000, "1"),
+        (100200000, "0"),
+        (106600000, "1"),
+    ]
+
+
 def iterate_hierarchy_example():
     """
     FIXME: this test doesnt do anything right now,
@@ -28,7 +69,7 @@ def iterate_hierarchy_example():
     all_vars = [var for var in hier.all_vars()][0:10]
     for var in all_vars:
         sig = wave.get_signal(var)
-        print(f"printing all the changes for {var.full_name(hier)}")
+        print(f"printing all the changes for {var.full_name()}")
         for change_time, value in sig.all_changes():
             print(f"Change recorded at time {change_time} with new value {value}")
 

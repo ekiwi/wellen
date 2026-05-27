@@ -603,6 +603,10 @@ impl ScopeOrVarRef {
     pub fn deref<'a>(&self, h: &'a Hierarchy) -> ScopeOrVar<'a> {
         h.get_item(*self)
     }
+
+    pub fn name<'a>(&self, h: &'a Hierarchy) -> &'a str {
+        h.get_item(*self).name(h)
+    }
 }
 
 impl From<ScopeRef> for ScopeOrVarRef {
@@ -621,6 +625,15 @@ impl From<VarRef> for ScopeOrVarRef {
 pub enum ScopeOrVar<'a> {
     Scope(&'a Scope),
     Var(&'a Var),
+}
+
+impl<'a> ScopeOrVar<'a> {
+    pub fn name<'b>(&self, h: &'b Hierarchy) -> &'b str {
+        match self {
+            ScopeOrVar::Scope(s) => s.name(h),
+            ScopeOrVar::Var(v) => v.name(h),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -988,6 +1001,67 @@ impl Hierarchy {
             }
         }
     }
+}
+
+/// Item access.
+impl Hierarchy {
+    pub fn lookup_item_by_name(&self, name: &str) -> Option<ScopeOrVarRef> {
+        lookup_item_by_name(self, self.items(), name)
+    }
+
+    pub fn lookup_item_in_scope_by_name(
+        &self,
+        root: ScopeRef,
+        name: &str,
+    ) -> Option<ScopeOrVarRef> {
+        lookup_item_by_name(self, self[root].items(self), name)
+    }
+}
+
+/// Common implementation of name lookup
+fn lookup_item_by_name(
+    h: &Hierarchy,
+    items: impl Iterator<Item = ScopeOrVarRef>,
+    suffix: &str,
+) -> Option<ScopeOrVarRef> {
+    find_longest_match(h, items, suffix).and_then(|(remaining_suffix, item)| {
+        if remaining_suffix.is_empty() {
+            Some(item)
+        } else if let ScopeOrVarRef::Scope(scope) = item {
+            lookup_item_by_name(h, h[scope].items(h), remaining_suffix)
+        } else {
+            // we matched a variable, but there is a suffix
+            // TODO: see if we match an index or something like this
+            Some(item)
+        }
+    })
+}
+
+fn find_longest_match<'a>(
+    h: &Hierarchy,
+    items: impl Iterator<Item = ScopeOrVarRef>,
+    suffix: &'a str,
+) -> Option<(&'a str, ScopeOrVarRef)> {
+    let mut match_item = None;
+    let mut match_suffix = suffix;
+    let mut match_len = 0;
+    for item in items {
+        let name = item.name(h);
+        let new_match_len = name.len();
+        if new_match_len > match_len
+            && let Some(new_suffix) = suffix.strip_prefix(item.name(h))
+        {
+            if new_suffix.is_empty() {
+                return Some((new_suffix, item));
+            } else if let Some(new_suffix) = new_suffix.strip_prefix(SCOPE_SEPARATOR) {
+                match_len = new_match_len;
+                match_item = Some(item);
+                match_suffix = new_suffix;
+            }
+            // if there is a match that breaks somewhere inside a name, that would not be valid
+        }
+    }
+    match_item.map(|i| (match_suffix, i))
 }
 
 impl Hierarchy {
