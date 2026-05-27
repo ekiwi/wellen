@@ -1355,9 +1355,11 @@ fn parse_body(
                         // clear buffer to find next token
                         if state != BodyState::ParsingIdToken {
                             first.clear();
+                            has_escape = false;
                         }
                     }
                 } else {
+                    has_escape |= b == b'\\';
                     first.push(b);
                 }
             }
@@ -1370,6 +1372,7 @@ fn parse_body(
                         debug_assert_eq!(first.iter().any(|&cc| cc == b'\\'), has_escape);
                         out.value(first.as_slice(), id.as_slice(), has_escape)?;
                         first.clear();
+                        has_escape = false;
                         id.clear();
                         state = BodyState::ParsingFirstToken;
                     }
@@ -1386,6 +1389,7 @@ fn parse_body(
                             state = BodyState::ParsingFirstToken;
                         }
                         first.clear();
+                        has_escape = false;
                     }
                 } else {
                     first.push(b);
