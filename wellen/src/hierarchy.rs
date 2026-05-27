@@ -813,6 +813,65 @@ fn to_scope_ref_iterator(
     })
 }
 
+
+struct HierarchyItemIdRecursiveIterator<'a> {
+    hierarchy: &'a Hierarchy,
+    parent: Option<ScopeRef>,
+    current: Option<ScopeOrVarRef>,
+    done: bool,
+}
+
+impl<'a> HierarchyItemIdRecursiveIterator<'a> {
+    fn new(hierarchy: &'a Hierarchy, parent: Option<ScopeRef>) -> Self {
+        Self {
+            hierarchy,
+            parent,
+            current: None,
+            done: false,
+        }
+    }
+}
+
+impl Iterator for HierarchyItemIdRecursiveIterator<'_> {
+    type Item = ScopeOrVarRef;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            None
+        } else if let Some(prev) = self.current {
+            // find next item
+            match prev {
+                ScopeOrVarRef::Scope(s) => {
+                    let s = &self.hierarchy[s];
+                    // depth first
+                    if let Some(child) = s.child {
+                        self.current = Some(child);
+                    } else if let Some(next) = s.next {
+                        self.current = Some(next)
+                    } else {
+                        todo!()
+                    }
+                }
+                ScopeOrVarRef::Var(_) => {
+                    todo!()
+                }
+            }
+            self.current
+        } else {
+            // find first child
+            if let Some(pp) = self.parent {
+                self.current  = self.hierarchy[pp].child;
+            } else {
+                self.current = self.hierarchy.first_item();
+            }
+            // if the child does not exist, we are done
+            self.done = self.current.is_none();
+            self.current
+        }
+
+    }
+}
+
 #[derive(Debug, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct SourceLocId(NonZeroU32);
@@ -897,14 +956,19 @@ impl HierarchyMetaData {
 
 // public implementation
 impl Hierarchy {
-    /// Returns an iterator over all variables (at all levels).
-    pub fn all_vars(&self) -> impl Iterator<Item = &Var> + '_ {
-        self.vars.iter()
+    /// Recursively iterates over all scopes and variables in a depth first manner
+    pub fn all_items(&self) -> impl Iterator<Item = ScopeOrVarRef> + '_ {
+        HierarchyItemIdRecursiveIterator::new(self, None)
     }
 
-    /// Returns an iterator over all scopes (at all levels).
-    pub fn all_scopes(&self) -> impl Iterator<Item = &Scope> + '_ {
-        self.scopes.iter()
+    /// Recursively iterates over all variables (at all levels).
+    pub fn all_vars(&self) -> impl Iterator<Item = VarRef> + '_ {
+        to_var_ref_iterator(self.items())
+    }
+
+    /// Recursively iterates over all scopes (at all levels).
+    pub fn all_scopes(&self) -> impl Iterator<Item = ScopeRef> + '_ {
+        to_scope_ref_iterator(self.items())
     }
 
     /// Retrieves the first item inside the implicit fake top scope

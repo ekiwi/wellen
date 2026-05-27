@@ -44,6 +44,7 @@ def test_var_change_access():
     d_trig = wave["TOP.top.pix_port.d_trig"]
     assert d_trig.var_type == "logic"
     assert d_trig.size == 1
+    assert len(d_trig.tv) == 8
     assert list(d_trig.tv) == [
         (0, "0"),
         (27400000, "1"),
@@ -54,6 +55,8 @@ def test_var_change_access():
         (100200000, "0"),
         (106600000, "1"),
     ]
+    # assert d_trig.tv[0] == (0, "0")
+    # assert d_trig.tv[5] == (80200000, "1")
 
 
 def iterate_hierarchy_example():
@@ -63,7 +66,6 @@ def iterate_hierarchy_example():
     """
 
     wave = Waveform(path=_git_root_rel("wellen/inputs/verilator/swerv1.vcd"))
-    hier = wave.hierarchy
 
     # only get the first ten
     all_vars = [var for var in hier.all_vars()][0:10]
