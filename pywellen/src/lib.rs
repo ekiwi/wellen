@@ -5,7 +5,7 @@ use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use rustc_hash::FxHashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, RwLock};
-use wellen::{LoadOptions, ScopeOrVarRef, ScopeType, SignalValueRef, TimeTableIdx};
+use wellen::{LoadOptions, ScopeOrVarRef, ScopeType};
 
 pub trait PyErrExt<T> {
     fn toerr(self) -> PyResult<T>;
@@ -545,46 +545,7 @@ struct Signal {
 
 #[pymethods]
 impl Signal {
-    pub fn value_at_time<'a>(
-        &self,
-        time: wellen::Time,
-        py: Python<'a>,
-    ) -> Option<Bound<'a, PyAny>> {
-        let val = self
-            .time_table
-            .as_ref()
-            .binary_search(&time)
-            .unwrap_or_else(|val| val);
-        self.value_at_idx(val as TimeTableIdx, py)
-    }
-
-    pub fn value_at_idx<'a>(&self, idx: TimeTableIdx, py: Python<'a>) -> Option<Bound<'a, PyAny>> {
-        let maybe_signal = self
-            .signal
-            .get_offset(idx)
-            .map(|data_offset| self.signal.get_value_at(&data_offset, 0));
-        if let Some(signal) = maybe_signal {
-            let output = match signal {
-                SignalValueRef::Real(inner) => Some(inner.into_pyobject(py).unwrap().into_any()),
-                SignalValueRef::String(str) => Some(str.into_pyobject(py).unwrap().into_any()),
-                _ => todo!(),
-                // _ => match BigUint::try_from_signal(signal) {
-                //     // If this signal is 2bits, this function will return an int
-                //     Some(number) => Some(number.into_pyobject(py).unwrap().into_any()),
-                //     // if this signal is not 2bits (e.g. it contains z,x, etc) then this function
-                //     // will return a string
-                //     None => signal
-                //         .to_bit_string()
-                //         .map(|val| val.into_pyobject(py).unwrap().into_any()),
-                // },
-            };
-            output
-        } else {
-            None
-        }
-    }
-
-    pub fn all_changes(&self) -> SignalChangeIter {
+    pub fn __iter__(&self) -> SignalChangeIter {
         SignalChangeIter {
             signal: self.clone(),
             offset: 0,
@@ -592,7 +553,8 @@ impl Signal {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
+#[derive(Clone)]
 /// Iterates across all changes -- the returned object is a tuple of (Time, Value)
 struct SignalChangeIter {
     signal: Signal,
@@ -601,18 +563,16 @@ struct SignalChangeIter {
 
 #[pymethods]
 impl SignalChangeIter {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
+    fn __iter__(&self) -> Self {
+        self.clone()
     }
-    fn __next__<'a>(
-        mut slf: PyRefMut<'_, Self>,
-        python: Python<'a>,
-    ) -> Option<(wellen::Time, Bound<'a, PyAny>)> {
-        if let Some(time_idx) = slf.signal.signal.time_indices().get(slf.offset) {
-            let data = slf.signal.value_at_idx(*time_idx, python);
-            let time = slf.signal.time_table.get(*time_idx as usize).cloned()?;
-            slf.offset += 1;
-            data.map(|val| (time, val))
+    fn __next__(&mut self) -> Option<(wellen::Time, String)> {
+        if let Some(time_idx) = self.signal.signal.time_indices().get(self.offset) {
+            let data = self.signal.signal.data().get_value_at(self.offset);
+            self.offset += 1;
+            let time = self.signal.time_table[*time_idx as usize];
+            let data = format!("{data}");
+            Some((time, data))
         } else {
             None
         }
