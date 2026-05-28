@@ -127,8 +127,8 @@ pub fn read_hierarchy(
                 debug_assert!(
                     strings.is_empty(),
                     "unexpected second string table:\n{:?}\n{:?}",
-                    &strings,
-                    &table
+                    strings,
+                    table
                 );
                 strings = table;
                 // add all strings to the hierarchy
