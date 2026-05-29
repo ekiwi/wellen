@@ -225,6 +225,7 @@ fn waveform_var_type_to_string(tpe: VarType) -> &'static str {
         VarType::Logic => "logic",
         VarType::Int => "int",
         VarType::Enum => "enum",
+        VarType::EventParameter => "event_parameter",
         other => todo!("Convert {other:?} to string."),
     }
 }
@@ -267,18 +268,31 @@ fn diff_hierarchy_item(
                     our_var.name(our_hier)
                 );
             }
-            assert_eq!(
-                ref_var.var_type.to_string(),
-                waveform_var_type_to_string(our_var.var_type())
-            );
-            if !matches!(our_var.var_type(), VarType::Event) {
-                match our_var.length(our_hier) {
-                    None => {} // nothing to check
-                    Some(size) => {
-                        if ref_var.size == 0 {
-                            assert_eq!(1, size)
-                        } else {
-                            assert_eq!(ref_var.size, size, "{}", our_var.full_name(our_hier))
+
+            if matches!(our_var.var_type(), VarType::EventParameter) {
+                // we made up EventParameter in order to denote 0-bit parameters
+                assert_eq!(ref_var.var_type.to_string(), "parameter");
+                assert_eq!(ref_var.size, 0);
+            } else {
+                assert_eq!(
+                    ref_var.var_type.to_string(),
+                    waveform_var_type_to_string(our_var.var_type())
+                );
+                if !matches!(our_var.var_type(), VarType::Event) {
+                    match our_var.length(our_hier) {
+                        None => {} // nothing to check
+                        Some(size) => {
+                            if ref_var.size == 0 {
+                                assert_eq!(
+                                    1,
+                                    size,
+                                    "{} ({:?})",
+                                    our_var.full_name(our_hier),
+                                    our_var.var_type()
+                                )
+                            } else {
+                                assert_eq!(ref_var.size, size, "{}", our_var.full_name(our_hier))
+                            }
                         }
                     }
                 }

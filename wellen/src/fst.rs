@@ -161,14 +161,6 @@ impl SignalWriter {
         }
         match value {
             FstSignalValue::String(value) => match self.tpe {
-                SignalEncoding::Event => {
-                    debug_assert!(
-                        value.len() <= 1,
-                        "event changes carry no value, or a 1-bit value"
-                    );
-                    // all we do is note the time of the event, there is no data to save
-                    self.time_indices.push(time_idx);
-                }
                 SignalEncoding::String => {
                     // map characters from ISO-8859-1 to UTF-8 by casting each byte to a char.
                     let str_value = value
@@ -183,9 +175,15 @@ impl SignalWriter {
                         self.time_indices.push(time_idx);
                     }
                 }
-                SignalEncoding::BitVector(len) => {
-                    let bits = len.get();
-
+                SignalEncoding::BitVector(0) => {
+                    debug_assert!(
+                        value.len() <= 1,
+                        "event changes carry no value, or a 1-bit value"
+                    );
+                    // all we do is note the time of the event, there is no data to save
+                    self.time_indices.push(time_idx);
+                }
+                SignalEncoding::BitVector(bits) => {
                     debug_assert_eq!(
                         value.len(),
                         bits as usize,
@@ -261,7 +259,6 @@ impl SignalWriter {
                     "Expecting reals, but got: {}",
                     String::from_utf8_lossy(value)
                 ),
-                SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
             },
             FstSignalValue::Real(value) => {
                 debug_assert_eq!(self.tpe, SignalEncoding::Real);
@@ -275,17 +272,6 @@ impl SignalWriter {
 
     fn finish(self) -> Signal {
         match self.tpe {
-            SignalEncoding::Event => {
-                debug_assert!(self.data_bytes.is_empty());
-                debug_assert!(self.strings.is_empty());
-                Signal::new_fixed_len(
-                    self.id,
-                    self.time_indices,
-                    FixedWidthEncoding::Event,
-                    0,
-                    self.data_bytes,
-                )
-            }
             SignalEncoding::String => {
                 debug_assert!(self.data_bytes.is_empty());
                 Signal::new_var_len(self.id, self.time_indices, self.strings)
@@ -300,12 +286,23 @@ impl SignalWriter {
                     self.data_bytes,
                 )
             }
-            SignalEncoding::BitVector(len) => {
+            SignalEncoding::BitVector(0) => {
+                debug_assert!(self.data_bytes.is_empty());
                 debug_assert!(self.strings.is_empty());
-                let (bytes, meta_byte) = get_len_and_meta(self.max_states, len.get());
+                Signal::new_fixed_len(
+                    self.id,
+                    self.time_indices,
+                    FixedWidthEncoding::Event,
+                    0,
+                    self.data_bytes,
+                )
+            }
+            SignalEncoding::BitVector(width) => {
+                debug_assert!(self.strings.is_empty());
+                let (bytes, meta_byte) = get_len_and_meta(self.max_states, width);
                 let encoding = FixedWidthEncoding::BitVector {
                     max_states: self.max_states,
-                    width: len.get(),
+                    width,
                     meta_byte,
                 };
                 Signal::new_fixed_len(
@@ -316,7 +313,6 @@ impl SignalWriter {
                     self.data_bytes,
                 )
             }
-            SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
         }
     }
 }
@@ -688,8 +684,8 @@ fn read_hierarchy<F: BufRead + Seek>(reader: &mut FstReader<F>) -> Result<Hierar
                     | FstVarType::RealTime
                     | FstVarType::RealParameter
                     | FstVarType::ShortReal => SignalEncoding::Real,
-                    FstVarType::Event => SignalEncoding::Event,
-                    _ => SignalEncoding::bit_vec_of_len(length),
+                    FstVarType::Event => SignalEncoding::BitVector(0),
+                    _ => SignalEncoding::BitVector(length),
                 };
                 h.add_var_raw_name(
                     name.as_bytes(),

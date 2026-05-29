@@ -9,11 +9,10 @@ use crate::fst::{get_bytes_per_entry, get_len_and_meta};
 use crate::signal::value::BitVecValue;
 use crate::wavemem::check_if_changed_and_truncate;
 use crate::{BitVecRef, Signal, SignalEncoding, SignalRef, States, TimeTableIdx};
-use std::num::NonZeroU32;
 
 pub fn transform_signal(transform: &DerivedBitVecSignal, inputs: &[&Signal]) -> Signal {
     match transform.output_encoding() {
-        SignalEncoding::BitVector(width) => transform_bv_signal(transform, width.get(), inputs),
+        SignalEncoding::BitVector(width) => transform_bv_signal(transform, width, inputs),
         other => todo!("Add support for generating a {:?} signal.", other),
     }
 }
@@ -128,7 +127,7 @@ impl DerivedBitVecSignal {
     /// Creates a new signal that is just the identity (full slice) of an existing one.
     pub fn new_identity(signal: SignalRef, enc: SignalEncoding) -> Self {
         if let SignalEncoding::BitVector(width) = enc {
-            Self::new_slice(signal, enc, width.get() - 1, 0)
+            Self::new_slice(signal, enc, width - 1, 0)
         } else {
             unreachable!("This function only works for bit vector signals")
         }
@@ -137,7 +136,7 @@ impl DerivedBitVecSignal {
     /// Concatenates a full signal to the left, i.e., on the most significant side.
     pub fn concat_left_full(&mut self, signal: SignalRef, enc: SignalEncoding) {
         if let SignalEncoding::BitVector(width) = enc {
-            self.concat_left(signal, enc, width.get() - 1, 0)
+            self.concat_left(signal, enc, width - 1, 0)
         } else {
             unreachable!("This function only works for bit vector signals")
         }
@@ -165,7 +164,7 @@ impl DerivedBitVecSignal {
     /// Concatenates a full signal to the right, i.e., on the least significant side.
     pub fn concat_right_full(&mut self, signal: SignalRef, enc: SignalEncoding) {
         if let SignalEncoding::BitVector(width) = enc {
-            self.concat_right(signal, enc, width.get() - 1, 0)
+            self.concat_right(signal, enc, width - 1, 0)
         } else {
             unreachable!("This function only works for bit vector signals")
         }
@@ -200,7 +199,7 @@ impl DerivedBitVecSignal {
     ) -> Extract {
         debug_assert!(msb >= lsb);
         if let SignalEncoding::BitVector(len) = enc {
-            debug_assert!(msb < len.get());
+            debug_assert!(msb < len);
             // check to see if we already have this signal as an input
             let signal = if let Some(ii) = self.inputs.iter().position(|i| *i == signal) {
                 ii as u16
@@ -219,7 +218,7 @@ impl DerivedBitVecSignal {
 /// TODO: turn this into more of a trait!
 impl DerivedBitVecSignal {
     pub fn output_encoding(&self) -> SignalEncoding {
-        SignalEncoding::BitVector(NonZeroU32::new(self.width).unwrap())
+        SignalEncoding::BitVector(self.width)
     }
 
     pub fn inputs(&self) -> &[SignalRef] {

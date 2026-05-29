@@ -441,9 +441,9 @@ fn read_hierarchy_inner(
                         length == 0 || length == 1,
                         "we generally expect event to be encoded as 1-bit signals!"
                     );
-                    SignalEncoding::Event
+                    SignalEncoding::BitVector(0)
                 }
-                _ => SignalEncoding::bit_vec_of_len(length),
+                _ => SignalEncoding::BitVector(length),
             };
 
             h.add_var_raw_name(
@@ -1632,7 +1632,9 @@ pub enum VcdBitVecChange<'a> {
     MultiBit(Cow<'a, [u8]>),
 }
 
-pub fn decode_vcd_bit_vec_change(len: NonZeroU32, value: &[u8]) -> (VcdBitVecChange<'_>, States) {
+pub fn decode_vcd_bit_vec_change(len: u32, value: &[u8]) -> (VcdBitVecChange<'_>, States) {
+    let len =
+        NonZeroU32::new(len).expect("decode_vcd_bit_vec_change should only be called for len > 0");
     if len.get() == 1 {
         // Simplify parsing of non-compliant output by checking last character
         let value_char = match value.last() {

@@ -1275,7 +1275,7 @@ fn add_var(
             h.add_var(
                 name,
                 VarType::Enum,
-                crate::hierarchy::SignalEncoding::bit_vec_of_len(bits),
+                crate::hierarchy::SignalEncoding::BitVector(bits),
                 dir,
                 None,
                 signal_ref,
@@ -1296,7 +1296,7 @@ fn add_var(
             h.add_var(
                 name,
                 var_type,
-                crate::hierarchy::SignalEncoding::bit_vec_of_len(1),
+                crate::hierarchy::SignalEncoding::BitVector(1),
                 dir,
                 None,
                 signal_ref,
@@ -1314,7 +1314,7 @@ fn add_var(
             h.add_var(
                 name,
                 var_type,
-                crate::hierarchy::SignalEncoding::bit_vec_of_len(bits),
+                crate::hierarchy::SignalEncoding::BitVector(bits),
                 dir,
                 None,
                 signal_ref,
@@ -1332,7 +1332,7 @@ fn add_var(
             h.add_var(
                 name,
                 var_type,
-                crate::hierarchy::SignalEncoding::bit_vec_of_len(bits),
+                crate::hierarchy::SignalEncoding::BitVector(bits),
                 dir,
                 None,
                 signal_ref,
@@ -1395,7 +1395,7 @@ fn add_var(
             h.add_var(
                 name,
                 var_type,
-                crate::hierarchy::SignalEncoding::bit_vec_of_len(num_bits),
+                crate::hierarchy::SignalEncoding::BitVector(num_bits),
                 dir,
                 Some(range.as_var_index()),
                 signal_ref,

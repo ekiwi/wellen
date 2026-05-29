@@ -215,20 +215,17 @@ impl SignalValueBuffer {
         self.string.clear();
         self.kind = match value {
             FstSignalValue::String(value) => match encoding {
-                SignalEncoding::Event => {
-                    debug_assert!(value.is_empty(), "events do not carry data");
-                    SignalKind::Event
-                }
                 SignalEncoding::String => {
                     debug_assert!(self.string.is_empty());
                     self.string
                         .push_str(String::from_utf8_lossy(value).as_ref());
                     SignalKind::String
                 }
-
-                SignalEncoding::BitVector(len) => {
-                    let width = len.get();
-
+                SignalEncoding::BitVector(0) => {
+                    debug_assert!(value.is_empty(), "events do not carry data");
+                    SignalKind::Event
+                }
+                SignalEncoding::BitVector(width) => {
                     debug_assert_eq!(
                         value.len(),
                         width as usize,
@@ -252,7 +249,6 @@ impl SignalValueBuffer {
                     "Expecting reals, but got: {}",
                     String::from_utf8_lossy(value)
                 ),
-                SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
             },
             FstSignalValue::Real(value) => {
                 debug_assert_eq!(encoding, SignalEncoding::Real);
@@ -265,7 +261,7 @@ impl SignalValueBuffer {
         self.data.clear();
         self.string.clear();
         self.kind = match encoding {
-            SignalEncoding::Event => {
+            SignalEncoding::BitVector(0) => {
                 debug_assert!(
                     value.len() <= 1,
                     "event changes carry no value, or a 1-bit value"
@@ -285,7 +281,7 @@ impl SignalValueBuffer {
                         write_n_state_from_ascii(states, &data_to_write, &mut self.data, None);
                     }
                 }
-                SignalKind::BitVec(states, width.get())
+                SignalKind::BitVec(states, width)
             }
             SignalEncoding::String => {
                 assert!(
@@ -312,7 +308,6 @@ impl SignalValueBuffer {
                     .unwrap();
                 SignalKind::Real(float_value)
             }
-            SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
         };
     }
 }
@@ -364,11 +359,8 @@ where
         }
     }
 
-    fn get_encoding(&self, id: u64) -> SignalEncoding {
-        self.encoding
-            .get_index(id)
-            .cloned()
-            .unwrap_or(SignalEncoding::Unknown)
+    fn get_encoding(&self, id: u64) -> Option<SignalEncoding> {
+        self.encoding.get_index(id).cloned()
     }
 
     pub(crate) fn fst_value_change(&mut self, time: u64, id: u64, value: &FstSignalValue) {
@@ -383,8 +375,7 @@ where
         }
 
         // check to see if the signal should be included
-        let encoding = self.get_encoding(id);
-        if encoding != SignalEncoding::Unknown {
+        if let Some(encoding) = self.get_encoding(id) {
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
             self.buf.update_fst(encoding, value);
             (self.callback)(time, signal_ref, (&self.buf).into())
@@ -396,8 +387,7 @@ where
             return;
         }
         // check to see if the signal should be included
-        let encoding = self.get_encoding(id);
-        if encoding != SignalEncoding::Unknown {
+        if let Some(encoding) = self.get_encoding(id) {
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
             let time = self.time.unwrap();
             self.buf.update_vcd(encoding, value);
