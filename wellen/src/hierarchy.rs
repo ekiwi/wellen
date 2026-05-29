@@ -405,11 +405,6 @@ impl SignalInfo {
     }
 
     #[inline]
-    fn update_encoding_derived(&mut self, enc: SignalEncoding) {
-        self.update_encoding_internal(enc, SignalKind::Derived)
-    }
-
-    #[inline]
     fn update_encoding_ground(&mut self, enc: SignalEncoding) {
         self.update_encoding_internal(enc, SignalKind::Ground)
     }
@@ -1526,18 +1521,6 @@ impl HierarchyBuilder {
                     };
                     debug_assert_eq!(prev_var.index.unwrap().width(), prev_derived.width());
 
-                    // remember type of (potentially) new signal
-                    debug_assert_eq!(
-                        signal_encoding,
-                        SignalEncoding::BitVector(NonZeroU32::new(index.width()).unwrap())
-                    );
-
-                    if self.signals.len() <= signal_idx.index() {
-                        self.signals
-                            .resize(signal_idx.index() + 1, SignalInfo::default());
-                    }
-                    self.signals[signal_idx.index()].update_encoding_derived(signal_encoding);
-
                     // a merge happened!
                     return true;
                 }
@@ -1653,6 +1636,8 @@ impl HierarchyBuilder {
         enum_type: Option<EnumTypeId>,
         vhdl_type_name: Option<HierarchyStringId>,
     ) {
+        self.set_encoding_for_ground_signal(signal_idx, signal_encoding);
+
         if let Some(ii) = index
             && self.check_for_split_var(name, ii, signal_encoding, signal_idx)
         {
@@ -1663,13 +1648,6 @@ impl HierarchyBuilder {
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
         let parent = self.add_to_hierarchy_tree(var_id.into());
-
-        // update signal encoding
-        if self.signals.len() <= signal_idx.index() {
-            self.signals
-                .resize(signal_idx.index() + 1, SignalInfo::default());
-        }
-        self.signals[signal_idx.index()].update_encoding_ground(signal_encoding);
 
         // now we can build the node data structure and store it
         let node = Var {
@@ -1755,6 +1733,14 @@ impl HierarchyBuilder {
             signal_ref,
             DerivedBitVecSignal::new_slice(sliced_signal, info.into(), msb, lsb),
         );
+    }
+
+    fn set_encoding_for_ground_signal(&mut self, signal: SignalRef, encoding: SignalEncoding) {
+        let ii = signal.index();
+        if self.signals.len() <= ii {
+            self.signals.resize(ii + 1, SignalInfo::default());
+        }
+        self.signals[ii].update_encoding_ground(encoding);
     }
 }
 
