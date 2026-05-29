@@ -1466,43 +1466,56 @@ impl HierarchyBuilder {
         signal_encoding: SignalEncoding,
         signal_idx: SignalRef,
     ) -> bool {
-        // lookup previous item
-        if let (Some(parent), Some(ScopeOrVarRef::Var(prev_var_ref))) =
-            self.get_parent_and_prev_child()
+        // only bit vector signals with length greater than zero can be possibly merged
+        if let SignalEncoding::BitVector(len) = signal_encoding
+            && len > 0
+            && index.width() == len
         {
-            // for unpacked arrays, we specifically do _not_ want to merge entries into a single
-            // (packed) bit-vector
-            if self.scopes[parent.index()].is_unpacked_array() {
-                return false;
-            }
-
-            let prev_var = &mut self.vars[prev_var_ref.index()];
-            // does the name match? does the variable have an index?
-            if prev_var.name == new_name
-                && let Some(prev_index) = prev_var.index
+            // lookup previous item
+            if let (Some(parent), Some(ScopeOrVarRef::Var(prev_var_ref))) =
+                self.get_parent_and_prev_child()
             {
-                let new_is_msb = index.lsb() == prev_index.msb() + 1;
-                let new_is_lsb = prev_index.lsb() == index.msb() + 1;
-                if new_is_lsb || new_is_msb {
-                    let prev_derived =
-                        self.var_to_derived.entry(prev_var_ref).or_insert_with(|| {
-                            DerivedBitVecSignal::new_identity(
-                                prev_var.signal_ref(),
-                                self.signals[prev_var.signal_ref().index()].into(),
-                            )
-                        });
-                    // modify existing variable (we assume that the other properties are the same
-                    if new_is_msb {
-                        prev_var.index = Some(VarIndex::new(index.msb(), prev_index.lsb()));
-                        prev_derived.concat_left_full(signal_idx, signal_encoding);
-                    } else {
-                        prev_var.index = Some(VarIndex::new(prev_index.msb(), index.lsb()));
-                        prev_derived.concat_right_full(signal_idx, signal_encoding);
-                    };
-                    debug_assert_eq!(prev_var.index.unwrap().width(), prev_derived.width());
+                // for unpacked arrays, we specifically do _not_ want to merge entries into a single
+                // (packed) bit-vector
+                if self.scopes[parent.index()].is_unpacked_array() {
+                    return false;
+                }
 
-                    // a merge happened!
-                    return true;
+                let prev_var = &mut self.vars[prev_var_ref.index()];
+                // does the name match? does the variable have an index?
+                if prev_var.name == new_name
+                    && let Some(prev_index) = prev_var.index
+                {
+                    let prev_enc = self.signals[prev_var.signal_ref().index()].into();
+                    // only bit vector signals with length greater than zero can be possibly merged
+                    if let SignalEncoding::BitVector(prev_len) = prev_enc
+                        && prev_len > 0
+                        && prev_index.width() == prev_len
+                    {
+                        let new_is_msb = index.lsb() == prev_index.msb() + 1;
+                        let new_is_lsb = prev_index.lsb() == index.msb() + 1;
+                        if new_is_lsb || new_is_msb {
+                            let prev_derived =
+                                self.var_to_derived.entry(prev_var_ref).or_insert_with(|| {
+                                    DerivedBitVecSignal::new_identity(
+                                        prev_var.signal_ref(),
+                                        prev_enc,
+                                    )
+                                });
+                            // modify existing variable (we assume that the other properties are the same
+                            if new_is_msb {
+                                prev_var.index = Some(VarIndex::new(index.msb(), prev_index.lsb()));
+                                prev_derived.concat_left_full(signal_idx, signal_encoding);
+                            } else {
+                                prev_var.index = Some(VarIndex::new(prev_index.msb(), index.lsb()));
+                                prev_derived.concat_right_full(signal_idx, signal_encoding);
+                            };
+                            debug_assert_eq!(prev_var.index.unwrap().width(), prev_derived.width());
+
+                            // a merge happened!
+                            return true;
+                        }
+                    }
                 }
             }
         }
