@@ -357,6 +357,7 @@ pub enum SignalEncoding {
 /// Internal representation of everything we need to know about a signal in order to decode it.
 /// A instead of a enum in order to have more fine-grained control over the size in memory.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 struct SignalInfo {
     kind: SignalKind,
     tpe: SignalEncodingType,
@@ -460,7 +461,7 @@ impl From<SignalInfo> for SignalEncoding {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-#[repr(u8)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 enum SignalKind {
     /// the signal does not exist
     None,
@@ -471,7 +472,7 @@ enum SignalKind {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-#[repr(u8)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 enum SignalEncodingType {
     /// encoded as variable length strings
     String,
