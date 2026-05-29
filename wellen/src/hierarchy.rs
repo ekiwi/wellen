@@ -388,17 +388,6 @@ impl SignalInfo {
     }
 
     #[inline]
-    fn ground(enc: SignalEncoding) -> Self {
-        let kind = if enc == SignalEncoding::Unknown {
-            SignalKind::None
-        } else {
-            SignalKind::Ground
-        };
-        let (tpe, bits) = Self::encoding_to_tpe_and_bits(enc);
-        Self { kind, tpe, bits }
-    }
-
-    #[inline]
     fn encoding_to_tpe_and_bits(enc: SignalEncoding) -> (SignalEncodingType, u32) {
         match enc {
             SignalEncoding::String => (SignalEncodingType::String, 0),
@@ -415,15 +404,28 @@ impl SignalInfo {
     }
 
     #[inline]
-    fn update_encoding(&mut self, enc: SignalEncoding) {
-        let debug_assert!(
-            self.is_none() || self.signals[ii] == encoding,
-            "Trying to redefine signal encoding: {:?} -> {:?} for {}",
-            self.signals[ii],
-            encoding,
-            self.strings[name.index()],
+    fn update_encoding_derived(&mut self, enc: SignalEncoding) {
+        self.update_encoding_internal(enc, SignalKind::Derived)
+    }
+
+    #[inline]
+    fn update_encoding_ground(&mut self, enc: SignalEncoding) {
+        self.update_encoding_internal(enc, SignalKind::Ground)
+    }
+
+    #[inline]
+    fn update_encoding_internal(&mut self, enc: SignalEncoding, kind: SignalKind) {
+        debug_assert!(kind != SignalKind::None);
+        let (tpe, bits) = Self::encoding_to_tpe_and_bits(enc);
+        debug_assert!(
+            self.is_none() || (self.tpe == tpe && self.bits == bits),
+            "Trying to redefine signal encoding: {:?} -> {:?}",
+            enc,
+            SignalEncoding::from(self.clone()),
         );
-        self.signals[ii] = encoding;
+        self.tpe = tpe;
+        self.bits = bits;
+        self.kind = kind;
     }
 
     #[inline]
@@ -943,9 +945,15 @@ impl Hierarchy {
         self.scopes.get(1)
     }
 
-    /// Encoding for all signals. The position of a signal encoding can be mapped to a SignalRef.
-    pub fn signal_encodings(&self) -> Vec<SignalEncoding> {
-        self.signals.iter().map(|s| s.clone().into()).collect()
+    /// Encoding of all ground signals, i.e., all signals that actually appear in the underlying file.
+    pub fn ground_signal_encodings(&self) -> impl Iterator<Item = Option<SignalEncoding>> {
+        self.signals.iter().map(|info| {
+            if info.is_derived_signal() {
+                None
+            } else {
+                Some(info.clone().into())
+            }
+        })
     }
 
     /// Iterate over all valid signal references.
@@ -1522,7 +1530,7 @@ impl HierarchyBuilder {
                         signal_encoding,
                         SignalEncoding::BitVector(NonZeroU32::new(index.width()).unwrap())
                     );
-                    self.set_signal_encoding(signal_idx, signal_encoding, new_name);
+                    self.signals[signal_idx.index()].update_encoding_derived(signal_encoding);
 
                     // a merge happened!
                     return true;
@@ -1530,26 +1538,6 @@ impl HierarchyBuilder {
             }
         }
         false
-    }
-
-    fn set_signal_encoding(
-        &mut self,
-        signal: SignalRef,
-        encoding: SignalEncoding,
-        name: HierarchyStringId,
-    ) {
-        let ii = signal.index();
-        if self.signals.len() <= ii {
-            self.signals.resize(ii + 1, SignalInfo::default());
-        }
-        debug_assert!(
-            self.signals[ii] == SignalEncoding::Unknown || self.signals[ii] == encoding,
-            "Trying to redefine signal encoding: {:?} -> {:?} for {}",
-            self.signals[ii],
-            encoding,
-            self.strings[name.index()],
-        );
-        self.signals[ii] = encoding;
     }
 
     // Verilator has the bad habit of expanding the full name for the final scalar in an array.
@@ -1671,7 +1659,7 @@ impl HierarchyBuilder {
         let parent = self.add_to_hierarchy_tree(var_id.into());
 
         // update signal encoding
-        self.set_signal_encoding(signal_idx, signal_encoding, name);
+        self.signals[signal_idx.index()].update_encoding_ground(signal_encoding);
 
         // now we can build the node data structure and store it
         let node = Var {
@@ -1752,10 +1740,10 @@ impl HierarchyBuilder {
         );
         debug_assert!(msb >= lsb);
         debug_assert!(!self.signal_derivations.contains_key(&signal_ref));
-        let sliced_signal_enc = self.signals[sliced_signal.index()];
+        let info = self.signals[sliced_signal.index()];
         self.signal_derivations.insert(
             signal_ref,
-            DerivedBitVecSignal::new_slice(sliced_signal, sliced_signal_enc, msb, lsb),
+            DerivedBitVecSignal::new_slice(sliced_signal, info.into(), msb, lsb),
         );
     }
 }
