@@ -1531,6 +1531,11 @@ impl HierarchyBuilder {
                         signal_encoding,
                         SignalEncoding::BitVector(NonZeroU32::new(index.width()).unwrap())
                     );
+
+                    if self.signals.len() <= signal_idx.index() {
+                        self.signals
+                            .resize(signal_idx.index() + 1, SignalInfo::default());
+                    }
                     self.signals[signal_idx.index()].update_encoding_derived(signal_encoding);
 
                     // a merge happened!
@@ -1660,6 +1665,10 @@ impl HierarchyBuilder {
         let parent = self.add_to_hierarchy_tree(var_id.into());
 
         // update signal encoding
+        if self.signals.len() <= signal_idx.index() {
+            self.signals
+                .resize(signal_idx.index() + 1, SignalInfo::default());
+        }
         self.signals[signal_idx.index()].update_encoding_ground(signal_encoding);
 
         // now we can build the node data structure and store it
