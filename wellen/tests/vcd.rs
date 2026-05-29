@@ -25,8 +25,10 @@ fn check_no_duplicate_scopes(h: &Hierarchy) {
     }
 }
 
-fn check_no_duplicate_var(h: &Hierarchy) {
+fn check_no_duplicate_vars(h: &Hierarchy) {
     let mut todo = Vec::from_iter(h.all_scopes());
+    // check outer scopes first
+    todo.reverse();
     while let Some(scope) = todo.pop() {
         let mut seen = FxHashSet::default();
         for child in scope.vars(h) {
@@ -338,13 +340,13 @@ fn vcd_questa_sim_undo_bit_split() {
         "tb_uart.dut.prescale"
     );
 
-    check_no_duplicate_var(waves.hierarchy());
+    check_no_duplicate_vars(waves.hierarchy());
     // we expect prescale to be reassembled from the individual bit signals
     assert_eq!(prescale.index().unwrap().msb(), 15);
     assert_eq!(prescale.index().unwrap().lsb(), 0);
     assert_eq!(prescale.length(waves.hierarchy()), Some(16));
 
-    check_no_duplicate_var(waves.hierarchy());
+    check_no_duplicate_vars(waves.hierarchy());
 
     // load and verify the values of the prescale variable which have been assembled from individual bit signals
     waves.load_signals(&[prescale.signal_ref()]);
@@ -372,4 +374,14 @@ fn reject_loading_signal_ref_with_incorrect_meta_data() {
     .signal_ref();
     let without_derived = SignalRef::from_index(prescale_ref.index()).unwrap();
     waves.load_signals(&[without_derived])
+}
+
+/// The file here is broken in that it repeats the hierarchy twice.
+/// See also: https://github.com/ekiwi/wellen/issues/122
+#[test]
+fn test_questa_duplicate_signal_issue() {
+    let filename = "inputs/questa-sim/dump.vcd";
+    let waves = read(filename).expect("failed to parse");
+    check_no_duplicate_scopes(waves.hierarchy());
+    check_no_duplicate_vars(waves.hierarchy());
 }
