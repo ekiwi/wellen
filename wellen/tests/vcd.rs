@@ -355,3 +355,21 @@ fn vcd_questa_sim_undo_bit_split() {
         .collect();
     assert_eq!(values, ["0: 0000000000010100"]);
 }
+
+/// See: https://github.com/Lramseyer/vaporview/issues/97#issuecomment-4559915023
+/// Thus, in debug mode, we need to verify that the "is_derived" info in the SignalRef aligns
+/// with the view of the Hierarchy.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic]
+fn reject_loading_signal_ref_with_incorrect_meta_data() {
+    let filename = "inputs/questa-sim/wellen-issue-57-uart.vcd";
+    let mut waves = read(filename).expect("failed to parse");
+    let prescale_ref = waves.hierarchy()[waves
+        .hierarchy()
+        .lookup_var(&[&"tb_uart", &"dut"], &"prescale")
+        .expect("failed to find prescale!")]
+    .signal_ref();
+    let without_derived = SignalRef::from_index(prescale_ref.index()).unwrap();
+    waves.load_signals(&[without_derived])
+}
