@@ -373,3 +373,29 @@ fn reject_loading_signal_ref_with_incorrect_meta_data() {
     let without_derived = SignalRef::from_index(prescale_ref.index()).unwrap();
     waves.load_signals(&[without_derived])
 }
+
+/// Issue reported by @neveltyc:
+/// https://github.com/ekiwi/wellen/issues/124
+#[test]
+fn should_not_merge_non_bv_types() {
+    let waves =
+        read_from_reader(std::io::Cursor::new(ISSUE_124_VCD.to_string())).expect("failed to parse");
+    let h = waves.hierarchy();
+    let top = &h[h.scopes().next().unwrap()];
+    let var_names: Vec<_> = top
+        .vars(h)
+        .map(|v| format!("{} [{}]", h[v].name(h), h[v].index().unwrap().lsb()))
+        .collect();
+    assert_eq!(var_names, ["update_dcc [0]", "update_dcc [1]"]);
+}
+
+const ISSUE_124_VCD: &str = "\
+$timescale 1ns $end
+$scope module top $end
+$var event 1 ! update_dcc [0] $end
+$var event 1 ! update_dcc [1] $end
+$upscope $end
+$enddefinitions $end
+#0
+1!
+";

@@ -338,13 +338,11 @@ where
                 .into(),
             Some([]) => SignalMap::sparse(),
             Some(signals) => {
-                debug_assert!(
-                    signals.iter().all(|s| !s.is_derived_signal()),
-                    "derived signals are not supported in the StreamEncoder!"
-                );
+                // skip derived signals, these must be handled outside the StreamEncoder
                 SignalMap::from_iter(
                     signals
                         .iter()
+                        .filter(|s| !s.is_derived_signal())
                         .map(|&s| (s, hierarchy.get_signal_tpe(s).unwrap())),
                 )
             }

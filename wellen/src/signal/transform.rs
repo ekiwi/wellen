@@ -110,13 +110,13 @@ pub struct DerivedBitVecSignal {
 
 impl DerivedBitVecSignal {
     /// Creates a new signal by slicing an existing one.
-    pub fn new_slice(signal: SignalRef, enc: SignalEncoding, msb: u32, lsb: u32) -> Self {
+    pub fn new_slice(signal: SignalRef, msb: u32, lsb: u32) -> Self {
         let mut out = Self {
             width: 0,
             inputs: vec![],
             bits: vec![],
         };
-        out.concat_left(signal, enc, msb, lsb);
+        out.concat_left(signal, msb, lsb);
         out
     }
 
@@ -126,25 +126,25 @@ impl DerivedBitVecSignal {
 
     /// Creates a new signal that is just the identity (full slice) of an existing one.
     pub fn new_identity(signal: SignalRef, enc: SignalEncoding) -> Self {
-        if let SignalEncoding::BitVector(width) = enc {
-            Self::new_slice(signal, enc, width - 1, 0)
+        if let SignalEncoding::BitVector(width) = enc
+            && width > 0
+        {
+            Self::new_slice(signal, width - 1, 0)
         } else {
             unreachable!("This function only works for bit vector signals")
         }
     }
 
     /// Concatenates a full signal to the left, i.e., on the most significant side.
-    pub fn concat_left_full(&mut self, signal: SignalRef, enc: SignalEncoding) {
-        if let SignalEncoding::BitVector(width) = enc {
-            self.concat_left(signal, enc, width - 1, 0)
-        } else {
-            unreachable!("This function only works for bit vector signals")
+    pub fn concat_left_full(&mut self, signal: SignalRef, width: u32) {
+        if width > 0 {
+            self.concat_left(signal, width - 1, 0)
         }
     }
 
     /// Concatenates a signal to the left, i.e., on the most significant side.
-    pub fn concat_left(&mut self, signal: SignalRef, enc: SignalEncoding, msb: u32, lsb: u32) {
-        let mut extract = self.make_extract(signal, enc, msb, lsb);
+    pub fn concat_left(&mut self, signal: SignalRef, msb: u32, lsb: u32) {
+        let mut extract = self.make_extract(signal, msb, lsb);
         self.width += extract.width();
         if let Some(other_num) = self.bits.first_mut() {
             let other: Extract = (*other_num).into();
@@ -162,17 +162,15 @@ impl DerivedBitVecSignal {
     }
 
     /// Concatenates a full signal to the right, i.e., on the least significant side.
-    pub fn concat_right_full(&mut self, signal: SignalRef, enc: SignalEncoding) {
-        if let SignalEncoding::BitVector(width) = enc {
-            self.concat_right(signal, enc, width - 1, 0)
-        } else {
-            unreachable!("This function only works for bit vector signals")
+    pub fn concat_right_full(&mut self, signal: SignalRef, width: u32) {
+        if width > 0 {
+            self.concat_right(signal, width - 1, 0)
         }
     }
 
     /// Concatenates a signal to the right, i.e., on the least significant side.
-    pub fn concat_right(&mut self, signal: SignalRef, enc: SignalEncoding, msb: u32, lsb: u32) {
-        let mut extract = self.make_extract(signal, enc, msb, lsb);
+    pub fn concat_right(&mut self, signal: SignalRef, msb: u32, lsb: u32) {
+        let mut extract = self.make_extract(signal, msb, lsb);
         self.width += extract.width();
         if let Some(other_num) = self.bits.last_mut() {
             let other: Extract = (*other_num).into();
@@ -190,28 +188,17 @@ impl DerivedBitVecSignal {
     }
 
     /// Converts a signal description into an [[Extract]] op.
-    fn make_extract(
-        &mut self,
-        signal: SignalRef,
-        enc: SignalEncoding,
-        msb: u32,
-        lsb: u32,
-    ) -> Extract {
+    fn make_extract(&mut self, signal: SignalRef, msb: u32, lsb: u32) -> Extract {
         debug_assert!(msb >= lsb);
-        if let SignalEncoding::BitVector(len) = enc {
-            debug_assert!(msb < len);
-            // check to see if we already have this signal as an input
-            let signal = if let Some(ii) = self.inputs.iter().position(|i| *i == signal) {
-                ii as u16
-            } else {
-                let ii = self.inputs.len() as u16;
-                self.inputs.push(signal);
-                ii
-            };
-            Extract { signal, msb, lsb }
+        // check to see if we already have this signal as an input
+        let signal = if let Some(ii) = self.inputs.iter().position(|i| *i == signal) {
+            ii as u16
         } else {
-            unreachable!("Can only derive from a bit-vector signal!");
-        }
+            let ii = self.inputs.len() as u16;
+            self.inputs.push(signal);
+            ii
+        };
+        Extract { signal, msb, lsb }
     }
 }
 
