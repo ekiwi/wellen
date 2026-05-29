@@ -214,6 +214,8 @@ pub enum VarType {
     StdLogicVector,
     StdULogic,
     StdULogicVector,
+    // some parameters are also events
+    EventParameter,
 }
 
 /// Signal directions of a variable. Currently these have the exact same meaning as in the FST format.
@@ -1587,6 +1589,14 @@ impl HierarchyBuilder {
 
         let num_scopes = scopes.len();
         self.add_array_scopes(scopes);
+
+        // add "Event" to zero bit parameters
+        let var_type = match (signal_encoding, var_type) {
+            (SignalEncoding::BitVector(0), VarType::Event) => VarType::Event,
+            (SignalEncoding::BitVector(0), VarType::Parameter) => VarType::EventParameter,
+            (SignalEncoding::BitVector(0), other) => todo!("add support for 0-bit {other:?}"),
+            _ => var_type,
+        };
 
         self.add_var(
             name,
