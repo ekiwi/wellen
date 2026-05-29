@@ -354,6 +354,129 @@ pub enum SignalEncoding {
     Unknown,
 }
 
+/// Internal representation of everything we need to know about a signal in order to decode it.
+/// A instead of a enum in order to have more fine-grained control over the size in memory.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
+struct SignalInfo {
+    kind: SignalKind,
+    tpe: SignalEncodingType,
+    bits: u32,
+}
+
+impl Default for SignalInfo {
+    #[inline]
+    fn default() -> Self {
+        // only `kind` matters
+        Self {
+            kind: SignalKind::None,
+            tpe: SignalEncodingType::BitVector,
+            bits: 0,
+        }
+    }
+}
+
+impl SignalInfo {
+    #[inline]
+    fn derived(enc: SignalEncoding) -> Self {
+        let kind = if enc == SignalEncoding::Unknown {
+            SignalKind::None
+        } else {
+            SignalKind::Derived
+        };
+        let (tpe, bits) = Self::encoding_to_tpe_and_bits(enc);
+        Self { kind, tpe, bits }
+    }
+
+    #[inline]
+    fn encoding_to_tpe_and_bits(enc: SignalEncoding) -> (SignalEncodingType, u32) {
+        match enc {
+            SignalEncoding::String => (SignalEncodingType::String, 0),
+            SignalEncoding::Real => (SignalEncodingType::Real, 64),
+            SignalEncoding::BitVector(len) => (SignalEncodingType::BitVector, len.get()),
+            SignalEncoding::Event => (SignalEncodingType::BitVector, 0),
+            SignalEncoding::Unknown => (SignalEncodingType::BitVector, 0),
+        }
+    }
+
+    #[inline]
+    fn is_none(&self) -> bool {
+        self.kind == SignalKind::None
+    }
+
+    #[inline]
+    fn update_encoding_ground(&mut self, enc: SignalEncoding) {
+        self.update_encoding_internal(enc, SignalKind::Ground)
+    }
+
+    #[inline]
+    fn update_encoding_internal(&mut self, enc: SignalEncoding, kind: SignalKind) {
+        debug_assert!(kind != SignalKind::None);
+        let (tpe, bits) = Self::encoding_to_tpe_and_bits(enc);
+        debug_assert!(
+            self.is_none() || (self.tpe == tpe && self.bits == bits),
+            "Trying to redefine signal encoding: {:?} -> {:?}",
+            enc,
+            SignalEncoding::from(*self),
+        );
+        self.tpe = tpe;
+        self.bits = bits;
+        self.kind = kind;
+    }
+
+    #[inline]
+    fn ref_from_index(&self, index: usize) -> Option<SignalRef> {
+        match self.kind {
+            SignalKind::None => None,
+            SignalKind::Ground => SignalRef::from_index(index),
+            SignalKind::Derived => SignalRef::derived_from_index(index),
+        }
+    }
+
+    #[inline]
+    fn is_derived_signal(&self) -> bool {
+        self.kind == SignalKind::Derived
+    }
+}
+
+impl From<SignalInfo> for SignalEncoding {
+    fn from(info: SignalInfo) -> Self {
+        if info.kind == SignalKind::None {
+            SignalEncoding::Unknown
+        } else {
+            match info.tpe {
+                SignalEncodingType::String => SignalEncoding::String,
+                SignalEncodingType::Real => SignalEncoding::Real,
+                SignalEncodingType::BitVector => NonZeroU32::new(info.bits)
+                    .map(SignalEncoding::BitVector)
+                    .unwrap_or(SignalEncoding::Event),
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
+enum SignalKind {
+    /// the signal does not exist
+    None,
+    /// the signal is part of the VCD/FST/GHW/... file that we parsed
+    Ground,
+    /// the signal is derived from ground signals
+    Derived,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
+enum SignalEncodingType {
+    /// encoded as variable length strings
+    String,
+    /// encoded as 64-bit floating point values
+    Real,
+    /// encoded as a fixed width bit-vector
+    BitVector,
+}
+
 impl SignalEncoding {
     pub fn bit_vec_of_len(len: u32) -> Self {
         match NonZeroU32::new(len) {
@@ -485,7 +608,7 @@ impl Var {
 
     #[inline]
     pub fn signal_encoding(&self, h: &Hierarchy) -> SignalEncoding {
-        h[self.signal_idx]
+        h.signals[self.signal_idx.index()].into()
     }
 }
 
@@ -753,7 +876,7 @@ pub struct Hierarchy {
     strings: Vec<String>,
     source_locs: Vec<SourceLoc>,
     enums: Vec<EnumType>,
-    signal_encodings: Vec<SignalEncoding>,
+    signals: Vec<SignalInfo>,
     meta: HierarchyMetaData,
     signal_derivations: FxHashMap<SignalRef, DerivedBitVecSignal>,
 }
@@ -818,26 +941,23 @@ impl Hierarchy {
         self.scopes.get(1)
     }
 
-    /// Encoding for all signals. The position of a signal encoding can be mapped to a SignalRef.
-    pub fn signal_encodings(&self) -> &[SignalEncoding] {
-        &self.signal_encodings
+    /// Encoding of all ground signals, i.e., all signals that actually appear in the underlying file.
+    pub fn ground_signal_encodings(&self) -> impl Iterator<Item = Option<SignalEncoding>> {
+        self.signals.iter().map(|info| {
+            if info.is_derived_signal() {
+                None
+            } else {
+                Some((*info).into())
+            }
+        })
     }
 
-    /// Iterate over all signal references with a known type.
+    /// Iterate over all valid signal references.
     pub fn signals(&self) -> impl Iterator<Item = SignalRef> {
-        self.signal_encodings()
+        self.signals
             .iter()
             .enumerate()
-            .filter(|(_, enc)| **enc != SignalEncoding::Unknown)
-            .map(|(ii, _)| {
-                let d = SignalRef::derived_from_index(ii).unwrap();
-                // todo: we can optimize this away by storing a "derived" bit in the SignalEncoding
-                if self.signal_derivations.contains_key(&d) {
-                    d
-                } else {
-                    SignalRef::from_index(ii).unwrap()
-                }
-            })
+            .flat_map(|(ii, info)| info.ref_from_index(ii))
     }
 
     pub fn date(&self) -> &str {
@@ -894,7 +1014,10 @@ impl Hierarchy {
     /// Retrieves the length of a signal identified by its id by looking up a
     /// variable that refers to the signal.
     pub fn get_signal_tpe(&self, signal_idx: SignalRef) -> Option<SignalEncoding> {
-        self.signal_encodings.get(signal_idx.index()).copied()
+        self.signals.get(signal_idx.index()).map(|s| {
+            debug_assert_eq!(signal_idx.is_derived_signal(), s.is_derived_signal());
+            (*s).into()
+        })
     }
 
     pub fn get_derived_signal(&self, signal_idx: SignalRef) -> Option<&DerivedBitVecSignal> {
@@ -972,14 +1095,6 @@ impl Index<HierarchyStringId> for Hierarchy {
     }
 }
 
-impl Index<SignalRef> for Hierarchy {
-    type Output = SignalEncoding;
-
-    fn index(&self, index: SignalRef) -> &Self::Output {
-        &self.signal_encodings[index.index()]
-    }
-}
-
 struct ScopeStackEntry {
     scope_id: usize,
     last_child: Option<ScopeOrVarRef>,
@@ -993,7 +1108,7 @@ pub struct HierarchyBuilder {
     scope_stack: Vec<ScopeStackEntry>,
     source_locs: Vec<SourceLoc>,
     enums: Vec<EnumType>,
-    signal_encodings: Vec<SignalEncoding>,
+    signals: Vec<SignalInfo>,
     meta: HierarchyMetaData,
     /// derived signals where we know the SignalRef during building
     signal_derivations: FxHashMap<SignalRef, DerivedBitVecSignal>,
@@ -1043,7 +1158,7 @@ impl HierarchyBuilder {
             strings,
             source_locs: Vec::default(),
             enums: Vec::default(),
-            signal_encodings: Vec::default(),
+            signals: Vec::default(),
             meta: HierarchyMetaData::new(file_type),
             signal_derivations: FxHashMap::default(),
             var_to_derived: FxHashMap::default(),
@@ -1062,7 +1177,7 @@ impl HierarchyBuilder {
         self.strings.shrink_to_fit();
         self.source_locs.shrink_to_fit();
         self.enums.shrink_to_fit();
-        self.signal_encodings.shrink_to_fit();
+        self.signals.shrink_to_fit();
         self.signal_derivations.shrink_to_fit();
         debug_assert!(
             self.signal_derivations
@@ -1077,7 +1192,7 @@ impl HierarchyBuilder {
             enums: self.enums,
             meta: self.meta,
             signal_derivations: self.signal_derivations,
-            signal_encodings: self.signal_encodings,
+            signals: self.signals,
         }
     }
 
@@ -1095,8 +1210,8 @@ impl HierarchyBuilder {
         for (var, signal) in var_to_derived {
             let signal_enc = signal.output_encoding();
             let signal_ref = *signal_to_ref.entry(signal).or_insert_with(|| {
-                let r = SignalRef::derived_from_index(self.signal_encodings.len()).unwrap();
-                self.signal_encodings.push(signal_enc);
+                let r = SignalRef::derived_from_index(self.signals.len()).unwrap();
+                self.signals.push(SignalInfo::derived(signal_enc));
                 r
             });
             self.vars[var.index()].signal_idx = signal_ref;
@@ -1393,7 +1508,7 @@ impl HierarchyBuilder {
                         self.var_to_derived.entry(prev_var_ref).or_insert_with(|| {
                             DerivedBitVecSignal::new_identity(
                                 prev_var.signal_ref(),
-                                self.signal_encodings[prev_var.signal_ref().index()],
+                                self.signals[prev_var.signal_ref().index()].into(),
                             )
                         });
                     // modify existing variable (we assume that the other properties are the same
@@ -1406,41 +1521,12 @@ impl HierarchyBuilder {
                     };
                     debug_assert_eq!(prev_var.index.unwrap().width(), prev_derived.width());
 
-                    // remember type of (potentially) new signal
-                    debug_assert_eq!(
-                        signal_encoding,
-                        SignalEncoding::BitVector(NonZeroU32::new(index.width()).unwrap())
-                    );
-                    self.set_signal_encoding(signal_idx, signal_encoding, new_name);
-
                     // a merge happened!
                     return true;
                 }
             }
         }
         false
-    }
-
-    fn set_signal_encoding(
-        &mut self,
-        signal: SignalRef,
-        encoding: SignalEncoding,
-        name: HierarchyStringId,
-    ) {
-        let ii = signal.index();
-        if self.signal_encodings.len() <= ii {
-            self.signal_encodings
-                .resize(ii + 1, SignalEncoding::Unknown);
-        }
-        debug_assert!(
-            self.signal_encodings[ii] == SignalEncoding::Unknown
-                || self.signal_encodings[ii] == encoding,
-            "Trying to redefine signal encoding: {:?} -> {:?} for {}",
-            self.signal_encodings[ii],
-            encoding,
-            self.strings[name.index()],
-        );
-        self.signal_encodings[ii] = encoding;
     }
 
     // Verilator has the bad habit of expanding the full name for the final scalar in an array.
@@ -1550,6 +1636,8 @@ impl HierarchyBuilder {
         enum_type: Option<EnumTypeId>,
         vhdl_type_name: Option<HierarchyStringId>,
     ) {
+        self.set_encoding_for_ground_signal(signal_idx, signal_encoding);
+
         if let Some(ii) = index
             && self.check_for_split_var(name, ii, signal_encoding, signal_idx)
         {
@@ -1560,9 +1648,6 @@ impl HierarchyBuilder {
         let node_id = self.vars.len();
         let var_id = VarRef::from_index(node_id).unwrap();
         let parent = self.add_to_hierarchy_tree(var_id.into());
-
-        // update signal encoding
-        self.set_signal_encoding(signal_idx, signal_encoding, name);
 
         // now we can build the node data structure and store it
         let node = Var {
@@ -1643,11 +1728,19 @@ impl HierarchyBuilder {
         );
         debug_assert!(msb >= lsb);
         debug_assert!(!self.signal_derivations.contains_key(&signal_ref));
-        let sliced_signal_enc = self.signal_encodings[sliced_signal.index()];
+        let info = self.signals[sliced_signal.index()];
         self.signal_derivations.insert(
             signal_ref,
-            DerivedBitVecSignal::new_slice(sliced_signal, sliced_signal_enc, msb, lsb),
+            DerivedBitVecSignal::new_slice(sliced_signal, info.into(), msb, lsb),
         );
+    }
+
+    fn set_encoding_for_ground_signal(&mut self, signal: SignalRef, encoding: SignalEncoding) {
+        let ii = signal.index();
+        if self.signals.len() <= ii {
+            self.signals.resize(ii + 1, SignalInfo::default());
+        }
+        self.signals[ii].update_encoding_ground(encoding);
     }
 }
 
@@ -1674,6 +1767,11 @@ mod tests {
 
         // 4 byte length + tag + padding
         assert_eq!(std::mem::size_of::<SignalEncoding>(), 8);
+        // signal info size should be dominated by signal encoding size
+        assert_eq!(
+            std::mem::size_of::<SignalEncoding>(),
+            std::mem::size_of::<SignalInfo>()
+        );
 
         // var index is packed in order to take up 12 bytes and contains a NonZero field to allow
         // for zero cost optioning

@@ -461,7 +461,7 @@ pub struct Encoder {
     /// Time table under construction
     time_table: Vec<Time>,
     /// Signals under construction
-    signals: Vec<SignalEncoder>,
+    signals: Vec<Option<SignalEncoder>>,
     /// Tracks if there has been any new data that would require us to create another block.
     has_new_data: bool,
     /// Tracks if we are skipping a timestep because it came with an invalid time.
@@ -475,11 +475,11 @@ type BlockTimeIdx = u16;
 
 impl Encoder {
     pub fn new(hierarchy: &Hierarchy) -> Self {
-        let mut signals = Vec::with_capacity(hierarchy.signal_encodings().len());
-        for tpe in hierarchy.signal_encodings().iter().cloned() {
-            let pos = signals.len();
-            signals.push(SignalEncoder::new(tpe, pos));
-        }
+        let signals = hierarchy
+            .ground_signal_encodings()
+            .enumerate()
+            .map(|(pos, maybe_enc)| maybe_enc.map(|enc| SignalEncoder::new(enc, pos)))
+            .collect();
 
         Encoder {
             time_table: Vec::default(),
@@ -527,7 +527,10 @@ impl Encoder {
         );
         if !self.skipping_time_step {
             let time_idx = (self.time_table.len() - 1) as TimeTableIdx;
-            self.signals[id as usize].add_vcd_change(time_idx, value);
+            self.signals[id as usize]
+                .as_mut()
+                .unwrap()
+                .add_vcd_change(time_idx, value);
             self.has_new_data = true;
         }
     }
@@ -541,7 +544,7 @@ impl Encoder {
         );
         if !self.skipping_time_step {
             let time_idx = (self.time_table.len() - 1) as TimeTableIdx;
-            let signal = &mut self.signals[id.index()];
+            let signal = &mut self.signals[id.index()].as_mut().unwrap();
             if let SignalEncoding::BitVector(width) = signal.tpe {
                 // sometimes we might include some leading bytes that are not necessary
                 let required_bytes = states.bytes_required(width.get());
@@ -561,7 +564,10 @@ impl Encoder {
         );
         if !self.skipping_time_step {
             let time_idx = (self.time_table.len() - 1) as TimeTableIdx;
-            self.signals[id.index()].add_real_change(time_idx, value);
+            self.signals[id.index()]
+                .as_mut()
+                .unwrap()
+                .add_real_change(time_idx, value);
             self.has_new_data = true;
         }
     }
@@ -638,14 +644,18 @@ impl Encoder {
         let mut offsets = Vec::with_capacity(signal_count);
         let mut data: Vec<u8> = Vec::with_capacity(128);
         for signal in &mut self.signals {
-            if let Some((mut signal_data, is_compressed)) = signal.finish() {
-                let offset = SignalDataOffset::new(data.len());
-                offsets.push(Some(offset));
-                let meta_data = is_compressed.encode();
-                leb128::write::unsigned(&mut data, meta_data).unwrap();
-                data.append(&mut signal_data);
+            if let Some(signal) = signal {
+                if let Some((mut signal_data, is_compressed)) = signal.finish() {
+                    let offset = SignalDataOffset::new(data.len());
+                    offsets.push(Some(offset));
+                    let meta_data = is_compressed.encode();
+                    leb128::write::unsigned(&mut data, meta_data).unwrap();
+                    data.append(&mut signal_data);
+                } else {
+                    offsets.push(None);
+                }
             } else {
-                offsets.push(None);
+                offsets.push(None)
             }
         }
         let start_time = *self.time_table.first().unwrap();

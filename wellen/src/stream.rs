@@ -337,7 +337,10 @@ where
     pub(crate) fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> Self {
         // remember encoding information for all included signals
         let encoding = match filter.signals {
-            None => hierarchy.signal_encodings().into(),
+            None => hierarchy
+                .ground_signal_encodings()
+                .collect::<Vec<_>>()
+                .into(),
             Some([]) => SignalMap::sparse(),
             Some(signals) => {
                 debug_assert!(
