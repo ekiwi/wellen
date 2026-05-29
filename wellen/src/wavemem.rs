@@ -161,9 +161,6 @@ pub(crate) fn load_compressed_signal(
         };
 
         match tpe {
-            SignalEncoding::Event => {
-                load_events(&mut data.as_ref(), time_idx_offset, &mut time_indices);
-            }
             SignalEncoding::String => {
                 load_signal_strings(
                     &mut data.as_ref(),
@@ -172,11 +169,14 @@ pub(crate) fn load_compressed_signal(
                     &mut strings,
                 );
             }
+            SignalEncoding::BitVector(0) => {
+                load_events(&mut data.as_ref(), time_idx_offset, &mut time_indices);
+            }
             SignalEncoding::BitVector(signal_len) => {
                 load_fixed_len_signal(
                     &mut data.as_ref(),
                     time_idx_offset,
-                    signal_len.get(),
+                    signal_len,
                     meta.max_states,
                     &mut time_indices,
                     &mut data_bytes,
@@ -191,7 +191,6 @@ pub(crate) fn load_compressed_signal(
                     &mut data_bytes,
                 );
             }
-            SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
         }
     }
 
@@ -200,17 +199,17 @@ pub(crate) fn load_compressed_signal(
             debug_assert!(data_bytes.is_empty());
             Signal::new_var_len(id, time_indices, strings)
         }
-        SignalEncoding::Event => {
+        SignalEncoding::BitVector(0) => {
             debug_assert!(data_bytes.is_empty());
             debug_assert!(strings.is_empty());
             Signal::new_fixed_len(id, time_indices, FixedWidthEncoding::Event, 0, data_bytes)
         }
-        SignalEncoding::BitVector(len) => {
+        SignalEncoding::BitVector(width) => {
             debug_assert!(strings.is_empty());
-            let (bytes, meta_byte) = get_len_and_meta(meta.max_states, len.get());
+            let (bytes, meta_byte) = get_len_and_meta(meta.max_states, width);
             let encoding = FixedWidthEncoding::BitVector {
                 max_states: meta.max_states,
-                width: len.get(),
+                width,
                 meta_byte,
             };
             Signal::new_fixed_len(
@@ -225,7 +224,6 @@ pub(crate) fn load_compressed_signal(
             assert!(strings.is_empty());
             Signal::new_fixed_len(id, time_indices, FixedWidthEncoding::Real, 8, data_bytes)
         }
-        SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
     }
 }
 
@@ -547,11 +545,11 @@ impl Encoder {
             let signal = &mut self.signals[id.index()].as_mut().unwrap();
             if let SignalEncoding::BitVector(width) = signal.tpe {
                 // sometimes we might include some leading bytes that are not necessary
-                let required_bytes = states.bytes_required(width.get());
+                let required_bytes = states.bytes_required(width);
                 debug_assert!(value.len() >= required_bytes);
                 let value = &value[(value.len() - required_bytes)..];
 
-                signal.add_n_bit_change(time_idx, BitVecRef::new(states, width.get(), value));
+                signal.add_n_bit_change(time_idx, BitVecRef::new(states, width, value));
                 self.has_new_data = true;
             }
         }
@@ -770,7 +768,7 @@ impl SignalEncoder {
         let time_idx_delta = time_index - self.prev_time_idx;
         self.max_states = States::join(self.max_states, value.states());
         if let SignalEncoding::BitVector(len) = self.tpe {
-            debug_assert_eq!(len.get(), value.width());
+            debug_assert_eq!(len, value.width());
         } else {
             unreachable!(
                 "Cannot call add_n_bit_change on signal of type: {:?}",
@@ -853,7 +851,7 @@ impl SignalEncoder {
     fn add_vcd_change(&mut self, time_index: TimeTableIdx, value: &[u8]) {
         let time_idx_delta = time_index - self.prev_time_idx;
         match self.tpe {
-            SignalEncoding::Event => {
+            SignalEncoding::BitVector(0) => {
                 debug_assert!(
                     value.len() <= 1,
                     "event changes carry no value, or a 1-bit value"
@@ -904,7 +902,6 @@ impl SignalEncoder {
                 leb128::write::unsigned(&mut self.data, u64::from(time_idx_delta)).unwrap();
                 self.data.extend_from_slice(&float_value.to_le_bytes());
             }
-            SignalEncoding::Unknown => unreachable!("Unknown signal encoding!"),
         }
         self.prev_time_idx = time_index;
     }

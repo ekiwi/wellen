@@ -347,11 +347,7 @@ pub enum SignalEncoding {
     /// encoded as 64-bit floating point values
     Real,
     /// encoded as a fixed width bit-vector
-    BitVector(NonZeroU32),
-    /// essentially a bit vector of size 0
-    Event,
-    /// the encoding was never supplied
-    Unknown,
+    BitVector(u32),
 }
 
 /// Internal representation of everything we need to know about a signal in order to decode it.
@@ -379,13 +375,12 @@ impl Default for SignalInfo {
 impl SignalInfo {
     #[inline]
     fn derived(enc: SignalEncoding) -> Self {
-        let kind = if enc == SignalEncoding::Unknown {
-            SignalKind::None
-        } else {
-            SignalKind::Derived
-        };
         let (tpe, bits) = Self::encoding_to_tpe_and_bits(enc);
-        Self { kind, tpe, bits }
+        Self {
+            kind: SignalKind::Derived,
+            tpe,
+            bits,
+        }
     }
 
     #[inline]
@@ -393,9 +388,7 @@ impl SignalInfo {
         match enc {
             SignalEncoding::String => (SignalEncodingType::String, 0),
             SignalEncoding::Real => (SignalEncodingType::Real, 64),
-            SignalEncoding::BitVector(len) => (SignalEncodingType::BitVector, len.get()),
-            SignalEncoding::Event => (SignalEncodingType::BitVector, 0),
-            SignalEncoding::Unknown => (SignalEncodingType::BitVector, 0),
+            SignalEncoding::BitVector(len) => (SignalEncodingType::BitVector, len),
         }
     }
 
@@ -441,16 +434,10 @@ impl SignalInfo {
 
 impl From<SignalInfo> for SignalEncoding {
     fn from(info: SignalInfo) -> Self {
-        if info.kind == SignalKind::None {
-            SignalEncoding::Unknown
-        } else {
-            match info.tpe {
-                SignalEncodingType::String => SignalEncoding::String,
-                SignalEncodingType::Real => SignalEncoding::Real,
-                SignalEncodingType::BitVector => NonZeroU32::new(info.bits)
-                    .map(SignalEncoding::BitVector)
-                    .unwrap_or(SignalEncoding::Event),
-            }
+        match info.tpe {
+            SignalEncodingType::String => SignalEncoding::String,
+            SignalEncodingType::Real => SignalEncoding::Real,
+            SignalEncodingType::BitVector => SignalEncoding::BitVector(info.bits),
         }
     }
 }
@@ -478,19 +465,10 @@ enum SignalEncodingType {
 }
 
 impl SignalEncoding {
-    pub fn bit_vec_of_len(len: u32) -> Self {
-        match NonZeroU32::new(len) {
-            // a zero length signal should be represented as a 1-bit signal
-            None => SignalEncoding::BitVector(NonZeroU32::new(1).unwrap()),
-            Some(value) => SignalEncoding::BitVector(value),
-        }
-    }
-
     pub fn length(&self) -> Option<u32> {
         match &self {
-            SignalEncoding::String | SignalEncoding::Real | SignalEncoding::Unknown => None,
-            SignalEncoding::Event => Some(0),
-            SignalEncoding::BitVector(len) => Some(len.get()),
+            SignalEncoding::String | SignalEncoding::Real => None,
+            SignalEncoding::BitVector(len) => Some(*len),
         }
     }
 

@@ -45,11 +45,9 @@ pub enum FixedWidthEncoding {
 impl FixedWidthEncoding {
     pub fn signal_encoding(&self) -> SignalEncoding {
         match self {
-            FixedWidthEncoding::BitVector { width: bits, .. } => {
-                SignalEncoding::BitVector(NonZeroU32::new(*bits).unwrap())
-            }
+            FixedWidthEncoding::BitVector { width: bits, .. } => SignalEncoding::BitVector(*bits),
             FixedWidthEncoding::Real => SignalEncoding::Real,
-            FixedWidthEncoding::Event => SignalEncoding::Event,
+            FixedWidthEncoding::Event => SignalEncoding::BitVector(0),
         }
     }
 }
