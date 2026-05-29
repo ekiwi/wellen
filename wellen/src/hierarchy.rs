@@ -417,7 +417,7 @@ impl SignalInfo {
             self.is_none() || (self.tpe == tpe && self.bits == bits),
             "Trying to redefine signal encoding: {:?} -> {:?}",
             enc,
-            SignalEncoding::from(self.clone()),
+            SignalEncoding::from(*self),
         );
         self.tpe = tpe;
         self.bits = bits;
@@ -448,7 +448,7 @@ impl From<SignalInfo> for SignalEncoding {
                 SignalEncodingType::String => SignalEncoding::String,
                 SignalEncodingType::Real => SignalEncoding::Real,
                 SignalEncodingType::BitVector => NonZeroU32::new(info.bits)
-                    .map(|l| SignalEncoding::BitVector(l))
+                    .map(SignalEncoding::BitVector)
                     .unwrap_or(SignalEncoding::Event),
             }
         }
@@ -947,7 +947,7 @@ impl Hierarchy {
             if info.is_derived_signal() {
                 None
             } else {
-                Some(info.clone().into())
+                Some((*info).into())
             }
         })
     }
@@ -1016,7 +1016,7 @@ impl Hierarchy {
     pub fn get_signal_tpe(&self, signal_idx: SignalRef) -> Option<SignalEncoding> {
         self.signals.get(signal_idx.index()).map(|s| {
             debug_assert_eq!(signal_idx.is_derived_signal(), s.is_derived_signal());
-            s.clone().into()
+            (*s).into()
         })
     }
 
