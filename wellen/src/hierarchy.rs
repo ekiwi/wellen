@@ -1467,9 +1467,9 @@ impl HierarchyBuilder {
         signal_idx: SignalRef,
     ) -> bool {
         // only bit vector signals with length greater than zero can be possibly merged
-        if let SignalEncoding::BitVector(len) = signal_encoding
-            && len > 0
-            && index.width() == len
+        if let SignalEncoding::BitVector(width) = signal_encoding
+            && width > 0
+            && index.width() == width
         {
             // lookup previous item
             if let (Some(parent), Some(ScopeOrVarRef::Var(prev_var_ref))) =
@@ -1486,15 +1486,24 @@ impl HierarchyBuilder {
                 if prev_var.name == new_name
                     && let Some(prev_index) = prev_var.index
                 {
-                    let prev_enc = self.signals[prev_var.signal_ref().index()].into();
-                    // only bit vector signals with length greater than zero can be possibly merged
-                    if let SignalEncoding::BitVector(prev_len) = prev_enc
-                        && prev_len > 0
-                        && prev_index.width() == prev_len
-                    {
-                        let new_is_msb = index.lsb() == prev_index.msb() + 1;
-                        let new_is_lsb = prev_index.lsb() == index.msb() + 1;
-                        if new_is_lsb || new_is_msb {
+                    // is the previous variable already derived?
+                    if let Some(prev_derived) = self.var_to_derived.get_mut(&prev_var_ref) {
+                        return Self::try_concat(
+                            signal_idx,
+                            width,
+                            index,
+                            prev_index,
+                            prev_var,
+                            prev_derived,
+                        );
+                    } else {
+                        // check to make sure that we can actually concat this signal
+                        let prev_enc = self.signals[prev_var.signal_ref().index()].into();
+                        // only bit vector signals with length greater than zero can be possibly merged
+                        if let SignalEncoding::BitVector(prev_width) = prev_enc
+                            && prev_width > 0
+                            && prev_index.width() == prev_width
+                        {
                             let prev_derived =
                                 self.var_to_derived.entry(prev_var_ref).or_insert_with(|| {
                                     DerivedBitVecSignal::new_identity(
@@ -1502,24 +1511,46 @@ impl HierarchyBuilder {
                                         prev_enc,
                                     )
                                 });
-                            // modify existing variable (we assume that the other properties are the same
-                            if new_is_msb {
-                                prev_var.index = Some(VarIndex::new(index.msb(), prev_index.lsb()));
-                                prev_derived.concat_left_full(signal_idx, signal_encoding);
-                            } else {
-                                prev_var.index = Some(VarIndex::new(prev_index.msb(), index.lsb()));
-                                prev_derived.concat_right_full(signal_idx, signal_encoding);
-                            };
-                            debug_assert_eq!(prev_var.index.unwrap().width(), prev_derived.width());
-
-                            // a merge happened!
-                            return true;
+                            return Self::try_concat(
+                                signal_idx,
+                                width,
+                                index,
+                                prev_index,
+                                prev_var,
+                                prev_derived,
+                            );
                         }
                     }
                 }
             }
         }
         false
+    }
+
+    fn try_concat(
+        signal_idx: SignalRef,
+        signal_width: u32,
+        index: VarIndex,
+        prev_index: VarIndex,
+        prev_var: &mut Var,
+        prev_derived: &mut DerivedBitVecSignal,
+    ) -> bool {
+        let new_is_msb = index.lsb() == prev_index.msb() + 1;
+        let new_is_lsb = prev_index.lsb() == index.msb() + 1;
+        if new_is_msb | new_is_lsb {
+            // modify existing variable (we assume that the other properties are the same
+            if new_is_msb {
+                prev_var.index = Some(VarIndex::new(index.msb(), prev_index.lsb()));
+                prev_derived.concat_left_full(signal_idx, signal_width);
+            } else {
+                prev_var.index = Some(VarIndex::new(prev_index.msb(), index.lsb()));
+                prev_derived.concat_right_full(signal_idx, signal_width);
+            };
+            debug_assert_eq!(prev_var.index.unwrap().width(), prev_derived.width());
+            true
+        } else {
+            false
+        }
     }
 
     // Verilator has the bad habit of expanding the full name for the final scalar in an array.
@@ -1729,10 +1760,15 @@ impl HierarchyBuilder {
         debug_assert!(msb >= lsb);
         debug_assert!(!self.signal_derivations.contains_key(&signal_ref));
         let info = self.signals[sliced_signal.index()];
-        self.signal_derivations.insert(
-            signal_ref,
-            DerivedBitVecSignal::new_slice(sliced_signal, info.into(), msb, lsb),
-        );
+        if let SignalEncoding::BitVector(width) = info.into() {
+            debug_assert!(width > 0 && msb < width);
+            self.signal_derivations.insert(
+                signal_ref,
+                DerivedBitVecSignal::new_slice(sliced_signal, msb, lsb),
+            );
+        } else {
+            unreachable!("Can only slice non-zero-width bit-vectors.")
+        }
     }
 
     fn set_encoding_for_ground_signal(&mut self, signal: SignalRef, encoding: SignalEncoding) {
