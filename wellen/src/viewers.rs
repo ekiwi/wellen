@@ -72,6 +72,7 @@ pub fn read_header_from_file<P: AsRef<std::path::Path>>(
                 body,
             })
         }
+        FileFormat::Memory => Err(WellenError::UnknownFileFormat),
     }
 }
 
@@ -112,6 +113,7 @@ pub fn read_header<R: BufRead + Seek>(
                 body,
             })
         }
+        FileFormat::Memory => Err(WellenError::UnknownFileFormat),
     }
 }
 

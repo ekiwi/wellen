@@ -44,6 +44,7 @@ pub fn read_from_file<P: AsRef<std::path::Path>>(
                 body: viewers::ReadBodyData::Fst(Box::new(body)),
             })
         }
+        FileFormat::Memory => Err(WellenError::UnknownFileFormat),
     }
 }
 
