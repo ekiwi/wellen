@@ -469,21 +469,33 @@ impl std::fmt::Debug for States {
     }
 }
 
+const BIT_CHAR_TO_NUM: [u8; 256] = {
+    let mut table = [u8::MAX; 256];
+    table[b'0' as usize] = 0;
+    table[b'1' as usize] = 1;
+    table[b'x' as usize] = 2;
+    table[b'X' as usize] = 2;
+    table[b'z' as usize] = 3;
+    table[b'Z' as usize] = 3;
+    table[b'h' as usize] = 4;
+    table[b'H' as usize] = 4;
+    table[b'u' as usize] = 5;
+    table[b'U' as usize] = 5;
+    table[b'w' as usize] = 6;
+    table[b'W' as usize] = 6;
+    table[b'l' as usize] = 7;
+    table[b'L' as usize] = 7;
+    table[b'-' as usize] = 8;
+    table
+};
+
 #[inline]
 pub fn bit_char_to_num(value: u8) -> Option<Bit> {
-    match value {
-        // Value shared with 2 and 4-state logic
-        b'0' | b'1' => Some(Bit(value - b'0')), // strong 0 / strong 1
-        // Values shared with Verilog 4-state logic
-        b'x' | b'X' => Some(Bit(2)), // strong o or 1 (unknown)
-        b'z' | b'Z' => Some(Bit(3)), // high impedance
-        // Values unique to the IEEE Standard Logic Type
-        b'h' | b'H' => Some(Bit(4)), // weak 1
-        b'u' | b'U' => Some(Bit(5)), // uninitialized
-        b'w' | b'W' => Some(Bit(6)), // weak 0 or 1 (unknown)
-        b'l' | b'L' => Some(Bit(7)), // weak 1
-        b'-' => Some(Bit(8)),        // don't care
-        _ => None,
+    let mapped = BIT_CHAR_TO_NUM[value as usize];
+    if mapped == u8::MAX {
+        None
+    } else {
+        Some(Bit(mapped))
     }
 }
 
