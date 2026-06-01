@@ -40,9 +40,9 @@ fn diff_hierarchy(ghw: &Hierarchy, fst: &Hierarchy) -> u64 {
         .unwrap();
     let ghw_top = &ghw[ghw_top_ref];
     diff_hierarchy_item(
-        ScopeOrVar::Scope(ghw_top),
+        Item::Scope(ghw_top),
         ghw,
-        ScopeOrVar::Scope(fst_top),
+        Item::Scope(fst_top),
         fst,
     );
 
@@ -50,13 +50,13 @@ fn diff_hierarchy(ghw: &Hierarchy, fst: &Hierarchy) -> u64 {
 }
 
 fn diff_hierarchy_item(
-    ghw_item: ScopeOrVar,
+    ghw_item: Item,
     ghw: &Hierarchy,
-    fst_item: ScopeOrVar,
+    fst_item: Item,
     fst: &Hierarchy,
 ) {
     match (ghw_item, fst_item) {
-        (ScopeOrVar::Scope(g), ScopeOrVar::Scope(f)) => {
+        (Item::Scope(g), Item::Scope(f)) => {
             assert_eq!(g.name(ghw), f.name(fst));
             assert_eq!(g.component(ghw), f.component(fst));
             assert_eq!(g.scope_type(), f.scope_type());
@@ -65,7 +65,7 @@ fn diff_hierarchy_item(
                 diff_hierarchy_item(ghw_item.deref(ghw), ghw, fst_item.deref(fst), fst);
             }
         }
-        (ScopeOrVar::Var(g), ScopeOrVar::Var(f)) => {
+        (Item::Var(g), Item::Var(f)) => {
             assert_eq!(g.name(ghw), f.name(fst));
             // in the fst all enums are encoded as strings
             if g.enum_type(ghw).is_some() {

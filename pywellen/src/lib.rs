@@ -5,7 +5,7 @@ use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use rustc_hash::FxHashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, RwLock};
-use wellen::{LoadOptions, ScopeOrVarRef, ScopeType};
+use wellen::{ItemRef, LoadOptions, ScopeType};
 
 pub trait PyErrExt<T> {
     fn toerr(self) -> PyResult<T>;
@@ -191,15 +191,15 @@ impl Scope {
 fn return_item(
     waves: &Arc<SharedWaves>,
     name: &str,
-    maybe_item: Option<wellen::ScopeOrVarRef>,
+    maybe_item: Option<wellen::ItemRef>,
 ) -> PyResult<Either<Var, Scope>> {
     if let Some(item) = maybe_item {
         match item {
-            ScopeOrVarRef::Scope(id) => Ok(Either::Right(Scope {
+            ItemRef::Scope(id) => Ok(Either::Right(Scope {
                 waves: waves.clone(),
                 id,
             })),
-            ScopeOrVarRef::Var(id) => Ok(Either::Left(Var {
+            ItemRef::Var(id) => Ok(Either::Left(Var {
                 waves: waves.clone(),
                 id,
             })),
