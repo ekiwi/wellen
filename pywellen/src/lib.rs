@@ -275,6 +275,15 @@ impl Var {
     pub fn tv(&self) -> PyResult<Signal> {
         self.signal()
     }
+
+    /// for vcdvcd compatibility
+    pub fn __getitem__(&self, time: isize) -> PyResult<String> {
+        if let Some(value) = self.tv()?.value_at(time as wellen::Time) {
+            Ok(value)
+        } else {
+            Err(PyIndexError::new_err(format!("No change yet at {time}")))
+        }
+    }
 }
 
 impl Var {

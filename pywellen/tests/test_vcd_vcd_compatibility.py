@@ -17,3 +17,12 @@ def test_vcd_vcd_data():
         (10, "11"),
         (12, "00"),
     ]
+
+    assert var[0] == "xx"
+    assert var[1] == "xx"
+    assert var[2] == "00"
+    assert var[3] == "00"
+    assert var[6] == "01"
+    assert var[7] == "01"
+    assert var[24] == "10"
+    assert var[25] == "10"
