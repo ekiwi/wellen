@@ -96,7 +96,7 @@ fn transform_bv_signal(
         }
     }
 
-    out.finish(SignalRef::derived_max())
+    out.finish(SignalRef::MAX)
 }
 
 /// Captures a signal which is derived from other bit-vector signals by slice and concat operations.

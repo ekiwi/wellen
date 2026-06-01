@@ -42,7 +42,8 @@ impl SignalSource {
         hierarchy: &Hierarchy,
         multi_threaded: bool,
     ) -> Vec<Signal> {
-        let (derived, signals): (Vec<_>, Vec<_>) = ids.iter().partition(|s| s.is_derived_signal());
+        let (derived, signals): (Vec<_>, Vec<_>) =
+            ids.iter().partition(|&&s| hierarchy.is_derived_signal(s));
         let mut out = self.load_non_derived_signals(signals, hierarchy, multi_threaded);
         let mut others = self.load_derived_signals(derived, hierarchy, multi_threaded);
         out.append(&mut others);
@@ -57,7 +58,7 @@ impl SignalSource {
     ) -> Vec<Signal> {
         ids.sort();
         ids.dedup();
-        debug_assert!(ids.iter().all(|s| !s.is_derived_signal()));
+        debug_assert!(ids.iter().all(|&s| !hierarchy.is_derived_signal(s)));
         let enc: Vec<_> = ids
             .iter()
             .map(|i| hierarchy.get_signal_tpe(*i).unwrap())
@@ -79,7 +80,7 @@ impl SignalSource {
     ) -> Vec<Signal> {
         ids.sort();
         ids.dedup();
-        debug_assert!(ids.iter().all(|s| s.is_derived_signal()));
+        debug_assert!(ids.iter().all(|&s| hierarchy.is_derived_signal(s)));
 
         let transforms: Vec<_> = ids
             .iter()
