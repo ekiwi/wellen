@@ -351,4 +351,3 @@ def test_scope_types():
             assert actual_full_name == expected_full_name, (
                 f"Expected full name '{expected_full_name}', got '{actual_full_name}'"
             )
-

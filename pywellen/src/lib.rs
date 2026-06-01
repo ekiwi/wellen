@@ -1,6 +1,6 @@
 use either::Either;
-use pyo3::exceptions::{PyIndexError, PyKeyError, PyTypeError};
-use pyo3::types::{PyInt, PySlice};
+use pyo3::exceptions::{PyIndexError, PyKeyError, PyNotImplementedError, PyTypeError};
+use pyo3::types::{PyInt, PySlice, PySliceIndices};
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use rustc_hash::FxHashMap;
 use std::hash::{Hash, Hasher};
@@ -550,7 +550,9 @@ impl Signal {
         if let Ok(offset) = key.extract::<isize>() {
             self.get_offset(offset).map(Either::Left)
         } else if let Ok(slice) = key.cast::<PySlice>() {
-            self.get_slice(slice).map(Either::Right)
+            let len = self.signal.time_indices().len();
+            let indices = slice.indices(len as isize)?;
+            self.get_slice(indices).map(Either::Right)
         } else {
             Err(PyTypeError::new_err("Unsupported type"))
         }
@@ -576,8 +578,25 @@ impl Signal {
         }
     }
 
-    fn get_slice(&self, slice: &Bound<PySlice>) -> PyResult<Vec<(wellen::Time, String)>> {
-        todo!()
+    fn get_slice(&self, slice: PySliceIndices) -> PyResult<Vec<(wellen::Time, String)>> {
+        if slice.start >= 0 && slice.stop > slice.start && slice.step == 1 {
+            let range = (slice.start as usize)..(slice.stop as usize);
+            let mut out = Vec::with_capacity(range.len());
+            for offset in range {
+                if let Some(time_idx) = self.signal.time_indices().get(offset) {
+                    let data = self.signal.data().get_value_at(offset);
+                    let time = self.time_table[*time_idx as usize];
+                    out.push((time, data_to_string(data)));
+                } else {
+                    return Err(PyIndexError::new_err(format!("out of bounds {offset}")));
+                }
+            }
+            Ok(out)
+        } else {
+            Err(PyNotImplementedError::new_err(format!(
+                "TODO: support slice {slice:?}"
+            )))
+        }
     }
 }
 
