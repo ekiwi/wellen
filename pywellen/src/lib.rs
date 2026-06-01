@@ -1,11 +1,11 @@
 use either::Either;
-use pyo3::exceptions::{PyIndexError, PyKeyError};
-use pyo3::types::PyInt;
+use pyo3::exceptions::{PyIndexError, PyKeyError, PyTypeError};
+use pyo3::types::{PyInt, PySlice};
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use rustc_hash::FxHashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, RwLock};
-use wellen::{ItemRef, LoadOptions, ScopeType, SignalValueRef};
+use wellen::{ItemRef, LoadOptions, ScopeType};
 
 pub trait PyErrExt<T> {
     fn toerr(self) -> PyResult<T>;
@@ -543,13 +543,16 @@ impl Signal {
         self.signal.time_indices().len()
     }
 
-    fn __getitem__(&self, offset: isize) -> PyResult<(wellen::Time, String)> {
-        if let Some(time_idx) = self.signal.time_indices().get(offset as usize) {
-            let data = self.signal.data().get_value_at(offset as usize);
-            let time = self.time_table[*time_idx as usize];
-            Ok((time, data_to_string(data)))
+    fn __getitem__(
+        &self,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Either<(wellen::Time, String), Vec<(wellen::Time, String)>>> {
+        if let Ok(offset) = key.extract::<isize>() {
+            self.get_offset(offset).map(Either::Left)
+        } else if let Ok(slice) = key.cast::<PySlice>() {
+            self.get_slice(slice).map(Either::Right)
         } else {
-            Err(PyIndexError::new_err(format!("out of bounds {offset}")))
+            Err(PyTypeError::new_err("Unsupported type"))
         }
     }
 
@@ -559,6 +562,22 @@ impl Signal {
         let offset = self.signal.get_offset(time_idx)?;
         let data = self.signal.get_value_at(&offset, offset.elements - 1);
         Some(data_to_string(data))
+    }
+}
+
+impl Signal {
+    fn get_offset(&self, offset: isize) -> PyResult<(wellen::Time, String)> {
+        if let Some(time_idx) = self.signal.time_indices().get(offset as usize) {
+            let data = self.signal.data().get_value_at(offset as usize);
+            let time = self.time_table[*time_idx as usize];
+            Ok((time, data_to_string(data)))
+        } else {
+            Err(PyIndexError::new_err(format!("out of bounds {offset}")))
+        }
+    }
+
+    fn get_slice(&self, slice: &Bound<PySlice>) -> PyResult<Vec<(wellen::Time, String)>> {
+        todo!()
     }
 }
 
