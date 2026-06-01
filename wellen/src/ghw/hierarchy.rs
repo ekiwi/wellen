@@ -1134,7 +1134,7 @@ impl GhwSignalTracker {
                     Some(next) => alias_id = next,
                     None => {
                         // create new entry
-                        let signal_ref = self.new_signal_ref().to_derived();
+                        let signal_ref = self.new_signal_ref();
                         let new_alias_id = self.aliases.len() + 1;
                         self.aliases.push(AliasInfo {
                             msb,
@@ -1151,7 +1151,7 @@ impl GhwSignalTracker {
             }
         } else {
             // create entry
-            let signal_ref = self.new_signal_ref().to_derived();
+            let signal_ref = self.new_signal_ref();
             let alias_id = self.aliases.len() + 1;
             self.aliases.push(AliasInfo {
                 msb,

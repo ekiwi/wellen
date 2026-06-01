@@ -342,7 +342,7 @@ where
                 SignalMap::from_iter(
                     signals
                         .iter()
-                        .filter(|s| !s.is_derived_signal())
+                        .filter(|&&s| !hierarchy.is_derived_signal(s))
                         .map(|&s| (s, hierarchy.get_signal_tpe(s).unwrap())),
                 )
             }
@@ -455,7 +455,7 @@ impl StreamDerivedSignalInfo {
                 let requested = FxHashSet::from_iter(signals.iter().cloned());
                 for &signal in signals {
                     if let Some(transform) = hierarchy.get_derived_signal(signal) {
-                        debug_assert!(signal.is_derived_signal());
+                        debug_assert!(hierarchy.is_derived_signal(signal));
                         for &input in transform.inputs() {
                             if !requested.contains(&input) {
                                 extras.push(input);
@@ -463,7 +463,7 @@ impl StreamDerivedSignalInfo {
                         }
                         transforms.insert(signal, transform.clone());
                     } else {
-                        debug_assert!(!signal.is_derived_signal());
+                        debug_assert!(!hierarchy.is_derived_signal(signal));
                     }
                 }
                 Some(requested)
@@ -490,7 +490,7 @@ impl StreamDerivedSignalInfo {
             // there are extra signals and the filter does not just include all signals
             let mut new_signals: Vec<_> = orig
                 .iter()
-                .filter(|s| !s.is_derived_signal())
+                .filter(|&&s| !hierarchy.is_derived_signal(s))
                 .cloned()
                 .collect();
             new_signals.append(&mut extras);

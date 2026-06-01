@@ -290,52 +290,18 @@ impl VarIndex {
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct SignalRef(NonZeroU32);
 
-/// The upper bit is used for indicating whether the signal is derived.
-const MAX_INDEX: usize = ((u32::MAX as usize) >> 2) - 1;
-const INDEX_MASK: u32 = u32::MAX >> 1;
-
 impl SignalRef {
     #[inline]
     pub fn from_index(index: usize) -> Option<Self> {
-        if index > MAX_INDEX {
-            None
-        } else {
-            Some(Self(NonZeroU32::new(index as u32 + 1).unwrap()))
-        }
-    }
-
-    #[inline]
-    pub fn derived_from_index(index: usize) -> Option<Self> {
-        if index > MAX_INDEX {
-            None
-        } else {
-            let value = (index as u32 + 1) | (1u32 << 31);
-            Some(Self(NonZeroU32::new(value).unwrap()))
-        }
-    }
-
-    /// Generates a dummy ID for a derived signal.
-    #[inline]
-    pub(crate) fn derived_max() -> Self {
-        Self::derived_from_index(MAX_INDEX).unwrap()
-    }
-
-    /// A derived signal does not actually exist in the original waveform trace.
-    #[inline]
-    pub fn is_derived_signal(&self) -> bool {
-        self.0.get() >> 31 == 1
+        NonZeroU32::new(index as u32 + 1).map(Self)
     }
 
     #[inline]
     pub fn index(&self) -> usize {
-        ((self.0.get() & INDEX_MASK) - 1) as usize
+        (self.0.get() - 1) as usize
     }
 
-    #[inline]
-    pub fn to_derived(&self) -> Self {
-        let value = self.0.get() | (1u32 << 31);
-        Self(NonZeroU32::new(value).unwrap())
-    }
+    pub const MAX: Self = Self(NonZeroU32::MAX);
 }
 
 /// Specifies how the underlying signal of a variable is encoded.
@@ -424,7 +390,7 @@ impl SignalInfo {
         match self.kind {
             SignalKind::None => None,
             SignalKind::Ground => SignalRef::from_index(index),
-            SignalKind::Derived => SignalRef::derived_from_index(index),
+            SignalKind::Derived => SignalRef::from_index(index),
         }
     }
 
@@ -940,6 +906,10 @@ impl Hierarchy {
             .flat_map(|(ii, info)| info.ref_from_index(ii))
     }
 
+    pub fn is_derived_signal(&self, signal: SignalRef) -> bool {
+        self.signals[signal.index()].is_derived_signal()
+    }
+
     pub fn date(&self) -> &str {
         &self.meta.date
     }
@@ -994,10 +964,7 @@ impl Hierarchy {
     /// Retrieves the length of a signal identified by its id by looking up a
     /// variable that refers to the signal.
     pub fn get_signal_tpe(&self, signal_idx: SignalRef) -> Option<SignalEncoding> {
-        self.signals.get(signal_idx.index()).map(|s| {
-            debug_assert_eq!(signal_idx.is_derived_signal(), s.is_derived_signal());
-            (*s).into()
-        })
+        self.signals.get(signal_idx.index()).map(|s| (*s).into())
     }
 
     pub fn get_derived_signal(&self, signal_idx: SignalRef) -> Option<&DerivedBitVecSignal> {
@@ -1159,11 +1126,20 @@ impl HierarchyBuilder {
         self.enums.shrink_to_fit();
         self.signals.shrink_to_fit();
         self.signal_derivations.shrink_to_fit();
-        debug_assert!(
-            self.signal_derivations
-                .keys()
-                .all(|r| r.is_derived_signal())
-        );
+        #[cfg(debug_assertions)]
+        {
+            for (ii, info) in self.signals.iter().enumerate() {
+                if !info.is_none() {
+                    let signal = info.ref_from_index(ii).unwrap();
+                    if info.is_derived_signal() {
+                        debug_assert!(self.signal_derivations.contains_key(&signal));
+                    } else {
+                        debug_assert!(!self.signal_derivations.contains_key(&signal));
+                    }
+                }
+            }
+        }
+
         Hierarchy {
             vars: self.vars,
             scopes: self.scopes,
@@ -1190,7 +1166,7 @@ impl HierarchyBuilder {
         for (var, signal) in var_to_derived {
             let signal_enc = signal.output_encoding();
             let signal_ref = *signal_to_ref.entry(signal).or_insert_with(|| {
-                let r = SignalRef::derived_from_index(self.signals.len()).unwrap();
+                let r = SignalRef::from_index(self.signals.len()).unwrap();
                 self.signals.push(SignalInfo::derived(signal_enc));
                 r
             });
@@ -1749,14 +1725,6 @@ impl HierarchyBuilder {
         lsb: u32,
         sliced_signal: SignalRef,
     ) {
-        debug_assert!(
-            !sliced_signal.is_derived_signal(),
-            "we can only slice a signal that actually exists, not a derived signal!"
-        );
-        debug_assert!(
-            signal_ref.is_derived_signal(),
-            "the signal that is derived from a slice needs to be marked as such"
-        );
         debug_assert!(msb >= lsb);
         debug_assert!(!self.signal_derivations.contains_key(&signal_ref));
         let info = self.signals[sliced_signal.index()];
@@ -1766,6 +1734,14 @@ impl HierarchyBuilder {
                 signal_ref,
                 DerivedBitVecSignal::new_slice(sliced_signal, msb, lsb),
             );
+            if let Some(info) = self.signals.get_mut(signal_ref.index()) {
+                if let SignalEncoding::BitVector(width) = (*info).into() {
+                    debug_assert_eq!(width, msb - lsb + 1);
+                    info.kind = SignalKind::Derived;
+                } else {
+                    unreachable!("The result of a slice must be a bit-vector!");
+                }
+            }
         } else {
             unreachable!("Can only slice non-zero-width bit-vectors.")
         }
