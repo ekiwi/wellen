@@ -110,6 +110,18 @@ impl Scope {
         let maybe_item = self.h().lookup_item_in_scope_by_name(self.id, name);
         return_item(&self.waves, name, maybe_item)
     }
+
+    pub fn __eq__(&self, other: &Self) -> bool {
+        self.id == other.id && std::ptr::eq(self.h(), other.h())
+    }
+
+    pub fn __hash__(&self) -> u64 {
+        let mut hasher = std::hash::DefaultHasher::new();
+        let pointer_num = (self.h() as *const wellen::Hierarchy) as u64;
+        pointer_num.hash(&mut hasher);
+        self.id.hash(&mut hasher);
+        hasher.finish()
+    }
 }
 
 impl Scope {
@@ -410,6 +422,7 @@ impl Waveform {
         return_item(&self.waves, name, maybe_item)
     }
 
+    /// All variables in the design.
     fn all_vars(&self) -> Vec<Var> {
         self.waves
             .hierarchy
@@ -421,10 +434,35 @@ impl Waveform {
             .collect()
     }
 
+    /// Top-level variables.
+    fn vars(&self) -> Vec<Var> {
+        self.waves
+            .hierarchy
+            .vars()
+            .map(|id| Var {
+                waves: self.waves.clone(),
+                id,
+            })
+            .collect()
+    }
+
+    /// All scopes in the design.
     fn all_scopes(&self) -> Vec<Scope> {
         self.waves
             .hierarchy
             .all_scopes()
+            .map(|id| Scope {
+                waves: self.waves.clone(),
+                id,
+            })
+            .collect()
+    }
+
+    /// Top-level scopes.
+    fn scopes(&self) -> Vec<Scope> {
+        self.waves
+            .hierarchy
+            .scopes()
             .map(|id| Scope {
                 waves: self.waves.clone(),
                 id,

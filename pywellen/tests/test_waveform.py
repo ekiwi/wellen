@@ -23,7 +23,7 @@ def test_var_and_scope_index_api():
     wave = Waveform(filename)
     assert wave["TOP"].type == "module"
     d_ready = wave["TOP.top.pix_port.d_ready"]
-    assert d_ready.type == "logic"
+    assert d_ready.type == "Logic"
     assert d_ready.name == "d_ready"
     assert d_ready.full_name == "TOP.top.pix_port.d_ready"
     d_ready_by_another_way = wave["TOP"]["top"]["pix_port"]["d_ready"]
@@ -42,7 +42,7 @@ def test_var_change_access():
     wave = Waveform(filename)
 
     d_trig = wave["TOP.top.pix_port.d_trig"]
-    assert d_trig.var_type == "logic"
+    assert d_trig.var_type == "Logic"
     assert d_trig.size == 1
     assert len(d_trig.tv) == 8
     assert list(d_trig.tv) == [
@@ -213,20 +213,21 @@ def load_verilator_many_sv_datatypes():
     """Helper function to load the verilator many_sv_datatypes.fst file"""
     filename = _git_root_rel("wellen/inputs/verilator/many_sv_datatypes.fst")
     waves = Waveform(path=filename)
-    h = waves.hierarchy
-    top = next(h.top_scopes())
+    top = waves.scopes()[0]
     assert top.name == "TOP"
-    wrapper = next(top.scopes())
+    assert top == waves["TOP"], "an alternative way to get the scope"
+    wrapper = top.scopes()[0]
     assert wrapper.name == "SVDataTypeWrapper"
-    bb = next(wrapper.scopes())
+    assert wrapper == waves["TOP.SVDataTypeWrapper"]
+    bb = wrapper.scopes()[0]
     assert bb.name == "bb"
+    assert bb == waves["TOP.SVDataTypeWrapper.bb"]
     return waves, bb
 
 
 def test_fst_enum_signals():
     """Test enum signals from Verilator FST file"""
     waves, bb = load_verilator_many_sv_datatypes()
-    h = waves.hierarchy
 
     # Find the abc_r variable
     abc_r = None
@@ -238,7 +239,7 @@ def test_fst_enum_signals():
     assert abc_r is not None, "failed to find abc_r"
 
     # Test enum type
-    enum_type = abc_r.enum_type()
+    enum_type = abc_r.enum_type
     assert enum_type is not None, "abc_r should have an enum type!"
 
     enum_name, enum_values = enum_type
@@ -253,7 +254,6 @@ def test_fst_enum_signals():
 def test_fst_var_directions():
     """Test variable directions from Verilator FST file"""
     waves, bb = load_verilator_many_sv_datatypes()
-    h = waves.hierarchy
 
     # Expected variable properties
     expected_vars = {
@@ -276,7 +276,7 @@ def test_fst_var_directions():
         assert var_name in found_vars, f"Variable {var_name} not found"
         var = found_vars[var_name]
 
-        direction = var.direction()
+        direction = var.direction
         var_type = var.var_type
 
         assert direction == expected["direction"], (
@@ -291,15 +291,14 @@ def test_scope_types():
     """Test scope_type() method with different scope types from VCD extensions file"""
     filename = _git_root_rel("wellen/inputs/gtkwave-analyzer/vcd_extensions.vcd")
     waves = Waveform(path=filename)
-    h = waves.hierarchy
 
     # Get the top scope (should be 'main' with type 'module')
-    top_scopes = list(h.top_scopes())
+    top_scopes = waves.scopes()
     assert len(top_scopes) == 1, f"Expected 1 top scope, found {len(top_scopes)}"
 
     main_scope = top_scopes[0]
     assert main_scope.name == "main"
-    assert main_scope.scope_type() == "module"
+    assert main_scope.scope_type == "module"
 
     # Test various child scope types
     expected_scope_types = {
@@ -327,7 +326,7 @@ def test_scope_types():
     }
 
     # Collect all child scopes
-    child_scopes = list(main_scope.scopes())
+    child_scopes = main_scope.scopes()
     found_scopes = {}
 
     for scope in child_scopes:
@@ -344,7 +343,7 @@ def test_scope_types():
     for scope_name, expected_type in expected_scope_types.items():
         if scope_name in found_scopes:
             scope = found_scopes[scope_name]
-            actual_type = scope.scope_type()
+            actual_type = scope.scope_type
             assert actual_type == expected_type, (
                 f"Expected scope type '{expected_type}' for '{scope_name}', got '{actual_type}'"
             )
