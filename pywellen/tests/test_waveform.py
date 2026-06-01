@@ -71,7 +71,7 @@ def iterate_hierarchy_example():
     all_vars = [var for var in hier.all_vars()][0:10]
     for var in all_vars:
         sig = wave.get_signal(var)
-        print(f"printing all the changes for {var.full_name()}")
+        print(f"printing all the changes for {var.full_name}")
         for change_time, value in sig.all_changes():
             print(f"Change recorded at time {change_time} with new value {value}")
 
@@ -86,15 +86,15 @@ def test_vcd_not_starting_at_zero():
     assert waves.time_table[0] == 4
 
     top = next(h.top_scopes())
-    assert top.name() == "gameroy"
+    assert top.name == "gameroy"
     cpu = next(top.scopes())
 
-    assert cpu.name() == "cpu"
+    assert cpu.name == "cpu"
 
-    pc = next(v for v in cpu.vars() if v.name() == "pc")
-    assert pc.full_name() == "gameroy.cpu.pc"
-    sp = next(v for v in cpu.vars() if v.name() == "sp")
-    assert sp.full_name() == "gameroy.cpu.sp"
+    pc = next(v for v in cpu.vars() if v.name == "pc")
+    assert pc.full_name == "gameroy.cpu.pc"
+    sp = next(v for v in cpu.vars() if v.name == "sp")
+    assert sp.full_name == "gameroy.cpu.sp"
 
     ## querying a signal before it has a value should return none
     pc_sig = waves.get_signal(pc)
@@ -111,10 +111,9 @@ def test_vcd_not_starting_at_zero():
 def test_vcd_var_types_types():
     filename = _git_root_rel("wellen/inputs/gtkwave-analyzer/vcd_extensions.vcd")
     waves = Waveform(path=filename)
-    h = waves.hierarchy
 
     # Collect all variables for testing
-    all_vars = list(h.all_vars())
+    all_vars = waves.all_vars()
     assert len(all_vars) > 0
 
     # Test various variable types and properties
@@ -138,7 +137,7 @@ def test_vcd_var_types_types():
     # Find and test specific variables
     found_vars = {}
     for var in all_vars:
-        var_name = var.name()
+        var_name = var.name
         if var_name in var_tests:
             found_vars[var_name] = var
 
@@ -151,48 +150,48 @@ def test_vcd_var_types_types():
         expected = var_tests[var_name]
 
         # Test basic properties
-        assert var.name() == var_name
-        assert var.full_name() == f"main.{var_name}"
+        assert var.name == var_name
+        assert var.full_name == f"main.{var_name}"
 
         # Test var_type
-        var_type = var.var_type()
+        var_type = var.var_type
         assert var_type == expected["var_type"], (
             f"Expected {expected['var_type']}, got {var_type} for {var_name}"
         )
 
         # Test bitwidth/length
-        assert var.bitwidth(h) == expected["bitwidth"], (
+        assert var.bitwidth == expected["bitwidth"], (
             f"Expected bitwidth {expected['bitwidth']}, got {var.bitwidth()} for {var_name}"
         )
-        assert var.length(h) == expected["bitwidth"], (
+        assert var.length == expected["bitwidth"], (
             f"Expected length {expected['bitwidth']}, got {var.length()} for {var_name}"
         )
 
         # Test direction (should be Unknown for VCD)
-        direction = var.direction()
+        direction = var.direction
         assert direction == "Unknown", (
             f"Expected direction Unknown, got {direction} for {var_name}"
         )
 
         # Test signal encoding properties
         if expected.get("is_string"):
-            assert var.is_string(h), f"Expected {var_name} to be string"
-            assert not var.is_real(h) and not var.is_bit_vector(h)
+            assert var.is_string, f"Expected {var_name} to be string"
+            assert not var.is_real and not var.is_bit_vector
         elif expected.get("is_real"):
-            assert var.is_real(h), f"Expected {var_name} to be real"
-            assert not var.is_string(h) and not var.is_bit_vector(h)
+            assert var.is_real, f"Expected {var_name} to be real"
+            assert not var.is_string and not var.is_bit_vector
         elif expected.get("is_bit_vector"):
-            assert var.is_bit_vector(h), f"Expected {var_name} to be bit vector"
-            assert not var.is_string(h) and not var.is_real(h)
+            assert var.is_bit_vector, f"Expected {var_name} to be bit vector"
+            assert not var.is_string and not var.is_real
 
         # Test is_1bit
         if expected.get("is_1bit"):
-            assert var.is_1bit(h), f"Expected {var_name} to be 1-bit"
+            assert var.is_1bit, f"Expected {var_name} to be 1-bit"
         elif expected["bitwidth"] and expected["bitwidth"] > 1:
-            assert not var.is_1bit(h), f"Expected {var_name} to not be 1-bit"
+            assert not var.is_1bit, f"Expected {var_name} to not be 1-bit"
 
         # Test enum_type (only for ENUM2_IN)
-        enum_type = var.enum_type(h)
+        enum_type = var.enum_type
         if var_name == "ENUM2_IN":
             # Note: enum_type might be None if no enum definition is provided in VCD
             pass  # VCD format may not include enum definitions
@@ -219,11 +218,11 @@ def load_verilator_many_sv_datatypes():
     waves = Waveform(path=filename)
     h = waves.hierarchy
     top = next(h.top_scopes())
-    assert top.name() == "TOP"
+    assert top.name == "TOP"
     wrapper = next(top.scopes())
-    assert wrapper.name() == "SVDataTypeWrapper"
+    assert wrapper.name == "SVDataTypeWrapper"
     bb = next(wrapper.scopes())
-    assert bb.name() == "bb"
+    assert bb.name == "bb"
     return waves, bb
 
 
@@ -235,7 +234,7 @@ def test_fst_enum_signals():
     # Find the abc_r variable
     abc_r = None
     for var in bb.vars():
-        if var.name() == "abc_r":
+        if var.name == "abc_r":
             abc_r = var
             break
 
@@ -271,7 +270,7 @@ def test_fst_var_directions():
 
     found_vars = {}
     for var in bb.vars():
-        var_name = var.name()
+        var_name = var.name
         if var_name in expected_vars:
             found_vars[var_name] = var
 
@@ -281,7 +280,7 @@ def test_fst_var_directions():
         var = found_vars[var_name]
 
         direction = var.direction()
-        var_type = var.var_type()
+        var_type = var.var_type
 
         assert direction == expected["direction"], (
             f"Expected direction {expected['direction']}, got {direction} for {var_name}"
@@ -302,7 +301,7 @@ def test_scope_types():
     assert len(top_scopes) == 1, f"Expected 1 top scope, found {len(top_scopes)}"
 
     main_scope = top_scopes[0]
-    assert main_scope.name() == "main"
+    assert main_scope.name == "main"
     assert main_scope.scope_type() == "module"
 
     # Test various child scope types
@@ -335,7 +334,7 @@ def test_scope_types():
     found_scopes = {}
 
     for scope in child_scopes:
-        scope_name = scope.name()
+        scope_name = scope.name
         if scope_name in expected_scope_types:
             found_scopes[scope_name] = scope
 
@@ -355,7 +354,7 @@ def test_scope_types():
 
             # Also test that full_name works correctly
             expected_full_name = f"main.{scope_name}"
-            actual_full_name = scope.full_name()
+            actual_full_name = scope.full_name
             assert actual_full_name == expected_full_name, (
                 f"Expected full name '{expected_full_name}', got '{actual_full_name}'"
             )

@@ -87,12 +87,12 @@ struct Scope {
 impl Scope {
     #[getter]
     pub fn name(&self) -> String {
-        self.h()[self.id].name(&self.h()).to_string()
+        self.h()[self.id].name(self.h()).to_string()
     }
 
     #[getter]
     pub fn full_name(&self) -> String {
-        self.h()[self.id].full_name(&self.h()).to_string()
+        self.h()[self.id].full_name(self.h()).to_string()
     }
 
     #[getter]
@@ -229,7 +229,7 @@ impl Var {
 
     #[getter]
     pub fn var_type(&self) -> String {
-        format!("{:?}", self.h()[self.id].var_type()).to_lowercase()
+        format!("{:?}", self.h()[self.id].var_type())
     }
 
     #[getter]
@@ -458,6 +458,28 @@ impl Waveform {
     fn __getitem__(&self, name: &str) -> PyResult<Either<Var, Scope>> {
         let maybe_item = self.waves.hierarchy.lookup_item_by_name(name);
         return_item(&self.waves, name, maybe_item)
+    }
+
+    fn all_vars(&self) -> Vec<Var> {
+        self.waves
+            .hierarchy
+            .all_vars()
+            .map(|id| Var {
+                waves: self.waves.clone(),
+                id,
+            })
+            .collect()
+    }
+
+    fn all_scopes(&self) -> Vec<Scope> {
+        self.waves
+            .hierarchy
+            .all_scopes()
+            .map(|id| Scope {
+                waves: self.waves.clone(),
+                id,
+            })
+            .collect()
     }
 }
 
