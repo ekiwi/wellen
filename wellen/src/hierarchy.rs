@@ -296,7 +296,7 @@ const INDEX_MASK: u32 = u32::MAX >> 1;
 
 impl SignalRef {
     #[inline]
-    pub fn from_index(index: usize) -> Option<Self> {
+    pub(crate) fn from_index(index: usize) -> Option<Self> {
         if index > MAX_INDEX {
             None
         } else {
@@ -305,7 +305,7 @@ impl SignalRef {
     }
 
     #[inline]
-    pub fn derived_from_index(index: usize) -> Option<Self> {
+    fn derived_from_index(index: usize) -> Option<Self> {
         if index > MAX_INDEX {
             None
         } else {
