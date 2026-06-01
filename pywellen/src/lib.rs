@@ -20,7 +20,6 @@ impl<T> PyErrExt<T> for wellen::Result<T> {
 #[pymodule]
 fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Var>()?;
-    m.add_class::<VarIter>()?;
     m.add_class::<Waveform>()?;
     m.add_class::<Signal>()?;
     m.add_class::<Timescale>()?;
@@ -136,42 +135,24 @@ impl Scope {
         self.scope_type()
     }
 
-    pub fn vars(&self) -> VarIter {
-        //TODO: optimize me! need to rewrite the logic from `HierarchyItemIdIterator` to use
-        // Arc<Hierarchy> instead of lifetimes
-        //
-        // This is because python does not like lifetimes :)
-        let hier = self.h();
-        let scope_id = self.id;
-        VarIter(Box::new({
-            hier[scope_id]
-                .vars(&hier)
-                .map(|val| Var {
-                    waves: self.waves.clone(),
-                    id: val,
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-        }))
+    pub fn vars(&self) -> Vec<Var> {
+        self.h()[self.id]
+            .vars(self.h())
+            .map(|val| Var {
+                waves: self.waves.clone(),
+                id: val,
+            })
+            .collect()
     }
 
-    pub fn scopes(&self) -> ScopeIter {
-        //TODO: optimize me! need to rewrite the logic from `HierarchyItemIdIterator` to use
-        // Arc<Hierarchy> instead of lifetimes
-        //
-        // This is because python does not like lifetimes :)
-        let hier = self.h();
-        let scope_id = self.id;
-        ScopeIter(Box::new({
-            hier[scope_id]
-                .scopes(&hier)
-                .map(|val| Scope {
-                    waves: self.waves.clone(),
-                    id: val,
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-        }))
+    pub fn scopes(&self) -> Vec<Scope> {
+        self.h()[self.id]
+            .scopes(self.h())
+            .map(|val| Scope {
+                waves: self.waves.clone(),
+                id: val,
+            })
+            .collect()
     }
 
     /// Access a scope or variable.
@@ -215,18 +196,6 @@ fn return_item(
             item_names.join(", ")
         );
         Err(PyKeyError::new_err(error_msg))
-    }
-}
-
-#[pyclass]
-struct ScopeIter(Box<dyn Iterator<Item = Scope> + Send + Sync>);
-#[pymethods]
-impl ScopeIter {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Scope> {
-        slf.0.next()
     }
 }
 
@@ -349,19 +318,6 @@ impl Var {
     #[inline]
     fn h(&self) -> &wellen::Hierarchy {
         &self.waves.hierarchy
-    }
-}
-
-#[pyclass]
-struct VarIter(Box<dyn Iterator<Item = Var> + Send + Sync>);
-
-#[pymethods]
-impl VarIter {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Var> {
-        slf.0.next()
     }
 }
 
