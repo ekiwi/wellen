@@ -581,11 +581,35 @@ impl From<ScopeRef> for ItemRef {
     }
 }
 
+impl TryFrom<ItemRef> for ScopeRef {
+    type Error = ();
+
+    fn try_from(value: ItemRef) -> Result<Self, Self::Error> {
+        match value {
+            ItemRef::Scope(s) => Ok(s),
+            ItemRef::Var(_) => Err(()),
+        }
+    }
+}
+
+
 impl From<VarRef> for ItemRef {
     fn from(value: VarRef) -> Self {
         Self::Var(value)
     }
 }
+
+impl TryFrom<ItemRef> for VarRef {
+    type Error = ();
+
+    fn try_from(value: ItemRef) -> Result<Self, Self::Error> {
+        match value {
+            ItemRef::Var(v) => Ok(v),
+            ItemRef::Scope(_) => Err(()),
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, Copy)]
 pub enum Item<'a> {
@@ -743,6 +767,19 @@ impl Scope {
     pub fn scopes<'a>(&'a self, hierarchy: &'a Hierarchy) -> impl Iterator<Item = ScopeRef> + 'a {
         to_scope_ref_iterator(HierarchyItemIdIterator::new(hierarchy, self.child))
     }
+
+    pub fn all_items<'a>(
+        &'a self,
+        hierarchy: &'a Hierarchy,
+    ) -> impl Iterator<Item =ItemRef> + 'a {
+        if let Some(child) = self.child {
+            let own_id = hierarchy.get_item(child).parent().unwrap();
+            HierarchyItemIdRecursiveIterator::new(hierarchy, Some(own_id))
+        } else {
+            HierarchyItemIdRecursiveIterator::empty(hierarchy)
+        }
+
+    }
 }
 
 struct HierarchyItemIdIterator<'a> {
@@ -819,6 +856,15 @@ impl<'a> HierarchyItemIdRecursiveIterator<'a> {
             parent,
             current: None,
             done: false,
+        }
+    }
+
+    fn empty(hierarchy: &'a Hierarchy) -> Self {
+        Self {
+            hierarchy,
+            parent: None,
+            current: None,
+            done: true,
         }
     }
 }
@@ -2027,5 +2073,9 @@ mod tests {
 
         let names: Vec<_> = h.all_items().map(|i| h.get_item(i).name(&h).to_string()).collect();
         assert_eq!(names, ["v1", "v1", "v2", "s2", "v3", "s1"]);
+
+        let s2_ref: ScopeRef = h.lookup_item_by_name("s1.s2").unwrap().try_into().unwrap();
+        let s2_names: Vec<_> = h[s2_ref].all_items(&h).map(|i| h.get_item(i).name(&h).to_string()).collect();
+        assert_eq!(s2_names, ["v2"]);
     }
 }
