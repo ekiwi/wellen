@@ -201,14 +201,11 @@ def test_hierarchy_metadata_swerv1():
     """Test reading metadata from hierarchy"""
     filename = _git_root_rel("wellen/inputs/verilator/swerv1.vcd")
     waves = Waveform(path=filename)
-    h = waves.hierarchy
-    file_format = h.file_format()
-    timescale = h.timescale()
-    assert file_format == "VCD"
-    assert timescale.factor == 1
-    exponent = timescale.unit.to_exponent()
+    assert waves.file_format == "VCD"
+    assert waves.timescale.factor == 1
+    exponent = waves.timescale.unit.to_exponent()
     assert exponent == -12
-    assert str(timescale.unit) == "ps"
+    assert str(waves.timescale.unit) == "ps"
 
 
 # Some FST tests ported from Rust (wellen/tests/fst.rs)

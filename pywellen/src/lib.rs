@@ -27,56 +27,6 @@ fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-// #[pyclass(from_py_object)]
-// #[derive(Clone)]
-// struct Hierarchy(Arc<wellen::Hierarchy>);
-//
-// #[pymethods]
-// impl Hierarchy {
-//     fn top_scopes(&self) -> ScopeIter {
-//         ScopeIter(Box::new({
-//             let hier = self.0.clone();
-//             hier.scopes()
-//                 .map(|val| Scope {
-//                     h: hier.clone(),
-//                     id: val,
-//                 })
-//                 .collect::<Vec<_>>()
-//                 .into_iter()
-//         }))
-//     }
-//
-//     fn all_vars(&self) -> Vec<Var> {
-//         todo!()
-//         //self.0.all_vars().map(|v| Var { h: self.0.clone(), id: v }).collect()
-//     }
-//
-//     /// Get the date metadata from the waveform file
-//     fn date(&self) -> String {
-//         self.0.date().to_string()
-//     }
-//
-//     /// Get the version metadata from the waveform file
-//     fn version(&self) -> String {
-//         self.0.version().to_string()
-//     }
-//
-//     /// Get the timescale metadata from the waveform file
-//     fn timescale(&self) -> Option<Timescale> {
-//         self.0.timescale().map(Timescale)
-//     }
-//
-//     /// Get the file format of the waveform file
-//     fn file_format(&self) -> String {
-//         match self.0.file_format() {
-//             wellen::FileFormat::Vcd => "VCD".to_string(),
-//             wellen::FileFormat::Fst => "FST".to_string(),
-//             wellen::FileFormat::Ghw => "GHW".to_string(),
-//             wellen::FileFormat::Unknown => "Unknown".to_string(),
-//         }
-//     }
-// }
-
 #[pyclass]
 struct Scope {
     waves: Arc<SharedWaves>,
@@ -480,6 +430,35 @@ impl Waveform {
                 id,
             })
             .collect()
+    }
+
+    /// Get the date metadata from the waveform file
+    #[getter]
+    fn date(&self) -> String {
+        self.waves.hierarchy.date().to_string()
+    }
+
+    /// Get the version metadata from the waveform file
+    #[getter]
+    fn version(&self) -> String {
+        self.waves.hierarchy.version().to_string()
+    }
+
+    /// Get the timescale metadata from the waveform file
+    #[getter]
+    fn timescale(&self) -> Option<Timescale> {
+        self.waves.hierarchy.timescale().map(Timescale)
+    }
+
+    /// Get the file format of the waveform file
+    #[getter]
+    fn file_format(&self) -> String {
+        match self.waves.hierarchy.file_format() {
+            wellen::FileFormat::Vcd => "VCD".to_string(),
+            wellen::FileFormat::Fst => "FST".to_string(),
+            wellen::FileFormat::Ghw => "GHW".to_string(),
+            wellen::FileFormat::Unknown => "Unknown".to_string(),
+        }
     }
 }
 
