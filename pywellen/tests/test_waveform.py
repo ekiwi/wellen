@@ -1,5 +1,6 @@
 from pywellen import Waveform
 import subprocess
+from swerv import SWERV_CHANGES
 
 
 def _git_root_rel(path: str) -> str:
@@ -59,21 +60,21 @@ def test_var_change_access():
     # assert d_trig.tv[5] == (80200000, "1")
 
 
-def iterate_hierarchy_example():
+def test_iterate_hierarchy_example():
     """
-    FIXME: this test doesnt do anything right now,
     just an example of some of the pywellen apis
     """
 
     wave = Waveform(path=_git_root_rel("wellen/inputs/verilator/swerv1.vcd"))
 
     # only get the first ten
-    all_vars = [var for var in hier.all_vars()][0:10]
+    all_vars = wave.all_vars()[0:10]
+    changes = {}
     for var in all_vars:
-        sig = wave.get_signal(var)
-        print(f"printing all the changes for {var.full_name}")
-        for change_time, value in sig.all_changes():
-            print(f"Change recorded at time {change_time} with new value {value}")
+        changes[var.full_name] = []
+        for change_time, value in var.signal:
+            changes[var.full_name].append((change_time, value))
+    assert changes == SWERV_CHANGES
 
 
 def test_vcd_not_starting_at_zero():
@@ -93,7 +94,9 @@ def test_vcd_not_starting_at_zero():
     sp_sig = sp.signal
 
     ## pc is fine since it changes at 4 which is time_table idx 0
-    assert pc_sig.value_at(0) is None, "None, because at time 0, nothing has happened yet!"
+    assert pc_sig.value_at(0) is None, (
+        "None, because at time 0, nothing has happened yet!"
+    )
     assert pc_sig.value_at(4) is not None
 
     ## sp only changes at 16
