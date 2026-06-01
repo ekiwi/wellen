@@ -17,48 +17,34 @@ use rustc_hash::FxHashSet;
 use smallvec::{SmallVec, smallvec};
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
+use crate::viewers::HeaderResult;
 
 /// Read a waveform file. Reads only the header.
 pub fn read_from_file<P: AsRef<std::path::Path>>(
     filename: P,
     options: &LoadOptions,
 ) -> Result<StreamingWaveform<std::io::BufReader<std::fs::File>>> {
-    let file_format = viewers::open_and_detect_file_format(filename.as_ref());
-    match file_format {
-        FileFormat::Unknown => Err(WellenError::UnknownFileFormat),
-        FileFormat::Vcd => {
-            let (hierarchy, body, _body_len) =
-                crate::vcd::read_header_from_file(filename, options)?;
-            Ok(StreamingWaveform {
-                hierarchy,
-                body: viewers::ReadBodyData::Vcd(Box::new(body)),
-            })
-        }
-        FileFormat::Ghw => {
-            todo!("streaming for ghw")
-        }
-        FileFormat::Fst => {
-            let (hierarchy, body) = crate::fst::read_header_from_file(filename, options)?;
-            Ok(StreamingWaveform {
-                hierarchy,
-                body: viewers::ReadBodyData::Fst(Box::new(body)),
-            })
-        }
-    }
+    viewers::read_header_from_file(filename, options).map(|r| r.into())
 }
 
 /// Read from something that is not a file. Reads only the header.
 pub fn read<R: BufRead + Seek + Send + Sync + 'static>(
-    _input: R,
-    _options: &LoadOptions,
+    input: R,
+    options: &LoadOptions,
 ) -> Result<StreamingWaveform<R>> {
-    todo!("support streaming read from things that are not files")
+    viewers::read_header(input, options).map(|r| r.into())
 }
 
 /// Represents a waveform that was loaded for streaming.
 pub struct StreamingWaveform<R: BufRead + Seek> {
     hierarchy: Hierarchy,
     body: viewers::ReadBodyData<R>,
+}
+
+impl<R: BufRead + Seek> From<HeaderResult<R>> for StreamingWaveform<R> {
+    fn from(value: HeaderResult<R>) -> Self {
+        StreamingWaveform { hierarchy: value.hierarchy, body: value.body.0 }
+    }
 }
 
 impl<R: BufRead + Seek> Debug for StreamingWaveform<R> {
