@@ -1138,11 +1138,19 @@ fn lookup_item_by_name(
         if remaining_suffix.is_empty() {
             Some(item)
         } else if let ItemRef::Scope(scope) = item {
-            lookup_item_by_name(h, h[scope].items(h), remaining_suffix)
+            if let Some(without_separator) = remaining_suffix.strip_prefix(SCOPE_SEPARATOR) {
+                lookup_item_by_name(h, h[scope].items(h), without_separator)
+            } else {
+                // scopes have to be an exact match
+                None
+            }
         } else {
             // we matched a variable, but there is a suffix
-            // TODO: see if we match an index or something like this
-            Some(item)
+            if remaining_suffix.contains(SCOPE_SEPARATOR) {
+                None
+            } else {
+                Some(item)
+            }
         }
     })
 }
@@ -1163,12 +1171,11 @@ fn find_longest_match<'a>(
         {
             if new_suffix.is_empty() {
                 return Some((new_suffix, item));
-            } else if let Some(new_suffix) = new_suffix.strip_prefix(SCOPE_SEPARATOR) {
+            } else {
                 match_len = new_match_len;
                 match_item = Some(item);
                 match_suffix = new_suffix;
             }
-            // if there is a match that breaks somewhere inside a name, that would not be valid
         }
     }
     match_item.map(|i| (match_suffix, i))
@@ -2053,8 +2060,7 @@ mod tests {
         assert_eq!(index.msb(), msb);
     }
 
-    #[test]
-    fn test_depth_first_iterator() {
+    fn build_test_hierarchy() -> Hierarchy {
         let mut b = HierarchyBuilder::new(FileFormat::Ghw);
         let s1 = b.add_string("s1".into());
         let s2 = b.add_string("s2".into());
@@ -2069,7 +2075,12 @@ mod tests {
         b.pop_scope();
         b.add_var(v3, VarType::Bit, SignalEncoding::BitVector(1), VarDirection::InOut, None, SignalRef::from_index(1).unwrap(), None, None);
         b.pop_scope();
-        let h = b.finish();
+        b.finish()
+    }
+
+    #[test]
+    fn test_depth_first_iterator() {
+        let h = build_test_hierarchy();
 
         let names: Vec<_> = h.all_items().map(|i| h.get_item(i).name(&h).to_string()).collect();
         assert_eq!(names, ["v1", "v1", "v2", "s2", "v3", "s1"]);
@@ -2078,4 +2089,19 @@ mod tests {
         let s2_names: Vec<_> = h[s2_ref].all_items(&h).map(|i| h.get_item(i).name(&h).to_string()).collect();
         assert_eq!(s2_names, ["v2"]);
     }
+
+    #[test]
+    fn test_lookup_item_by_name() {
+        let h = build_test_hierarchy();
+        assert!(h.lookup_item_by_name("s1.s2").is_some());
+        assert!(h.lookup_item_by_name("s1.s2.v2").is_some());
+        let v2: VarRef = h.lookup_item_by_name("s1.s2.v2").unwrap().try_into().unwrap();
+        assert_eq!(h[v2].full_name(&h), "s1.s2.v2");
+        // for variables, we allow partial matches as long as there is not remaining separator
+        assert!(h.lookup_item_by_name("s1.s2.v2 [1:1]").is_some());
+        assert!(h.lookup_item_by_name("s1.s2.v2.x").is_none());
+        // for scopes, partial matches are not allowed
+        assert!(h.lookup_item_by_name("s1.s2 [1:1]").is_none());
+    }
+
 }
