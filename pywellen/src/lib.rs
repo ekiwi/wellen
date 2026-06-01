@@ -5,7 +5,7 @@ use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use rustc_hash::FxHashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, RwLock};
-use wellen::{ItemRef, LoadOptions, ScopeType};
+use wellen::{ItemRef, LoadOptions, ScopeType, SignalValueRef};
 
 pub trait PyErrExt<T> {
     fn toerr(self) -> PyResult<T>;
@@ -264,6 +264,7 @@ impl Var {
         hasher.finish()
     }
 
+    #[getter]
     pub fn signal(&self) -> PyResult<Signal> {
         let signal_ref = self.h()[self.id].signal_ref();
         self.waves.get_signal(signal_ref)
@@ -546,10 +547,57 @@ impl Signal {
         if let Some(time_idx) = self.signal.time_indices().get(offset as usize) {
             let data = self.signal.data().get_value_at(offset as usize);
             let time = self.time_table[*time_idx as usize];
-            let data = format!("{data}");
-            Ok((time, data))
+            Ok((time, data_to_string(data)))
         } else {
             Err(PyIndexError::new_err(format!("out of bounds {offset}")))
         }
     }
+
+    /// Returns `None` if the value at the given time is not known (because no change has been observed).
+    fn value_at(&self, time: wellen::Time) -> Option<String> {
+        let time_idx = time_to_time_table_idx(&self.time_table, time)?;
+        let offset = self.signal.get_offset(time_idx)?;
+        let data = self.signal.get_value_at(&offset, offset.elements - 1);
+        Some(data_to_string(data))
+    }
+}
+
+fn data_to_string(data: wellen::SignalValueRef) -> String {
+    format!("{data}")
+}
+
+fn time_to_time_table_idx(
+    time_table: &wellen::TimeTable,
+    time: wellen::Time,
+) -> Option<wellen::TimeTableIdx> {
+    if time_table.is_empty() || time_table[0] > time {
+        None
+    } else {
+        // binary search to find correct index
+        let idx = binary_search(time_table, time);
+        assert!(time_table[idx] <= time);
+        Some(idx as wellen::TimeTableIdx)
+    }
+}
+
+#[inline]
+fn binary_search(times: &[wellen::Time], needle: wellen::Time) -> usize {
+    let mut lower_idx = 0usize;
+    let mut upper_idx = times.len() - 1;
+    while lower_idx <= upper_idx {
+        let mid_idx = lower_idx + ((upper_idx - lower_idx) / 2);
+
+        match times[mid_idx].cmp(&needle) {
+            std::cmp::Ordering::Less => {
+                lower_idx = mid_idx + 1;
+            }
+            std::cmp::Ordering::Equal => {
+                return mid_idx;
+            }
+            std::cmp::Ordering::Greater => {
+                upper_idx = mid_idx - 1;
+            }
+        }
+    }
+    lower_idx - 1
 }

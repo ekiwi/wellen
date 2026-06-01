@@ -80,15 +80,7 @@ def test_vcd_not_starting_at_zero():
     filename = _git_root_rel("wellen/inputs/gameroy/trace_prefix.vcd")
     waves = Waveform(path=filename)
 
-    h = waves.hierarchy
-
-    # the first signal change only happens at 4
-    assert waves.time_table[0] == 4
-
-    top = next(h.top_scopes())
-    assert top.name == "gameroy"
-    cpu = next(top.scopes())
-
+    cpu = waves["gameroy.cpu"]
     assert cpu.name == "cpu"
 
     pc = next(v for v in cpu.vars() if v.name == "pc")
@@ -97,15 +89,17 @@ def test_vcd_not_starting_at_zero():
     assert sp.full_name == "gameroy.cpu.sp"
 
     ## querying a signal before it has a value should return none
-    pc_sig = waves.get_signal(pc)
-    sp_sig = waves.get_signal(sp)
+    pc_sig = pc.signal
+    sp_sig = sp.signal
 
     ## pc is fine since it changes at 4 which is time_table idx 0
-    assert pc_sig.value_at_idx(0) is not None
+    assert pc_sig.value_at(0) is None, "None, because at time 0, nothing has happened yet!"
+    assert pc_sig.value_at(4) is not None
 
-    ## sp only changes at 16 which is time table idx 1
-    assert sp_sig.value_at_idx(1) is not None
-    assert sp_sig.value_at_idx(0) is None
+    ## sp only changes at 16
+    assert sp_sig.value_at(16) is not None
+    for ii in range(16):
+        assert sp_sig.value_at(ii) is None
 
 
 def test_vcd_var_types_types():
