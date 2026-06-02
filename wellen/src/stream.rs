@@ -9,8 +9,8 @@ use crate::signal::{DerivedBitVecSignal, SignalMap, States};
 use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
 use crate::wavemem::write_n_state_from_ascii;
 use crate::{
-    FileFormat, Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValue,
-    SignalValueRef, Time, WellenError, viewers,
+    Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValue,
+    SignalValueRef, Time, viewers,
 };
 use fst_reader::FstSignalValue;
 use rustc_hash::FxHashSet;

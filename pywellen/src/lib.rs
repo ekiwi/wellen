@@ -4,8 +4,9 @@ use pyo3::types::{PyInt, PySlice, PySliceIndices};
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use rustc_hash::FxHashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex, RwLock};
-use wellen::{ItemRef, LoadOptions, ScopeType};
+use std::ops::DerefMut;
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+use wellen::{Hierarchy, ItemRef, LoadOptions, ScopeType};
 
 pub trait PyErrExt<T> {
     fn toerr(self) -> PyResult<T>;
@@ -386,24 +387,38 @@ struct Waveform {
 /// Private struct that contains waveform data structures that we need access to
 /// from lots of places.
 struct SharedWaves {
-    wave_source: Mutex<wellen::SignalSource>,
-    signals: RwLock<FxHashMap<wellen::SignalRef, Arc<wellen::Signal>>>,
+    body: Mutex<Option<BodyCont>>,
+    stream: Mutex<Option<StreamWave>>,
+    bulk: Mutex<Option<BulkData>>,
     hierarchy: wellen::Hierarchy,
+    multi_threaded: bool,
+    filename: String,
+    stream_only: bool,
+    opts: LoadOptions,
+}
+
+/// Waveform data that is only relevant if we are bulk parsing.
+struct BulkData {
+    signals: RwLock<FxHashMap<wellen::SignalRef, Arc<wellen::Signal>>>,
     /// the time table has a separate arc, since it is pointed to by each signal
     time_table: Arc<wellen::TimeTable>,
-    multi_threaded: bool,
+    wave_source: Mutex<wellen::SignalSource>,
 }
+
+type BodyCont = wellen::viewers::ReadBodyContinuation<std::io::BufReader<std::fs::File>>;
+type StreamWave = wellen::stream::StreamingWaveform<std::io::BufReader<std::fs::File>>;
 
 #[pymethods]
 /// Top level waveform class that end users should use
 /// The "egress" point from which all users can read waveforms
 impl Waveform {
     #[new]
-    #[pyo3(signature = (path, multi_threaded = true, remove_scopes_with_empty_name = true))]
+    #[pyo3(signature = (path, multi_threaded = true, remove_scopes_with_empty_name = true, stream_only = false))]
     fn new(
         path: String,
         multi_threaded: bool,
         remove_scopes_with_empty_name: bool,
+        stream_only: bool,
     ) -> PyResult<Self> {
         let opts = LoadOptions {
             multi_thread: multi_threaded,
@@ -411,15 +426,15 @@ impl Waveform {
         };
         let header_result = wellen::viewers::read_header_from_file(path.as_str(), &opts).toerr()?;
 
-        let body = wellen::viewers::read_body(header_result.body, &header_result.hierarchy, None)
-            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
-
         let waves = SharedWaves {
-            wave_source: Mutex::new(body.source),
-            signals: Default::default(),
+            body: Mutex::new(Some(header_result.body)),
+            bulk: Mutex::new(None),
+            stream: Mutex::new(None),
             hierarchy: header_result.hierarchy,
-            time_table: Arc::new(body.time_table),
             multi_threaded,
+            filename: path,
+            stream_only,
+            opts,
         };
         Ok(Self {
             waves: Arc::new(waves),
@@ -510,8 +525,13 @@ impl Waveform {
     }
 }
 
-impl SharedWaves {
-    fn get_signal(&self, signal_ref: wellen::SignalRef) -> PyResult<Signal> {
+impl BulkData {
+    fn get_signal(
+        &self,
+        hierarchy: &Hierarchy,
+        multi_threaded: bool,
+        signal_ref: wellen::SignalRef,
+    ) -> PyResult<Signal> {
         if let Ok(s) = self.signals.read()
             && let Some(signal) = s.get(&signal_ref)
         {
@@ -520,7 +540,7 @@ impl SharedWaves {
                 time_table: self.time_table.clone(),
             })
         } else if let Ok(mut waves) = self.wave_source.lock() {
-            let mut res = waves.load_signals(&[signal_ref], &self.hierarchy, self.multi_threaded);
+            let mut res = waves.load_signals(&[signal_ref], hierarchy, multi_threaded);
             if let Some(wellen_signal) = res.pop() {
                 debug_assert!(res.is_empty());
                 let signal = Arc::new(wellen_signal);
@@ -536,6 +556,52 @@ impl SharedWaves {
             }
         } else {
             Err(PyRuntimeError::new_err("failed to acquire lock"))
+        }
+    }
+}
+
+impl SharedWaves {
+    fn get_signal(&self, signal_ref: wellen::SignalRef) -> PyResult<Signal> {
+        if self.stream_only {
+            return Err(PyRuntimeError::new_err(
+                "Cannot access signals directly, since the waveform is in stream only mode.",
+            ));
+        }
+        let mut bulk_guard = self.bulk.lock().unwrap();
+        if let Some(bulk) = bulk_guard.as_ref() {
+            bulk.get_signal(&self.hierarchy, self.multi_threaded, signal_ref)
+        } else {
+            // load bulk data
+            let body = self.body()?;
+            let body = wellen::viewers::read_body(body, &self.hierarchy, None)
+                .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+
+            let mut bulk = BulkData {
+                signals: Default::default(),
+                time_table: Arc::new(body.time_table),
+                wave_source: Mutex::new(body.source),
+            };
+            let signal = bulk.get_signal(&self.hierarchy, self.multi_threaded, signal_ref);
+
+            // store new bulk data
+            *bulk_guard = Some(bulk);
+
+            // now we can return the (maybe) signal
+            signal
+        }
+    }
+
+    /// used internally to get the body continuation
+    fn body(&self) -> PyResult<BodyCont> {
+        let stolen = std::mem::take(self.body.lock().unwrap().deref_mut());
+        if let Some(body) = stolen {
+            Ok(body)
+        } else {
+            // reload the file to get another body continuation
+            let header_result =
+                wellen::viewers::read_header_from_file(self.filename.as_str(), &self.opts)
+                    .toerr()?;
+            Ok(header_result.body)
         }
     }
 }

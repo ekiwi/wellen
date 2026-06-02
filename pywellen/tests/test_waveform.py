@@ -1,6 +1,7 @@
 from pywellen import Waveform
 import subprocess
 from swerv import SWERV_CHANGES
+from collections import defaultdict
 
 
 def _git_root_rel(path: str) -> str:
@@ -351,3 +352,14 @@ def test_scope_types():
             assert actual_full_name == expected_full_name, (
                 f"Expected full name '{expected_full_name}', got '{actual_full_name}'"
             )
+
+
+def test_stream():
+    wave = WaveformStream(path=_git_root_rel("wellen/inputs/verilator/swerv1.vcd"))
+    changes = defaultdict(list)
+
+    def on_change(time, var, value):
+        changes[var.full_name].append((time, value))
+
+    wave.stream_changes(on_change, include=wave.all_vars()[0:10])
+    assert changes == SWERV_CHANGES
