@@ -1,11 +1,12 @@
 use either::Either;
+use num_bigint::BigUint;
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyNotImplementedError, PyTypeError};
 use pyo3::types::{PyInt, PySlice, PySliceIndices};
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use rustc_hash::FxHashMap;
 use std::hash::{Hash, Hasher};
 use std::ops::DerefMut;
-use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use wellen::{Hierarchy, ItemRef, LoadOptions, ScopeType};
 
 pub trait PyErrExt<T> {
@@ -19,12 +20,13 @@ impl<T> PyErrExt<T> for wellen::Result<T> {
 }
 
 #[pymodule]
-fn pywellen(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
+fn pywellen(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Var>()?;
     m.add_class::<Waveform>()?;
     m.add_class::<Signal>()?;
     m.add_class::<Timescale>()?;
     m.add_class::<TimescaleUnit>()?;
+    m.add_function(wrap_pyfunction!(waveform_stream, m)?)?;
     Ok(())
 }
 
@@ -278,7 +280,7 @@ impl Var {
     }
 
     /// for vcdvcd compatibility
-    pub fn __getitem__(&self, time: isize) -> PyResult<String> {
+    pub fn __getitem__(&self, time: isize) -> PyResult<PySignalValue> {
         if let Some(value) = self.tv()?.value_at(time as wellen::Time) {
             Ok(value)
         } else {
@@ -380,7 +382,7 @@ impl TimeTable {
 }
 
 #[pyclass]
-struct Waveform {
+pub struct Waveform {
     waves: Arc<SharedWaves>,
 }
 
@@ -389,7 +391,7 @@ struct Waveform {
 struct SharedWaves {
     body: Mutex<Option<BodyCont>>,
     stream: Mutex<Option<StreamWave>>,
-    bulk: Mutex<Option<BulkData>>,
+    bulk: RwLock<Option<BulkData>>,
     hierarchy: wellen::Hierarchy,
     multi_threaded: bool,
     filename: String,
@@ -407,6 +409,17 @@ struct BulkData {
 
 type BodyCont = wellen::viewers::ReadBodyContinuation<std::io::BufReader<std::fs::File>>;
 type StreamWave = wellen::stream::StreamingWaveform<std::io::BufReader<std::fs::File>>;
+
+#[pyfunction]
+#[pyo3(name = "WaveformStream")]
+#[pyo3(signature = (path, multi_threaded = true, remove_scopes_with_empty_name = true))]
+pub fn waveform_stream(
+    path: String,
+    multi_threaded: bool,
+    remove_scopes_with_empty_name: bool,
+) -> PyResult<Waveform> {
+    Waveform::new(path, multi_threaded, remove_scopes_with_empty_name, true)
+}
 
 #[pymethods]
 /// Top level waveform class that end users should use
@@ -428,7 +441,7 @@ impl Waveform {
 
         let waves = SharedWaves {
             body: Mutex::new(Some(header_result.body)),
-            bulk: Mutex::new(None),
+            bulk: RwLock::new(None),
             stream: Mutex::new(None),
             hierarchy: header_result.hierarchy,
             multi_threaded,
@@ -567,8 +580,7 @@ impl SharedWaves {
                 "Cannot access signals directly, since the waveform is in stream only mode.",
             ));
         }
-        let mut bulk_guard = self.bulk.lock().unwrap();
-        if let Some(bulk) = bulk_guard.as_ref() {
+        if let Some(bulk) = self.bulk.read().unwrap().as_ref() {
             bulk.get_signal(&self.hierarchy, self.multi_threaded, signal_ref)
         } else {
             // load bulk data
@@ -576,7 +588,7 @@ impl SharedWaves {
             let body = wellen::viewers::read_body(body, &self.hierarchy, None)
                 .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
 
-            let mut bulk = BulkData {
+            let bulk = BulkData {
                 signals: Default::default(),
                 time_table: Arc::new(body.time_table),
                 wave_source: Mutex::new(body.source),
@@ -584,7 +596,7 @@ impl SharedWaves {
             let signal = bulk.get_signal(&self.hierarchy, self.multi_threaded, signal_ref);
 
             // store new bulk data
-            *bulk_guard = Some(bulk);
+            *self.bulk.write().unwrap() = Some(bulk);
 
             // now we can return the (maybe) signal
             signal
@@ -621,7 +633,7 @@ impl Signal {
     fn __getitem__(
         &self,
         key: &Bound<'_, PyAny>,
-    ) -> PyResult<Either<(wellen::Time, String), Vec<(wellen::Time, String)>>> {
+    ) -> PyResult<Either<(wellen::Time, PySignalValue), Vec<(wellen::Time, PySignalValue)>>> {
         if let Ok(offset) = key.extract::<isize>() {
             self.get_offset(offset).map(Either::Left)
         } else if let Ok(slice) = key.cast::<PySlice>() {
@@ -634,26 +646,26 @@ impl Signal {
     }
 
     /// Returns `None` if the value at the given time is not known (because no change has been observed).
-    fn value_at(&self, time: wellen::Time) -> Option<String> {
+    fn value_at(&self, time: wellen::Time) -> Option<PySignalValue> {
         let time_idx = time_to_time_table_idx(&self.time_table, time)?;
         let offset = self.signal.get_offset(time_idx)?;
         let data = self.signal.get_value_at(&offset, offset.elements - 1);
-        Some(data_to_string(data))
+        Some(to_py_signal_value(data))
     }
 }
 
 impl Signal {
-    fn get_offset(&self, offset: isize) -> PyResult<(wellen::Time, String)> {
+    fn get_offset(&self, offset: isize) -> PyResult<(wellen::Time, PySignalValue)> {
         if let Some(time_idx) = self.signal.time_indices().get(offset as usize) {
             let data = self.signal.data().get_value_at(offset as usize);
             let time = self.time_table[*time_idx as usize];
-            Ok((time, data_to_string(data)))
+            Ok((time, to_py_signal_value(data)))
         } else {
             Err(PyIndexError::new_err(format!("out of bounds {offset}")))
         }
     }
 
-    fn get_slice(&self, slice: PySliceIndices) -> PyResult<Vec<(wellen::Time, String)>> {
+    fn get_slice(&self, slice: PySliceIndices) -> PyResult<Vec<(wellen::Time, PySignalValue)>> {
         if slice.start >= 0 && slice.stop > slice.start && slice.step == 1 {
             let range = (slice.start as usize)..(slice.stop as usize);
             let mut out = Vec::with_capacity(range.len());
@@ -661,7 +673,7 @@ impl Signal {
                 if let Some(time_idx) = self.signal.time_indices().get(offset) {
                     let data = self.signal.data().get_value_at(offset);
                     let time = self.time_table[*time_idx as usize];
-                    out.push((time, data_to_string(data)));
+                    out.push((time, to_py_signal_value(data)));
                 } else {
                     return Err(PyIndexError::new_err(format!("out of bounds {offset}")));
                 }
@@ -675,8 +687,20 @@ impl Signal {
     }
 }
 
-fn data_to_string(data: wellen::SignalValueRef) -> String {
-    format!("{data}")
+type PySignalValue = Either<String, Either<BigUint, f64>>;
+fn to_py_signal_value(value: wellen::SignalValueRef) -> PySignalValue {
+    match value {
+        wellen::SignalValueRef::Event => Either::Left("".to_string()),
+        wellen::SignalValueRef::BitVec(bv) => {
+            if let Some(bytes) = bv.be_bytes() {
+                Either::Right(Either::Left(BigUint::from_bytes_be(bytes)))
+            } else {
+                Either::Left(bv.bit_string())
+            }
+        }
+        wellen::SignalValueRef::String(s) => Either::Left(s.to_string()),
+        wellen::SignalValueRef::Real(v) => Either::Right(Either::Right(v)),
+    }
 }
 
 fn time_to_time_table_idx(

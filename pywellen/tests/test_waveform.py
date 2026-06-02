@@ -1,6 +1,6 @@
-from pywellen import Waveform
+from pywellen import Waveform, WaveformStream
 import subprocess
-from swerv import SWERV_CHANGES
+from swerv import check_swerv_changes
 from collections import defaultdict
 
 
@@ -48,17 +48,17 @@ def test_var_change_access():
     assert d_trig.size == 1
     assert len(d_trig.tv) == 8
     assert list(d_trig.tv) == [
-        (0, "0"),
-        (27400000, "1"),
-        (47400000, "0"),
-        (53800000, "1"),
-        (73800000, "0"),
-        (80200000, "1"),
-        (100200000, "0"),
-        (106600000, "1"),
+        (0, 0),
+        (27400000, 1),
+        (47400000, 0),
+        (53800000, 1),
+        (73800000, 0),
+        (80200000, 1),
+        (100200000, 0),
+        (106600000, 1),
     ]
-    # assert d_trig.tv[0] == (0, "0")
-    # assert d_trig.tv[5] == (80200000, "1")
+    assert d_trig.tv[0] == (0, 0)
+    assert d_trig.tv[5] == (80200000, 1)
 
 
 def test_iterate_hierarchy_example():
@@ -75,7 +75,7 @@ def test_iterate_hierarchy_example():
         changes[var.full_name] = []
         for change_time, value in var.signal:
             changes[var.full_name].append((change_time, value))
-    assert changes == SWERV_CHANGES
+    check_swerv_changes(changes)
 
 
 def test_vcd_not_starting_at_zero():
@@ -356,10 +356,20 @@ def test_scope_types():
 
 def test_stream():
     wave = WaveformStream(path=_git_root_rel("wellen/inputs/verilator/swerv1.vcd"))
+
+    # accessing signals directly in stream mode is not allowed
+    error = ""
+    try:
+        wave.all_vars()[0].signal
+    except RuntimeError as e:
+        error = str(e)
+    assert "access" in error and "stream" in error
+
+    # record all changes in streaming mode
     changes = defaultdict(list)
 
     def on_change(time, var, value):
         changes[var.full_name].append((time, value))
 
     wave.stream_changes(on_change, include=wave.all_vars()[0:10])
-    assert changes == SWERV_CHANGES
+    check_swerv_changes(changes)

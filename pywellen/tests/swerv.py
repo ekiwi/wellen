@@ -1,3 +1,20 @@
+def check_swerv_changes(changes):
+    assert changes.keys() == SWERV_CHANGES.keys()
+    for signal in changes.keys():
+        assert len(changes[signal]) == len(SWERV_CHANGES[signal])
+        for (time_a, value_a), (time_ref, value_ref) in zip(
+            changes[signal], SWERV_CHANGES[signal]
+        ):
+            assert time_a == time_ref
+            is_binary = all(cc in {"1", "0"} for cc in value_ref)
+            if is_binary:
+                assert isinstance(value_a, int)
+                value_ref = int(value_ref, 2)
+            assert value_a == value_ref, (
+                f"{signal}@{time_ref}: {value_a} =/= {value_ref}"
+            )
+
+
 SWERV_CHANGES = {
     "TOP.core_clk": [
         (0, "0"),
