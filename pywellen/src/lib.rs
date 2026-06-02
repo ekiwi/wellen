@@ -4,10 +4,12 @@ use pyo3::exceptions::{PyIndexError, PyKeyError, PyNotImplementedError, PyTypeEr
 use pyo3::types::{PyInt, PySlice, PySliceIndices};
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use rustc_hash::FxHashMap;
+use smallvec::{SmallVec, smallvec};
 use std::hash::{Hash, Hasher};
+use std::num::NonZeroU32;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
-use wellen::{Hierarchy, ItemRef, LoadOptions, ScopeType};
+use wellen::{Hierarchy, VarRef};
 
 pub trait PyErrExt<T> {
     fn toerr(self) -> PyResult<T>;
@@ -51,32 +53,32 @@ impl Scope {
     #[getter]
     pub fn scope_type(&self) -> String {
         match self.h()[self.id].scope_type() {
-            ScopeType::Module => "module",
-            ScopeType::Task => "task",
-            ScopeType::Function => "function",
-            ScopeType::Begin => "begin",
-            ScopeType::Fork => "fork",
-            ScopeType::Generate => "generate",
-            ScopeType::Struct => "struct",
-            ScopeType::Union => "union",
-            ScopeType::Class => "class",
-            ScopeType::Interface => "interface",
-            ScopeType::Package => "package",
-            ScopeType::Program => "program",
-            ScopeType::VhdlArchitecture => "vhdl_architecture",
-            ScopeType::VhdlProcedure => "vhdl_procedure",
-            ScopeType::VhdlFunction => "vhdl_function",
-            ScopeType::VhdlRecord => "vhdl_record",
-            ScopeType::VhdlProcess => "vhdl_process",
-            ScopeType::VhdlBlock => "vhdl_block",
-            ScopeType::VhdlForGenerate => "vhdl_for_generate",
-            ScopeType::VhdlIfGenerate => "vhdl_if_generate",
-            ScopeType::VhdlGenerate => "vhdl_generate",
-            ScopeType::VhdlPackage => "vhdl_package",
-            ScopeType::GhwGeneric => "ghw_generic",
-            ScopeType::VhdlArray => "vhdl_array",
-            ScopeType::Unknown => "unknown",
-            ScopeType::Clocking => "clocking",
+            wellen::ScopeType::Module => "module",
+            wellen::ScopeType::Task => "task",
+            wellen::ScopeType::Function => "function",
+            wellen::ScopeType::Begin => "begin",
+            wellen::ScopeType::Fork => "fork",
+            wellen::ScopeType::Generate => "generate",
+            wellen::ScopeType::Struct => "struct",
+            wellen::ScopeType::Union => "union",
+            wellen::ScopeType::Class => "class",
+            wellen::ScopeType::Interface => "interface",
+            wellen::ScopeType::Package => "package",
+            wellen::ScopeType::Program => "program",
+            wellen::ScopeType::VhdlArchitecture => "vhdl_architecture",
+            wellen::ScopeType::VhdlProcedure => "vhdl_procedure",
+            wellen::ScopeType::VhdlFunction => "vhdl_function",
+            wellen::ScopeType::VhdlRecord => "vhdl_record",
+            wellen::ScopeType::VhdlProcess => "vhdl_process",
+            wellen::ScopeType::VhdlBlock => "vhdl_block",
+            wellen::ScopeType::VhdlForGenerate => "vhdl_for_generate",
+            wellen::ScopeType::VhdlIfGenerate => "vhdl_if_generate",
+            wellen::ScopeType::VhdlGenerate => "vhdl_generate",
+            wellen::ScopeType::VhdlPackage => "vhdl_package",
+            wellen::ScopeType::GhwGeneric => "ghw_generic",
+            wellen::ScopeType::VhdlArray => "vhdl_array",
+            wellen::ScopeType::Unknown => "unknown",
+            wellen::ScopeType::Clocking => "clocking",
             _ => "unknown", // `ScopeType` is marked as non-exhaustive
         }
         .to_string()
@@ -141,11 +143,11 @@ fn return_item(
 ) -> PyResult<Either<Var, Scope>> {
     if let Some(item) = maybe_item {
         match item {
-            ItemRef::Scope(id) => Ok(Either::Right(Scope {
+            wellen::ItemRef::Scope(id) => Ok(Either::Right(Scope {
                 waves: waves.clone(),
                 id,
             })),
-            ItemRef::Var(id) => Ok(Either::Left(Var {
+            wellen::ItemRef::Var(id) => Ok(Either::Left(Var {
                 waves: waves.clone(),
                 id,
             })),
@@ -164,7 +166,12 @@ fn return_item(
     }
 }
 
-#[pyclass]
+#[derive(Clone)]
+#[pyclass(from_py_object)]
+struct SignalId(wellen::SignalRef);
+
+#[derive(Clone)]
+#[pyclass(from_py_object)]
 struct Var {
     waves: Arc<SharedWaves>,
     id: wellen::VarRef,
@@ -265,6 +272,16 @@ impl Var {
         pointer_num.hash(&mut hasher);
         self.id.hash(&mut hasher);
         hasher.finish()
+    }
+
+    #[getter]
+    pub fn signal_id(&self) -> SignalId {
+        SignalId(self.waves.hierarchy[self.id].signal_ref())
+    }
+
+    #[getter]
+    pub fn signal_ref(&self) -> SignalId {
+        self.signal_id()
     }
 
     #[getter]
@@ -396,7 +413,7 @@ struct SharedWaves {
     multi_threaded: bool,
     filename: String,
     stream_only: bool,
-    opts: LoadOptions,
+    opts: wellen::LoadOptions,
 }
 
 /// Waveform data that is only relevant if we are bulk parsing.
@@ -433,7 +450,7 @@ impl Waveform {
         remove_scopes_with_empty_name: bool,
         stream_only: bool,
     ) -> PyResult<Self> {
-        let opts = LoadOptions {
+        let opts = wellen::LoadOptions {
             multi_thread: multi_threaded,
             remove_scopes_with_empty_name,
         };
@@ -536,12 +553,71 @@ impl Waveform {
             wellen::FileFormat::Unknown => "Unknown".to_string(),
         }
     }
+
+    fn stream_changes(
+        &self,
+        callback: &Bound<'_, PyAny>,
+        include: Option<Vec<Either<Var, String>>>,
+    ) -> PyResult<()> {
+        self.waves.stream_changes(callback, include)
+    }
+}
+
+struct SignalToVarMap {
+    entries: Vec<Option<(wellen::VarRef, NonZeroU32)>>,
+}
+
+impl SignalToVarMap {
+    const NO_NEXT: NonZeroU32 = NonZeroU32::MAX;
+
+    fn new(h: &Hierarchy) -> Self {
+        let num_signals = h.signals().last().map(|s| s.index()).unwrap_or(0);
+        let entries = vec![None; num_signals];
+        Self { entries }
+    }
+
+    fn contains(&self, signal: wellen::SignalRef) -> bool {
+        self.entries[signal.index()].is_some()
+    }
+
+    fn insert(&mut self, signal: wellen::SignalRef, var: wellen::VarRef) {
+        let mut index = signal.index();
+        if self.entries[index].is_none() {
+            self.entries[index] = Some((var, Self::NO_NEXT));
+        } else {
+            let mut entry = self.entries[index].unwrap();
+            while entry.1 != Self::NO_NEXT {
+                if entry.0 == var {
+                    return; // do not insert the same variable twice
+                }
+                index += entry.1.get() as usize;
+                entry = self.entries[index].unwrap();
+            }
+            let absolute_index = self.entries.len();
+            let relative = absolute_index - index;
+            self.entries[index] = Some((entry.0, NonZeroU32::new(relative as u32).unwrap()));
+            self.entries.push(Some((var, Self::NO_NEXT)));
+        }
+    }
+
+    fn get(&self, signal: wellen::SignalRef) -> SmallVec<[VarRef; 4]> {
+        let mut out = smallvec![];
+        let mut index = signal.index();
+        while let Some((var, delta)) = self.entries[index] {
+            out.push(var);
+            if delta == Self::NO_NEXT {
+                break;
+            }
+            index += delta.get() as usize;
+        }
+        out
+    }
 }
 
 impl BulkData {
     fn get_signal(
         &self,
-        hierarchy: &Hierarchy,
+        hierarchy: &wellen::Hierarchy,
         multi_threaded: bool,
         signal_ref: wellen::SignalRef,
     ) -> PyResult<Signal> {
@@ -615,6 +691,82 @@ impl SharedWaves {
                     .toerr()?;
             Ok(header_result.body)
         }
+    }
+
+    fn stream_changes(
+        &self,
+        callback: &Bound<'_, PyAny>,
+        include: Option<Vec<Either<Var, String>>>,
+    ) -> PyResult<()> {
+        // convert includes to a filter and a lookup for variable names
+        let mut map = SignalToVarMap::new(&self.hierarchy);
+        let mut filter_vec = vec![];
+        let filter = if let Some(vars) = include {
+            filter_vec = vars_to_signals(&self.hierarchy, vars.into_iter(), &mut map);
+            wellen::stream::Filter::include_signals(filter_vec.as_slice())
+        } else {
+            add_all_vars(&self.hierarchy, &mut map);
+            wellen::stream::Filter::all()
+        };
+
+        self.stream_changes_internal(callback, &map, filter)
+    }
+
+    fn stream_changes_internal(
+        &self,
+        callback: &Bound<'_, PyAny>,
+        map: &SignalToVarMap,
+        filter: wellen::stream::Filter,
+    ) -> PyResult<()> {
+        if let Some(stream) = self.stream.lock().unwrap().as_mut() {
+            stream
+                .stream_changes(filter, |time, signal, value| {
+                    let vars = map.get(signal);
+                    // let args =
+                    println!("{time} {vars:?} {value}");
+                })
+                .toerr()
+        } else {
+            let body = self.body()?;
+            let wave: wellen::stream::StreamingWaveform<_> = (self.hierarchy.clone(), body).into();
+            *self.stream.lock().unwrap() = Some(wave);
+            self.stream_changes_internal(callback, map, filter)
+        }
+    }
+}
+
+fn add_all_vars(h: &Hierarchy, map: &mut SignalToVarMap) {
+    for var in h.all_vars() {
+        map.insert(h[var].signal_ref(), var);
+    }
+}
+
+fn vars_to_signals(
+    h: &Hierarchy,
+    vars: impl Iterator<Item = Either<Var, String>>,
+    map: &mut SignalToVarMap,
+) -> Vec<wellen::SignalRef> {
+    let mut out = vec![];
+    for var in vars.flat_map(|v| resolve_var(h, v)) {
+        let signal_ref = h[var].signal_ref();
+        if !map.contains(signal_ref) {
+            out.push(signal_ref);
+        }
+        map.insert(signal_ref, var);
+    }
+    out
+}
+
+fn resolve_var(h: &Hierarchy, var: Either<Var, String>) -> Option<wellen::VarRef> {
+    match var {
+        Either::Left(v) => Some(v.id),
+        Either::Right(name) => h.lookup_item_by_name(&name).and_then(|i| {
+            if let wellen::ItemRef::Var(v) = i {
+                Some(v)
+            } else {
+                None
+            }
+        }),
     }
 }
 

@@ -368,8 +368,9 @@ def test_stream():
     # record all changes in streaming mode
     changes = defaultdict(list)
 
-    def on_change(time, var, value):
-        changes[var.full_name].append((time, value))
+    def on_change(time, signal, value):
+        for var in wave[signal]:
+            changes[var.full_name].append((time, value))
 
     wave.stream_changes(on_change, include=wave.all_vars()[0:10])
     check_swerv_changes(changes)

@@ -47,6 +47,12 @@ impl<R: BufRead + Seek> From<HeaderResult<R>> for StreamingWaveform<R> {
     }
 }
 
+impl<R: BufRead + Seek> From<(Hierarchy, viewers::ReadBodyContinuation<R>)> for StreamingWaveform<R> {
+    fn from(value: (Hierarchy, viewers::ReadBodyContinuation<R>)) -> Self {
+        StreamingWaveform { hierarchy: value.0, body: value.1.0 }
+    }
+}
+
 impl<R: BufRead + Seek> Debug for StreamingWaveform<R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "stream::Waveform(...)")

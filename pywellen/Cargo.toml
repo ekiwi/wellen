@@ -15,6 +15,7 @@ crate-type = ["cdylib"]
 [dependencies]
 either = "1.16.0"
 num-bigint = "0.4.6"
-pyo3 = { version = "0.28.3", features = ["num-bigint", "either"] }
+pyo3 = { version = "0.28.3", features = ["num-bigint", "either", "smallvec"] }
 wellen = { workspace = true }
 rustc-hash.workspace = true
+smallvec.workspace = true
