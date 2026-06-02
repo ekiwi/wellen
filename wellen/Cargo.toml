@@ -22,6 +22,7 @@ readme = "Readme.md"
 fst-reader.workspace = true
 leb128.workspace = true
 lz4_flex.workspace = true
+memchr.workspace = true
 memmap2.workspace = true
 rayon.workspace = true
 num_enum.workspace = true

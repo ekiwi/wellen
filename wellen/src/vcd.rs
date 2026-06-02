@@ -10,6 +10,7 @@ use crate::stream::StreamEncoder;
 use crate::viewers::ProgressCount;
 use crate::wavemem::Encoder;
 use crate::{FileFormat, LoadOptions, SignalValueRef, Time, TimeTable};
+use memchr::memchr;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -1553,61 +1554,59 @@ fn unescape_vcd_value(value: &[u8]) -> Cow<'_, [u8]> {
     let mut i = 0;
 
     while i < value.len() {
-        if value[i] == b'\\' {
-            // Hex escape: \xHH where H are hex digits
-            if i + 4 <= value.len()
-                && value[i + 1] == b'x'
-                && let Some(hi) = hex_digit_to_value(value[i + 2])
-                && let Some(lo) = hex_digit_to_value(value[i + 3])
-            {
-                let code = (hi << 4) | lo;
-                substituted
-                    .get_or_insert_with(|| {
-                        let mut buf = Vec::with_capacity(value.len());
-                        buf.extend_from_slice(&value[..i]);
-                        buf
-                    })
-                    .push(code);
-                i += 4;
-                continue;
+        // Jump straight to the next backslash.
+        // Copy the skipped run only if we're already building an owned buffer.
+        match memchr(b'\\', &value[i..]) {
+            Some(off) => {
+                if let Some(ref mut buf) = substituted {
+                    buf.extend_from_slice(&value[i..i + off]);
+                }
+                i += off;
             }
-
-            // Octal escape: \XYZ where X,Y,Z are 0-7; skip if not valid octal.
-            if i + 4 <= value.len()
-                && is_octal_digit(value[i + 1])
-                && is_octal_digit(value[i + 2])
-                && is_octal_digit(value[i + 3])
-            {
-                let code = ((value[i + 1] - b'0') << 6)
-                    + ((value[i + 2] - b'0') << 3)
-                    + (value[i + 3] - b'0');
-                substituted
-                    .get_or_insert_with(|| {
-                        let mut buf = Vec::with_capacity(value.len());
-                        buf.extend_from_slice(&value[..i]);
-                        buf
-                    })
-                    .push(code);
-                i += 4;
-                continue;
-            }
-
-            // Simple single-character escapes, e.g. \' and \\
-            if i + 2 <= value.len()
-                && let Some(mapped) = map_single_escape(value[i + 1])
-            {
-                substituted
-                    .get_or_insert_with(|| {
-                        let mut buf = Vec::with_capacity(value.len());
-                        buf.extend_from_slice(&value[..i]);
-                        buf
-                    })
-                    .push(mapped);
-                i += 2;
-                continue;
+            None => {
+                if let Some(ref mut buf) = substituted {
+                    buf.extend_from_slice(&value[i..]);
+                }
+                break;
             }
         }
 
+        // Invariant: value[i] == b'\\'
+
+        // Hex escape: \xHH
+        if i + 4 <= value.len()
+            && value[i + 1] == b'x'
+            && let Some(hi) = hex_digit_to_value(value[i + 2])
+            && let Some(lo) = hex_digit_to_value(value[i + 3])
+        {
+            push_escaped(&mut substituted, value, i, (hi << 4) | lo);
+            i += 4;
+            continue;
+        }
+
+        // Octal escape: \XYZ where X,Y,Z are 0-7
+        if i + 4 <= value.len()
+            && is_octal_digit(value[i + 1])
+            && is_octal_digit(value[i + 2])
+            && is_octal_digit(value[i + 3])
+        {
+            let code =
+                ((value[i + 1] - b'0') << 6) + ((value[i + 2] - b'0') << 3) + (value[i + 3] - b'0');
+            push_escaped(&mut substituted, value, i, code);
+            i += 4;
+            continue;
+        }
+
+        // Simple single-character escapes, e.g. \' and \\
+        if i + 2 <= value.len()
+            && let Some(mapped) = map_single_escape(value[i + 1])
+        {
+            push_escaped(&mut substituted, value, i, mapped);
+            i += 2;
+            continue;
+        }
+
+        // Backslash that doesn't begin a valid escape: keep it verbatim.
         if let Some(ref mut buf) = substituted {
             buf.push(value[i]);
         }
@@ -1615,16 +1614,39 @@ fn unescape_vcd_value(value: &[u8]) -> Cow<'_, [u8]> {
     }
 
     match substituted {
-        Some(buf) => Cow::Owned(
-            // Convert ISO-8859-1 bytes to UTF-8 by mapping each byte to a char
-            buf.iter()
-                .map(|b| *b as char)
-                .collect::<String>()
-                .as_bytes()
-                .to_vec(),
-        ),
+        Some(buf) => Cow::Owned(latin1_to_utf8(&buf)),
         None => Cow::Borrowed(value),
     }
+}
+
+#[inline]
+fn push_escaped(substituted: &mut Option<Vec<u8>>, value: &[u8], i: usize, code: u8) {
+    substituted
+        .get_or_insert_with(|| {
+            let mut buf = Vec::with_capacity(value.len());
+            buf.extend_from_slice(&value[..i]);
+            buf
+        })
+        .push(code);
+}
+
+/// Convert ISO-8859-1 bytes to UTF-8.
+fn latin1_to_utf8(buf: &[u8]) -> Vec<u8> {
+    // Fast path: pure ASCII is already valid UTF-8, no re-encoding needed.
+    if buf.is_ascii() {
+        return buf.to_vec();
+    }
+    let high = buf.iter().filter(|&&b| b >= 0x80).count();
+    let mut out = Vec::with_capacity(buf.len() + high);
+    for &b in buf {
+        if b < 0x80 {
+            out.push(b);
+        } else {
+            out.push(0xC0 | (b >> 6));
+            out.push(0x80 | (b & 0x3F));
+        }
+    }
+    out
 }
 
 pub enum VcdBitVecChange<'a> {

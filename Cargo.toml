@@ -23,6 +23,7 @@ keywords = ["vcd", "fst", "waveform", "wavedump"]
 fst-reader = "0.16.6"
 leb128 = "0.2.5"
 lz4_flex = "0.13.0"
+memchr = "2.8.1"
 memmap2 = "0.9.10"
 rayon = "1.11.0"
 num_enum = "0.7.6"
