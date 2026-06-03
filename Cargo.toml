@@ -1,5 +1,5 @@
 # Copyright 2023-2024 The Regents of the University of California
-# Copyright 2024-2025 Cornell University
+# Copyright 2024-2026 Cornell University
 # released under BSD 3-Clause License
 # author: Kevin Laeufer <laeufer@cornell.edu>
 
@@ -9,7 +9,7 @@ members = ["wellen", "pywellen"]
 default-members = ["wellen"]
 
 [workspace.package]
-version = "0.24.1"
+version = "0.24.2"
 edition = "2024"
 rust-version = "1.90.0"
 authors = ["Kevin Laeufer <laeufer@berkeley.edu>"]

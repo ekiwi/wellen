@@ -815,6 +815,7 @@ struct EnumType {
     mapping: Vec<(HierarchyStringId, HierarchyStringId)>,
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Hierarchy {
     vars: Vec<Var>,
@@ -827,6 +828,7 @@ pub struct Hierarchy {
     signal_derivations: FxHashMap<SignalRef, DerivedBitVecSignal>,
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 struct HierarchyMetaData {
     timescale: Option<Timescale>,
