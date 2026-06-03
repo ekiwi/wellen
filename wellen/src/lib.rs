@@ -60,6 +60,7 @@ pub use hierarchy::{
     Timescale, TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
 };
 pub use signal::{
-    BitVecRef, Real, Signal, SignalSource, SignalValue, SignalValueRef, States, Time, TimeTableIdx,
+    BitVecRef, Real, Signal, SignalMap, SignalSource, SignalValue, SignalValueRef, States, Time,
+    TimeTableIdx,
 };
 pub use signal::{CompressedSignal, CompressedTimeTable, Compression};

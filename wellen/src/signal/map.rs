@@ -5,6 +5,7 @@
 use crate::SignalRef;
 use rustc_hash::FxHashMap;
 use std::fmt::{Debug, Formatter};
+use std::ops::Index;
 
 /// A map that is indexed by SignalRef.
 pub struct SignalMap<V>(Smi<V>);
@@ -69,6 +70,17 @@ impl<V> SignalMap<V> {
         match &mut self.0 {
             Smi::Dense(v) => Entry(EI::Dense(v, key.index())),
             Smi::Sparse(m) => Entry(EI::Sparse(m.entry(key))),
+        }
+    }
+}
+
+impl<V> Index<SignalRef> for SignalMap<V> {
+    type Output = V;
+
+    fn index(&self, index: SignalRef) -> &Self::Output {
+        match &self.0 {
+            Smi::Dense(v) => v[index.index()].as_ref().unwrap(),
+            Smi::Sparse(m) => &m[&index],
         }
     }
 }
