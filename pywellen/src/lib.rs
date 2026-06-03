@@ -170,6 +170,13 @@ fn return_item(
 #[pyclass(from_py_object)]
 struct SignalId(wellen::SignalRef);
 
+#[pymethods]
+impl SignalId {
+    fn __str__(&self) -> String {
+        format!("SignalId({})", self.0.index())
+    }
+}
+
 #[derive(Clone)]
 #[pyclass(from_py_object)]
 struct Var {
@@ -414,6 +421,7 @@ struct SharedWaves {
     filename: String,
     stream_only: bool,
     opts: wellen::LoadOptions,
+    signals_to_var: RwLock<SignalToVarMap>,
 }
 
 /// Waveform data that is only relevant if we are bulk parsing.
@@ -455,7 +463,7 @@ impl Waveform {
             remove_scopes_with_empty_name,
         };
         let header_result = wellen::viewers::read_header_from_file(path.as_str(), &opts).toerr()?;
-
+        let signals_to_var = RwLock::new(SignalToVarMap::new(&header_result.hierarchy));
         let waves = SharedWaves {
             body: Mutex::new(Some(header_result.body)),
             bulk: RwLock::new(None),
@@ -465,6 +473,7 @@ impl Waveform {
             filename: path,
             stream_only,
             opts,
+            signals_to_var,
         };
         Ok(Self {
             waves: Arc::new(waves),
@@ -472,9 +481,29 @@ impl Waveform {
     }
 
     /// Access a scope or variable.
-    fn __getitem__(&self, name: &str) -> PyResult<Either<Var, Scope>> {
-        let maybe_item = self.waves.hierarchy.lookup_item_by_name(name);
-        return_item(&self.waves, name, maybe_item)
+    fn __getitem__(&self, key: Bound<'_, PyAny>) -> PyResult<Either<Either<Var, Scope>, Vec<Var>>> {
+        if let Ok(name) = key.extract::<&str>() {
+            let maybe_item = self.waves.hierarchy.lookup_item_by_name(name);
+            return_item(&self.waves, name, maybe_item).map(Either::Left)
+        } else if let Ok(signal) = key.extract::<SignalId>() {
+            let vars = self
+                .waves
+                .signals_to_var
+                .read()
+                .unwrap()
+                .get(signal.0)
+                .into_iter()
+                .map(|id| Var {
+                    id,
+                    waves: self.waves.clone(),
+                })
+                .collect();
+            Ok(Either::Right(vars))
+        } else {
+            Err(PyTypeError::new_err(
+                "Unsupported type. Expected str or SignalId.",
+            ))
+        }
     }
 
     /// All variables in the design.
@@ -699,38 +728,40 @@ impl SharedWaves {
         include: Option<Vec<Either<Var, String>>>,
     ) -> PyResult<()> {
         // convert includes to a filter and a lookup for variable names
-        let mut map = SignalToVarMap::new(&self.hierarchy);
         let mut filter_vec = vec![];
         let filter = if let Some(vars) = include {
-            filter_vec = vars_to_signals(&self.hierarchy, vars.into_iter(), &mut map);
+            filter_vec = vars_to_signals(
+                &self.hierarchy,
+                vars.into_iter(),
+                &mut self.signals_to_var.write().unwrap(),
+            );
             wellen::stream::Filter::include_signals(filter_vec.as_slice())
         } else {
-            add_all_vars(&self.hierarchy, &mut map);
+            // TODO: add fast check to see if `signals_to_var` has already been populated
+            add_all_vars(&self.hierarchy, &mut self.signals_to_var.write().unwrap());
             wellen::stream::Filter::all()
         };
 
-        self.stream_changes_internal(callback, &map, filter)
+        self.stream_changes_internal(callback, filter)
     }
 
     fn stream_changes_internal(
         &self,
         callback: &Bound<'_, PyAny>,
-        map: &SignalToVarMap,
         filter: wellen::stream::Filter,
     ) -> PyResult<()> {
         if let Some(stream) = self.stream.lock().unwrap().as_mut() {
             stream
                 .stream_changes(filter, |time, signal, value| {
-                    let vars = map.get(signal);
-                    // let args =
-                    println!("{time} {vars:?} {value}");
+                    let args = (time, SignalId(signal), to_py_signal_value(value));
+                    callback.call1(args).unwrap();
                 })
                 .toerr()
         } else {
             let body = self.body()?;
             let wave: wellen::stream::StreamingWaveform<_> = (self.hierarchy.clone(), body).into();
             *self.stream.lock().unwrap() = Some(wave);
-            self.stream_changes_internal(callback, map, filter)
+            self.stream_changes_internal(callback, filter)
         }
     }
 }
@@ -793,7 +824,9 @@ impl Signal {
             let indices = slice.indices(len as isize)?;
             self.get_slice(indices).map(Either::Right)
         } else {
-            Err(PyTypeError::new_err("Unsupported type"))
+            Err(PyTypeError::new_err(
+                "Unsupported type. Expected int or slice.",
+            ))
         }
     }
 

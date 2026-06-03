@@ -369,6 +369,7 @@ def test_stream():
     changes = defaultdict(list)
 
     def on_change(time, signal, value):
+        print(f"{time} {signal} {value}")
         for var in wave[signal]:
             changes[var.full_name].append((time, value))
 
