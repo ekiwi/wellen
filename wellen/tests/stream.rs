@@ -143,6 +143,7 @@ fn diff_stream_changes<R: BufRead + Seek>(
             }
             let value: SignalValue = a_value.into();
             prev_value.insert(sig, value);
+            Ok::<(),()>(())
         })
         .unwrap();
 
@@ -194,8 +195,19 @@ fn diff_stream_time_change<R: BufRead + Seek>(
         .map(|s| s.to_vec())
         .unwrap_or_else(|| batch.hierarchy().signals().collect());
 
+    // which signals do not appear in any variables, this can happen if the signals are just
+    // inputs to a derived signal
+    let mut unknown_signals = FxHashSet::from_iter(signals.iter().cloned());
+    for var in batch.hierarchy().all_vars() {
+        let s = batch.hierarchy()[var].signal_ref();
+        unknown_signals.remove(&s);
+    }
+
     streamed
-        .stream_time_steps(filter, |time, values| {
+        .stream_time_steps(filter, |time, values, changed_signals| {
+            assert!(!changed_signals.is_empty(), "callback should only be called if there were changes in the time step");
+            let changed_signals = FxHashSet::from_iter(changed_signals.iter().cloned());
+
             if let Some(prev_time) = prev_time {
                 assert!(time > prev_time, "time must be incrementing!");
             }
@@ -208,14 +220,21 @@ fn diff_stream_time_change<R: BufRead + Seek>(
 
             // compare all signals at this time step
             for sig in &signals {
-                // only check if there is a value at this time in the reference
-                if let Some(b_value) = get_maybe_final_value(batch, *sig, idx) {
-                    let maybe_a_value = values.get(sig);
-                    assert!(maybe_a_value.is_some(), "Failed to get value of signal {sig:?} at time {time} from the dispatcher map.,The expected value is: {b_value:?}");
-                    let a_value: SignalValueRef = maybe_a_value.unwrap().into();
-                    diff_signal_value(time, *sig, a_value, b_value, None, batch.hierarchy());
+                // for unknown signals it is currently undefined whether they are included in the changes or not
+                if !unknown_signals.contains(sig) {
+                    // only check if there is a value at this time in the reference
+                    if let Some(b_value) = get_maybe_value_change_at(batch, *sig, idx) {
+                        assert!(changed_signals.contains(sig), "Signal `{}` should have changed at {}", find_signal_name(batch.hierarchy(), *sig), time);
+                        let a_value = values.get(sig);
+                        assert!(a_value.is_some(), "Failed to get value of signal {sig:?} at time {time} from the dispatcher map.,The expected value is: {b_value:?}");
+                        diff_signal_value(time, *sig, a_value.unwrap(), b_value, None, batch.hierarchy());
+                    } else {
+                        assert!(!changed_signals.contains(sig), "Signal should not have been marked as changed!");
+                    }
                 }
             }
+
+            Ok::<(),()>(())
         })
         .expect("failed to stream!");
 
@@ -263,6 +282,7 @@ fn diff_stream_time_change<R: BufRead + Seek>(
 
 fn find_signal_name(h: &Hierarchy, s: SignalRef) -> String {
     for var in h.all_vars() {
+        let var = &h[var];
         if var.signal_ref() == s {
             return var.full_name(h);
         }

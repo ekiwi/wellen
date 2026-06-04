@@ -29,12 +29,12 @@ fn check_no_duplicate_var(h: &Hierarchy) {
     let mut todo = Vec::from_iter(h.all_scopes());
     while let Some(scope) = todo.pop() {
         let mut seen = FxHashSet::default();
-        for child in scope.vars(h) {
+        for child in h[scope].vars(h) {
             let name = h[child].name(h);
             assert!(
                 !seen.contains(name),
                 "Duplicate var of same name `{name}` found in {}",
-                scope.full_name(h)
+                h[scope].full_name(h)
             );
             seen.insert(name.to_string());
         }

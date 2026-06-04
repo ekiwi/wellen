@@ -469,7 +469,7 @@ pub struct Var {
     enum_type: Option<EnumTypeId>,
     vhdl_type_name: Option<HierarchyStringId>,
     parent: Option<ScopeRef>,
-    next: Option<ScopeOrVarRef>,
+    next: Option<ItemRef>,
 }
 
 const SCOPE_SEPARATOR: char = '.';
@@ -558,35 +558,95 @@ impl Var {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
-pub enum ScopeOrVarRef {
+pub enum ItemRef {
     Scope(ScopeRef),
     Var(VarRef),
 }
 
-impl ScopeOrVarRef {
-    pub fn deref<'a>(&self, h: &'a Hierarchy) -> ScopeOrVar<'a> {
+impl ItemRef {
+    pub fn deref<'a>(&self, h: &'a Hierarchy) -> Item<'a> {
         h.get_item(*self)
+    }
+
+    pub fn name<'a>(&self, h: &'a Hierarchy) -> &'a str {
+        h.get_item(*self).name(h)
     }
 }
 
-impl From<ScopeRef> for ScopeOrVarRef {
+impl From<ScopeRef> for ItemRef {
     fn from(value: ScopeRef) -> Self {
         Self::Scope(value)
     }
 }
 
-impl From<VarRef> for ScopeOrVarRef {
+impl TryFrom<ItemRef> for ScopeRef {
+    type Error = ();
+
+    fn try_from(value: ItemRef) -> Result<Self, Self::Error> {
+        match value {
+            ItemRef::Scope(s) => Ok(s),
+            ItemRef::Var(_) => Err(()),
+        }
+    }
+}
+
+impl From<VarRef> for ItemRef {
     fn from(value: VarRef) -> Self {
         Self::Var(value)
     }
 }
 
+impl TryFrom<ItemRef> for VarRef {
+    type Error = ();
+
+    fn try_from(value: ItemRef) -> Result<Self, Self::Error> {
+        match value {
+            ItemRef::Var(v) => Ok(v),
+            ItemRef::Scope(_) => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
-pub enum ScopeOrVar<'a> {
+pub enum Item<'a> {
     Scope(&'a Scope),
     Var(&'a Var),
+}
+
+impl<'a> Item<'a> {
+    #[inline]
+    pub fn name<'b>(&self, h: &'b Hierarchy) -> &'b str {
+        match self {
+            Item::Scope(s) => s.name(h),
+            Item::Var(v) => v.name(h),
+        }
+    }
+
+    #[inline]
+    fn child(&self) -> Option<ItemRef> {
+        match self {
+            Item::Scope(s) => s.child,
+            Item::Var(_) => None,
+        }
+    }
+
+    #[inline]
+    fn next(&self) -> Option<ItemRef> {
+        match self {
+            Item::Scope(s) => s.next,
+            Item::Var(v) => v.next,
+        }
+    }
+
+    #[inline]
+    fn parent(&self) -> Option<ScopeRef> {
+        match self {
+            Item::Scope(s) => s.parent,
+            Item::Var(v) => v.parent,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -599,9 +659,9 @@ pub struct Scope {
     pack: Option<ScopePackInfo>,
     declaration_source: Option<SourceLocId>,
     instance_source: Option<SourceLocId>,
-    child: Option<ScopeOrVarRef>,
+    child: Option<ItemRef>,
     parent: Option<ScopeRef>,
-    next: Option<ScopeOrVarRef>,
+    next: Option<ItemRef>,
 }
 
 impl Scope {
@@ -691,10 +751,7 @@ impl Scope {
         self.instance_source.map(|id| hierarchy.get_source_loc(id))
     }
 
-    pub fn items<'a>(
-        &'a self,
-        hierarchy: &'a Hierarchy,
-    ) -> impl Iterator<Item = ScopeOrVarRef> + 'a {
+    pub fn items<'a>(&'a self, hierarchy: &'a Hierarchy) -> impl Iterator<Item = ItemRef> + 'a {
         HierarchyItemIdIterator::new(hierarchy, self.child)
     }
 
@@ -705,16 +762,25 @@ impl Scope {
     pub fn scopes<'a>(&'a self, hierarchy: &'a Hierarchy) -> impl Iterator<Item = ScopeRef> + 'a {
         to_scope_ref_iterator(HierarchyItemIdIterator::new(hierarchy, self.child))
     }
+
+    pub fn all_items<'a>(&'a self, hierarchy: &'a Hierarchy) -> impl Iterator<Item = ItemRef> + 'a {
+        if let Some(child) = self.child {
+            let own_id = hierarchy.get_item(child).parent().unwrap();
+            HierarchyItemIdRecursiveIterator::new(hierarchy, Some(own_id))
+        } else {
+            HierarchyItemIdRecursiveIterator::empty(hierarchy)
+        }
+    }
 }
 
 struct HierarchyItemIdIterator<'a> {
     hierarchy: &'a Hierarchy,
-    item: Option<ScopeOrVarRef>,
+    item: Option<ItemRef>,
     is_first: bool,
 }
 
 impl<'a> HierarchyItemIdIterator<'a> {
-    fn new(hierarchy: &'a Hierarchy, item: Option<ScopeOrVarRef>) -> Self {
+    fn new(hierarchy: &'a Hierarchy, item: Option<ItemRef>) -> Self {
         Self {
             hierarchy,
             item,
@@ -722,16 +788,16 @@ impl<'a> HierarchyItemIdIterator<'a> {
         }
     }
 
-    fn get_next(&self, item: ScopeOrVarRef) -> Option<ScopeOrVarRef> {
+    fn get_next(&self, item: ItemRef) -> Option<ItemRef> {
         match self.hierarchy.get_item(item) {
-            ScopeOrVar::Scope(scope) => scope.next,
-            ScopeOrVar::Var(var) => var.next,
+            Item::Scope(scope) => scope.next,
+            Item::Var(var) => var.next,
         }
     }
 }
 
 impl Iterator for HierarchyItemIdIterator<'_> {
-    type Item = ScopeOrVarRef;
+    type Item = ItemRef;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.item {
@@ -750,20 +816,91 @@ impl Iterator for HierarchyItemIdIterator<'_> {
 }
 
 #[inline]
-fn to_var_ref_iterator(iter: impl Iterator<Item = ScopeOrVarRef>) -> impl Iterator<Item = VarRef> {
+fn to_var_ref_iterator(iter: impl Iterator<Item = ItemRef>) -> impl Iterator<Item = VarRef> {
     iter.flat_map(|i| match i {
-        ScopeOrVarRef::Scope(_) => None,
-        ScopeOrVarRef::Var(v) => Some(v),
+        ItemRef::Scope(_) => None,
+        ItemRef::Var(v) => Some(v),
     })
 }
 
-fn to_scope_ref_iterator(
-    iter: impl Iterator<Item = ScopeOrVarRef>,
-) -> impl Iterator<Item = ScopeRef> {
+fn to_scope_ref_iterator(iter: impl Iterator<Item = ItemRef>) -> impl Iterator<Item = ScopeRef> {
     iter.flat_map(|i| match i {
-        ScopeOrVarRef::Scope(s) => Some(s),
-        ScopeOrVarRef::Var(_) => None,
+        ItemRef::Scope(s) => Some(s),
+        ItemRef::Var(_) => None,
     })
+}
+
+struct HierarchyItemIdRecursiveIterator<'a> {
+    hierarchy: &'a Hierarchy,
+    parent: Option<ScopeRef>,
+    current: Option<ItemRef>,
+    done: bool,
+}
+
+impl<'a> HierarchyItemIdRecursiveIterator<'a> {
+    fn new(hierarchy: &'a Hierarchy, parent: Option<ScopeRef>) -> Self {
+        Self {
+            hierarchy,
+            parent,
+            current: None,
+            done: false,
+        }
+    }
+
+    fn empty(hierarchy: &'a Hierarchy) -> Self {
+        Self {
+            hierarchy,
+            parent: None,
+            current: None,
+            done: true,
+        }
+    }
+}
+
+impl Iterator for HierarchyItemIdRecursiveIterator<'_> {
+    type Item = ItemRef;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+
+        if let Some(prev) = self.current {
+            // find next item
+            let prev = &self.hierarchy.get_item(prev);
+            if let Some(next) = prev.next() {
+                self.current = Some(find_leaf(self.hierarchy, next));
+            } else {
+                self.current = prev.parent().map(|p| p.into());
+            }
+        } else {
+            // first item
+            if let Some(pp) = self.parent {
+                self.current = Some(find_leaf(self.hierarchy, pp.into()));
+            } else {
+                self.current = self
+                    .hierarchy
+                    .first_item()
+                    .map(|i| find_leaf(self.hierarchy, i));
+            }
+            // if the child does not exist, we are done
+            self.done = self.current.is_none();
+        }
+
+        if self.current == self.parent.map(|p| p.into()) {
+            self.done = true;
+            self.current = None;
+        }
+
+        self.current
+    }
+}
+
+fn find_leaf(h: &Hierarchy, mut item: ItemRef) -> ItemRef {
+    while let Some(child) = h.get_item(item).child() {
+        item = child;
+    }
+    item
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -852,24 +989,29 @@ impl HierarchyMetaData {
 
 // public implementation
 impl Hierarchy {
-    /// Returns an iterator over all variables (at all levels).
-    pub fn all_vars(&self) -> impl Iterator<Item = &Var> + '_ {
-        self.vars.iter()
+    /// Recursively iterates over all scopes and variables in a depth first manner
+    pub fn all_items(&self) -> impl Iterator<Item = ItemRef> + '_ {
+        HierarchyItemIdRecursiveIterator::new(self, None)
     }
 
-    /// Returns an iterator over all scopes (at all levels).
-    pub fn all_scopes(&self) -> impl Iterator<Item = &Scope> + '_ {
-        self.scopes.iter()
+    /// Recursively iterates over all variables (at all levels).
+    pub fn all_vars(&self) -> impl Iterator<Item = VarRef> + '_ {
+        to_var_ref_iterator(self.all_items())
+    }
+
+    /// Recursively iterates over all scopes (at all levels).
+    pub fn all_scopes(&self) -> impl Iterator<Item = ScopeRef> + '_ {
+        to_scope_ref_iterator(self.all_items())
     }
 
     /// Retrieves the first item inside the implicit fake top scope
-    fn first_item(&self) -> Option<ScopeOrVarRef> {
+    fn first_item(&self) -> Option<ItemRef> {
         debug_assert!(self.scopes[FAKE_TOP_SCOPE.index()].next.is_none());
         self.scopes[FAKE_TOP_SCOPE.index()].child
     }
 
     /// Returns an iterator over references to all top-level scopes and variables.
-    pub fn items(&self) -> impl Iterator<Item = ScopeOrVarRef> + '_ {
+    pub fn items(&self) -> impl Iterator<Item = ItemRef> + '_ {
         HierarchyItemIdIterator::new(self, self.first_item())
     }
 
@@ -962,6 +1104,70 @@ impl Hierarchy {
     }
 }
 
+/// Item access.
+impl Hierarchy {
+    pub fn lookup_item_by_name(&self, name: &str) -> Option<ItemRef> {
+        lookup_item_by_name(self, self.items(), name)
+    }
+
+    pub fn lookup_item_in_scope_by_name(&self, root: ScopeRef, name: &str) -> Option<ItemRef> {
+        lookup_item_by_name(self, self[root].items(self), name)
+    }
+}
+
+/// Common implementation of name lookup
+fn lookup_item_by_name(
+    h: &Hierarchy,
+    items: impl Iterator<Item = ItemRef>,
+    suffix: &str,
+) -> Option<ItemRef> {
+    find_longest_match(h, items, suffix).and_then(|(remaining_suffix, item)| {
+        if remaining_suffix.is_empty() {
+            Some(item)
+        } else if let ItemRef::Scope(scope) = item {
+            if let Some(without_separator) = remaining_suffix.strip_prefix(SCOPE_SEPARATOR) {
+                lookup_item_by_name(h, h[scope].items(h), without_separator)
+            } else {
+                // scopes have to be an exact match
+                None
+            }
+        } else {
+            // we matched a variable, but there is a suffix
+            if remaining_suffix.contains(SCOPE_SEPARATOR) {
+                None
+            } else {
+                Some(item)
+            }
+        }
+    })
+}
+
+fn find_longest_match<'a>(
+    h: &Hierarchy,
+    items: impl Iterator<Item = ItemRef>,
+    suffix: &'a str,
+) -> Option<(&'a str, ItemRef)> {
+    let mut match_item = None;
+    let mut match_suffix = suffix;
+    let mut match_len = 0;
+    for item in items {
+        let name = item.name(h);
+        let new_match_len = name.len();
+        if new_match_len > match_len
+            && let Some(new_suffix) = suffix.strip_prefix(item.name(h))
+        {
+            if new_suffix.is_empty() {
+                return Some((new_suffix, item));
+            } else {
+                match_len = new_match_len;
+                match_item = Some(item);
+                match_suffix = new_suffix;
+            }
+        }
+    }
+    match_item.map(|i| (match_suffix, i))
+}
+
 impl Hierarchy {
     /// Retrieves the length of a signal identified by its id by looking up a
     /// variable that refers to the signal.
@@ -1000,10 +1206,10 @@ impl Hierarchy {
         (name, mapping)
     }
 
-    fn get_item(&self, id: ScopeOrVarRef) -> ScopeOrVar<'_> {
+    fn get_item(&self, id: ItemRef) -> Item<'_> {
         match id {
-            ScopeOrVarRef::Scope(id) => ScopeOrVar::Scope(&self[id]),
-            ScopeOrVarRef::Var(id) => ScopeOrVar::Var(&self[id]),
+            ItemRef::Scope(id) => Item::Scope(&self[id]),
+            ItemRef::Var(id) => Item::Var(&self[id]),
         }
     }
 }
@@ -1046,7 +1252,7 @@ impl Index<HierarchyStringId> for Hierarchy {
 
 struct ScopeStackEntry {
     scope_id: usize,
-    last_child: Option<ScopeOrVarRef>,
+    last_child: Option<ItemRef>,
     /// indicates that this scope is being flattened and all operations should be done on the parent instead
     flattened: bool,
 }
@@ -1223,17 +1429,17 @@ impl HierarchyBuilder {
     }
 
     /// adds a variable or scope to the hierarchy tree
-    fn add_to_hierarchy_tree(&mut self, node_id: ScopeOrVarRef) -> Option<ScopeRef> {
+    fn add_to_hierarchy_tree(&mut self, node_id: ItemRef) -> Option<ScopeRef> {
         let entry_pos = find_parent_scope(&self.scope_stack);
         let entry = &mut self.scope_stack[entry_pos];
         let parent = entry.scope_id;
         match entry.last_child {
-            Some(ScopeOrVarRef::Var(child)) => {
+            Some(ItemRef::Var(child)) => {
                 // add pointer to new node from last child
                 assert!(self.vars[child.index()].next.is_none());
                 self.vars[child.index()].next = Some(node_id);
             }
-            Some(ScopeOrVarRef::Scope(child)) => {
+            Some(ItemRef::Scope(child)) => {
                 // add pointer to new node from last child
                 assert!(self.scopes[child.index()].next.is_none());
                 self.scopes[child.index()].next = Some(node_id);
@@ -1255,7 +1461,7 @@ impl HierarchyBuilder {
         }
     }
 
-    fn get_parent_and_prev_child(&self) -> (Option<ScopeRef>, Option<ScopeOrVarRef>) {
+    fn get_parent_and_prev_child(&self) -> (Option<ScopeRef>, Option<ItemRef>) {
         let entry_pos = find_parent_scope(&self.scope_stack);
         let entry = &self.scope_stack[entry_pos];
         let parent_ref = ScopeRef::from_index(entry.scope_id).unwrap();
@@ -1279,7 +1485,7 @@ impl HierarchyBuilder {
             let mut maybe_item = self.scopes[parent.scope_id].child;
 
             while let Some(item) = maybe_item {
-                if let ScopeOrVarRef::Scope(other) = item {
+                if let ItemRef::Scope(other) = item {
                     // it is enough to compare the string id
                     // since strings get the same id iff they have the same value
                     if self.scopes[other.index()].name == name_id {
@@ -1294,14 +1500,14 @@ impl HierarchyBuilder {
         }
     }
 
-    fn get_next(&self, item: ScopeOrVarRef) -> Option<ScopeOrVarRef> {
+    fn get_next(&self, item: ItemRef) -> Option<ItemRef> {
         match item {
-            ScopeOrVarRef::Scope(scope_ref) => self.scopes[scope_ref.index()].next,
-            ScopeOrVarRef::Var(var_ref) => self.vars[var_ref.index()].next,
+            ItemRef::Scope(scope_ref) => self.scopes[scope_ref.index()].next,
+            ItemRef::Var(var_ref) => self.vars[var_ref.index()].next,
         }
     }
 
-    fn find_last_child(&self, scope: ScopeRef) -> Option<ScopeOrVarRef> {
+    fn find_last_child(&self, scope: ScopeRef) -> Option<ItemRef> {
         if let Some(mut child) = self.scopes[scope.index()].child {
             while let Some(next) = self.get_next(child) {
                 child = next;
@@ -1379,7 +1585,7 @@ impl HierarchyBuilder {
         &mut self,
         parent: Option<ScopeRef>,
         child_name: HierarchyStringId,
-        child_ref: ScopeOrVarRef,
+        child_ref: ItemRef,
     ) {
         let p = if let Some(p) = parent {
             p
@@ -1401,7 +1607,7 @@ impl HierarchyBuilder {
             debug_assert_eq!(child_count, DUPLICATE_SCOPE_HASH_TABLE_THRESHOLD + 1);
             debug_assert!(self.scope_dedup_tables.contains_key(&p));
             // insert new name
-            if let ScopeOrVarRef::Scope(child_scope_ref) = child_ref {
+            if let ItemRef::Scope(child_scope_ref) = child_ref {
                 self.scope_dedup_tables
                     .get_mut(&p)
                     .unwrap()
@@ -1415,7 +1621,7 @@ impl HierarchyBuilder {
         let mut maybe_item = self.scopes[parent.index()].child;
         let mut out = FxHashMap::default();
         while let Some(item) = maybe_item {
-            if let ScopeOrVarRef::Scope(child_scope) = item {
+            if let ItemRef::Scope(child_scope) = item {
                 let scope = &self.scopes[child_scope.index()];
                 out.insert(scope.name, child_scope);
             }
@@ -1450,7 +1656,7 @@ impl HierarchyBuilder {
             && index.width() == width
         {
             // lookup previous item
-            if let (Some(parent), Some(ScopeOrVarRef::Var(prev_var_ref))) =
+            if let (Some(parent), Some(ItemRef::Var(prev_var_ref))) =
                 self.get_parent_and_prev_child()
             {
                 // for unpacked arrays, we specifically do _not_ want to merge entries into a single
@@ -1777,7 +1983,7 @@ mod tests {
     #[test]
     fn test_sizes() {
         // unfortunately this one is pretty big
-        assert_eq!(std::mem::size_of::<ScopeOrVarRef>(), 8);
+        assert_eq!(std::mem::size_of::<ItemRef>(), 8);
 
         // 4 byte length + tag + padding
         assert_eq!(std::mem::size_of::<SignalEncoding>(), 8);
@@ -1806,7 +2012,7 @@ mod tests {
                 + std::mem::size_of::<Option<EnumTypeId>>() // enum type
                 + std::mem::size_of::<HierarchyStringId>()  // VHDL type name
                 + std::mem::size_of::<Option<ScopeRef>>()   // parent
-                + std::mem::size_of::<ScopeOrVarRef>() // next
+                + std::mem::size_of::<ItemRef>() // next
         );
         // currently this all comes out to 40 bytes (~= 5x 64-bit pointers)
         assert_eq!(std::mem::size_of::<Var>(), 40);
@@ -1820,9 +2026,9 @@ mod tests {
                 + 1 // packed info
                 + 4 // source info
                 + 4 // source info
-                + std::mem::size_of::<ScopeOrVarRef>() // child
+                + std::mem::size_of::<ItemRef>() // child
                 + std::mem::size_of::<ScopeRef>() // parent
-                + std::mem::size_of::<ScopeOrVarRef>() // next
+                + std::mem::size_of::<ItemRef>() // next
                 + 2 // padding
         );
         // currently this all comes out to 40 bytes (= 5x 64-bit pointers)
@@ -1839,5 +2045,95 @@ mod tests {
         let index = VarIndex::new(msb, lsb);
         assert_eq!(index.lsb(), lsb);
         assert_eq!(index.msb(), msb);
+    }
+
+    fn build_test_hierarchy() -> Hierarchy {
+        let mut b = HierarchyBuilder::new(FileFormat::Ghw);
+        let s1 = b.add_string("s1".into());
+        let s2 = b.add_string("s2".into());
+        let v1 = b.add_string("v1".into());
+        let v2 = b.add_string("v2".into());
+        let v3 = b.add_string("v3".into());
+        b.add_var(
+            v1,
+            VarType::Bit,
+            SignalEncoding::BitVector(1),
+            VarDirection::InOut,
+            None,
+            SignalRef::from_index(1).unwrap(),
+            None,
+            None,
+        );
+        b.add_scope(s1, None, ScopeType::Struct, None, None, None, false);
+        b.add_var(
+            v1,
+            VarType::Bit,
+            SignalEncoding::BitVector(1),
+            VarDirection::InOut,
+            None,
+            SignalRef::from_index(1).unwrap(),
+            None,
+            None,
+        );
+        b.add_scope(s2, None, ScopeType::Struct, None, None, None, false);
+        b.add_var(
+            v2,
+            VarType::Bit,
+            SignalEncoding::BitVector(1),
+            VarDirection::InOut,
+            None,
+            SignalRef::from_index(1).unwrap(),
+            None,
+            None,
+        );
+        b.pop_scope();
+        b.add_var(
+            v3,
+            VarType::Bit,
+            SignalEncoding::BitVector(1),
+            VarDirection::InOut,
+            None,
+            SignalRef::from_index(1).unwrap(),
+            None,
+            None,
+        );
+        b.pop_scope();
+        b.finish()
+    }
+
+    #[test]
+    fn test_depth_first_iterator() {
+        let h = build_test_hierarchy();
+
+        let names: Vec<_> = h
+            .all_items()
+            .map(|i| h.get_item(i).name(&h).to_string())
+            .collect();
+        assert_eq!(names, ["v1", "v1", "v2", "s2", "v3", "s1"]);
+
+        let s2_ref: ScopeRef = h.lookup_item_by_name("s1.s2").unwrap().try_into().unwrap();
+        let s2_names: Vec<_> = h[s2_ref]
+            .all_items(&h)
+            .map(|i| h.get_item(i).name(&h).to_string())
+            .collect();
+        assert_eq!(s2_names, ["v2"]);
+    }
+
+    #[test]
+    fn test_lookup_item_by_name() {
+        let h = build_test_hierarchy();
+        assert!(h.lookup_item_by_name("s1.s2").is_some());
+        assert!(h.lookup_item_by_name("s1.s2.v2").is_some());
+        let v2: VarRef = h
+            .lookup_item_by_name("s1.s2.v2")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        assert_eq!(h[v2].full_name(&h), "s1.s2.v2");
+        // for variables, we allow partial matches as long as there is not remaining separator
+        assert!(h.lookup_item_by_name("s1.s2.v2 [1:1]").is_some());
+        assert!(h.lookup_item_by_name("s1.s2.v2.x").is_none());
+        // for scopes, partial matches are not allowed
+        assert!(h.lookup_item_by_name("s1.s2 [1:1]").is_none());
     }
 }

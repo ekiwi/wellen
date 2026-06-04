@@ -56,11 +56,11 @@ pub enum WellenError {
 pub type Result<T> = std::result::Result<T, WellenError>;
 
 pub use hierarchy::{
-    Hierarchy, Scope, ScopeOrVar, ScopeOrVarRef, ScopeRef, ScopeType, SignalEncoding, SignalRef,
-    Timescale, TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
+    Hierarchy, Item, ItemRef, Scope, ScopeRef, ScopeType, SignalEncoding, SignalRef, Timescale,
+    TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,
 };
 pub use signal::{
-    BitVecRef, Real, Signal, SignalMap, SignalSource, SignalValue, SignalValueRef, States, Time,
-    TimeTableIdx,
+    BitVecRef, Real, Signal, SignalChangeData, SignalSource, SignalValue, SignalValueRef, States,
+    Time, TimeTableIdx,
 };
 pub use signal::{CompressedSignal, CompressedTimeTable, Compression};

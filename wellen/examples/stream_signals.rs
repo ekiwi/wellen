@@ -56,6 +56,7 @@ fn main() {
             stream
                 .stream_changes(filter, |_time, _signal, _value| {
                     count += 1;
+                    Ok::<(), ()>(())
                 })
                 .expect("stream failed");
 
@@ -66,8 +67,9 @@ fn main() {
             let mut count = 0u64;
 
             stream
-                .stream_time_steps(filter, |_time, _values| {
+                .stream_time_steps(filter, |_time, _values, _changed| {
                     count += 1;
+                    Ok::<(), ()>(())
                 })
                 .expect("stream failed");
 

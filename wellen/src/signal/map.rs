@@ -85,6 +85,15 @@ impl<V> Index<SignalRef> for SignalMap<V> {
     }
 }
 
+impl<V: Clone> Clone for SignalMap<V> {
+    fn clone(&self) -> Self {
+        match &self.0 {
+            Smi::Dense(v) => Self(Smi::Dense(v.clone())),
+            Smi::Sparse(m) => Self(Smi::Sparse(m.clone())),
+        }
+    }
+}
+
 impl<V> From<Vec<Option<V>>> for SignalMap<V> {
     fn from(value: Vec<Option<V>>) -> Self {
         Self(Smi::Dense(value))

@@ -7,7 +7,7 @@ use crate::hierarchy::*;
 use crate::signal::{
     FixedWidthEncoding, Signal, SignalSource, SignalSourceImplementation, States, TimeTableIdx,
 };
-use crate::stream::{Filter, StreamEncoder};
+use crate::stream::{Filter, StreamEncoder, StreamError, StreamResult};
 use crate::wavemem::{check_if_changed_and_truncate, write_n_state_from_ascii};
 use crate::{FileFormat, LoadOptions, SignalValueRef, Time, TimeTable, WellenError};
 use fst_reader::*;
@@ -115,6 +115,8 @@ impl<R: BufRead + Seek + Sync + Send> SignalSourceImplementation for FstWaveData
             debug_assert_eq!(*index_and_time.1, time);
             let signal_pos = idx_to_pos[&handle.get_index()];
             signals[signal_pos].add_change(time_idx, &handle, &value);
+            // TODO: propagate failures in `add_change`
+            Ok::<(), ()>(())
         };
 
         self.reader.read_signals(&filter, callback).unwrap();
@@ -811,11 +813,15 @@ fn fst_array_type_to_pack_info(t: FstArrayType) -> Option<ScopePackInfo> {
 
 // FST Streaming
 
-pub fn stream_body<R: BufRead + Seek, C: FnMut(Time, SignalRef, SignalValueRef<'_>)>(
+pub fn stream_body<
+    R: BufRead + Seek,
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>) -> std::result::Result<(), E>,
+    E,
+>(
     data: &mut ReadBodyContinuation<R>,
-    mut enc: StreamEncoder<C>,
+    mut enc: StreamEncoder<C, E>,
     filter: &Filter,
-) -> Result<()> {
+) -> StreamResult<E> {
     let reader = &mut data.0;
 
     // convert wellen to FST filter
@@ -834,10 +840,15 @@ pub fn stream_body<R: BufRead + Seek, C: FnMut(Time, SignalRef, SignalValueRef<'
     // map fst callback to wellen callback
     let fst_callback = |time: u64, handle: FstSignalHandle, value: FstSignalValue| {
         let signal_id = handle.get_index() as u64;
-        enc.fst_value_change(time, signal_id, &value);
+        enc.fst_value_change(time, signal_id, &value)
     };
 
-    reader.read_signals(&fst_filter, fst_callback)?;
+    reader
+        .read_signals(&fst_filter, fst_callback)
+        .map_err(|e| match e {
+            ReadSignalsError::ReadError(r) => WellenError::from(r).into(),
+            ReadSignalsError::CallbackError(e) => StreamError::Callback(e),
+        })?;
     enc.finish();
 
     Ok(())

@@ -8,8 +8,7 @@ use crate::hierarchy::*;
 use crate::signal::{Bit, SignalSource, States};
 use crate::stream::StreamEncoder;
 use crate::viewers::ProgressCount;
-use crate::wavemem::Encoder;
-use crate::{FileFormat, LoadOptions, SignalValueRef, Time, TimeTable};
+use crate::{FileFormat, LoadOptions, SignalValueRef, Time, TimeTable, WellenError};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -62,6 +61,24 @@ pub enum VcdParseError {
 }
 
 pub type Result<T> = std::result::Result<T, VcdParseError>;
+
+/// Either a VCD parsing error or a custom error `E`.
+#[derive(Debug, thiserror::Error)]
+pub enum VcdOrError<E> {
+    Vcd(#[from] VcdParseError),
+    Custom(E),
+}
+
+impl From<VcdOrError<WellenError>> for WellenError {
+    fn from(value: VcdOrError<WellenError>) -> Self {
+        match value {
+            VcdOrError::Vcd(v) => v.into(),
+            VcdOrError::Custom(w) => w,
+        }
+    }
+}
+
+pub type VcdOrResult<T, E> = std::result::Result<T, VcdOrError<E>>;
 
 pub fn read_header_from_file<P: AsRef<std::path::Path>>(
     filename: P,
@@ -124,7 +141,7 @@ pub fn read_body<R: BufRead + Seek>(
     data: ReadBodyContinuation<R>,
     hierarchy: &Hierarchy,
     progress: Option<ProgressCount>,
-) -> Result<(SignalSource, TimeTable)> {
+) -> crate::Result<(SignalSource, TimeTable)> {
     let (source, time_table) = match data.input {
         Input::Reader(mut input) => {
             // determine input length
@@ -1084,10 +1101,10 @@ fn read_values(
     hierarchy: &Hierarchy,
     lookup: &IdLookup,
     progress: Option<ProgressCount>,
-) -> Result<(SignalSource, TimeTable)> {
+) -> crate::Result<(SignalSource, TimeTable)> {
     if multi_thread {
         let chunks = determine_thread_chunks(input.len());
-        let encoders: Result<Vec<crate::wavemem::Encoder>> = chunks
+        let encoders: crate::Result<Vec<crate::wavemem::Encoder>> = chunks
             .par_iter()
             .map(|(start, len)| {
                 let is_first = *start == 0;
@@ -1182,7 +1199,7 @@ fn parse_first_token(token: &[u8]) -> Result<FirstTokenResult> {
 
 /// wraps a wavemem encoder and adds vcd specific handling of input time
 struct VcdEncoder<'a> {
-    enc: Encoder,
+    enc: crate::wavemem::Encoder,
     lookup: &'a IdLookup,
     is_first_part_of_vcd: bool,
     found_first_time_step: bool,
@@ -1193,7 +1210,7 @@ impl<'a> VcdEncoder<'a> {
     fn new(hierarchy: &Hierarchy, lookup: &'a IdLookup, is_first_part_of_vcd: bool) -> Self {
         let found_first_time_step = false;
         Self {
-            enc: Encoder::new(hierarchy),
+            enc: crate::wavemem::Encoder::new(hierarchy),
             lookup,
             is_first_part_of_vcd,
             found_first_time_step,
@@ -1201,21 +1218,21 @@ impl<'a> VcdEncoder<'a> {
     }
 
     #[inline]
-    fn into_inner(self) -> Encoder {
+    fn into_inner(self) -> crate::wavemem::Encoder {
         self.enc
     }
 }
 
-impl ParseBodyOutput for VcdEncoder<'_> {
+impl ParseBodyOutput<WellenError> for VcdEncoder<'_> {
     #[inline]
-    fn time(&mut self, value: u64) -> Result<()> {
+    fn time(&mut self, value: u64) -> VcdOrResult<(), WellenError> {
         self.found_first_time_step = true;
         self.enc.time_change(value);
         Ok(())
     }
 
     #[inline]
-    fn value(&mut self, value: &[u8], id: &[u8], has_escape: bool) -> Result<()> {
+    fn value(&mut self, value: &[u8], id: &[u8], has_escape: bool) -> VcdOrResult<(), WellenError> {
         // In the first thread, we might encounter a dump values which dumps all initial values
         // without specifying a timestamp
         if self.is_first_part_of_vcd && !self.found_first_time_step {
@@ -1229,7 +1246,7 @@ impl ParseBodyOutput for VcdEncoder<'_> {
                     Some(ii) => ii,
                     None => {
                         debug_assert!(id.is_empty());
-                        return Err(VcdParseError::VcdEmptyId);
+                        return Err(VcdParseError::VcdEmptyId.into());
                     }
                 },
                 Some(lookup) => lookup[id].index() as u64,
@@ -1287,23 +1304,23 @@ fn read_single_stream_of_values<R: BufRead + Seek>(
     hierarchy: &Hierarchy,
     lookup: &IdLookup,
     progress: Option<ProgressCount>,
-) -> Result<crate::wavemem::Encoder> {
+) -> crate::Result<crate::wavemem::Encoder> {
     let mut encoder = VcdEncoder::new(hierarchy, lookup, is_first);
     parse_body(input, &mut encoder, stop_pos, progress)?;
     Ok(encoder.into_inner())
 }
 
-trait ParseBodyOutput {
-    fn time(&mut self, value: u64) -> Result<()>;
-    fn value(&mut self, value: &[u8], id: &[u8], has_escape: bool) -> Result<()>;
+trait ParseBodyOutput<E> {
+    fn time(&mut self, value: u64) -> VcdOrResult<(), E>;
+    fn value(&mut self, value: &[u8], id: &[u8], has_escape: bool) -> VcdOrResult<(), E>;
 }
 
-fn parse_body(
+fn parse_body<E>(
     input: &mut impl BufRead,
-    out: &mut impl ParseBodyOutput,
+    out: &mut impl ParseBodyOutput<E>,
     stop_pos: usize,
     progress: Option<ProgressCount>,
-) -> Result<()> {
+) -> VcdOrResult<(), E> {
     let mut progress_report = ProgressReporter::new(progress, stop_pos);
 
     let mut state = BodyState::SkippingNewLine;
@@ -1316,7 +1333,7 @@ fn parse_body(
     for (pos, b) in input.bytes().enumerate() {
         final_pos = pos;
         progress_report.report(pos, false);
-        let b = b?;
+        let b = b.map_err(VcdParseError::from)?;
         match state {
             BodyState::SkippingNewLine => {
                 if b == b'\n' {
@@ -1432,10 +1449,14 @@ enum BodyState {
 
 //-------------- VCD Streaming ------------
 
-pub fn stream_body<R: BufRead + Seek, C: FnMut(Time, SignalRef, SignalValueRef<'_>)>(
+pub fn stream_body<
+    R: BufRead + Seek,
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>) -> std::result::Result<(), E>,
+    E,
+>(
     data: &mut ReadBodyContinuation<R>,
-    enc: StreamEncoder<C>,
-) -> Result<()> {
+    enc: StreamEncoder<C, E>,
+) -> VcdOrResult<(), E> {
     let mut disp = VcdStreamDispatcher {
         enc,
         lookup: &data.lookup,
@@ -1443,11 +1464,13 @@ pub fn stream_body<R: BufRead + Seek, C: FnMut(Time, SignalRef, SignalValueRef<'
 
     match &mut data.input {
         Input::Reader(input) => {
-            let start = input.stream_position()?;
-            let stop_pos = determine_len(input)? as usize;
+            let start = input.stream_position().map_err(VcdParseError::from)?;
+            let stop_pos = determine_len(input).map_err(VcdParseError::from)? as usize;
             parse_body(input, &mut disp, stop_pos, None)?;
             // reset stream so that we can read data again
-            input.seek(SeekFrom::Start(start))?;
+            input
+                .seek(SeekFrom::Start(start))
+                .map_err(VcdParseError::from)?;
             disp.enc.finish();
             Ok(())
         }
@@ -1462,26 +1485,26 @@ pub fn stream_body<R: BufRead + Seek, C: FnMut(Time, SignalRef, SignalValueRef<'
     }
 }
 
-struct VcdStreamDispatcher<'a, C>
+struct VcdStreamDispatcher<'a, C, E>
 where
-    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>) -> std::result::Result<(), E>,
 {
-    enc: StreamEncoder<C>,
+    enc: StreamEncoder<C, E>,
     lookup: &'a IdLookup,
 }
 
-impl<C> ParseBodyOutput for VcdStreamDispatcher<'_, C>
+impl<C, E> ParseBodyOutput<E> for VcdStreamDispatcher<'_, C, E>
 where
-    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>) -> std::result::Result<(), E>,
 {
     #[inline]
-    fn time(&mut self, value: u64) -> Result<()> {
+    fn time(&mut self, value: u64) -> VcdOrResult<(), E> {
         self.enc.time_change(value);
         Ok(())
     }
 
     #[inline]
-    fn value(&mut self, value: &[u8], id: &[u8], has_escape: bool) -> Result<()> {
+    fn value(&mut self, value: &[u8], id: &[u8], has_escape: bool) -> VcdOrResult<(), E> {
         // In the first thread, we might encounter a dump values which dumps all initial values
         // without specifying a timestamp
         if self.enc.time_is_none() {
@@ -1493,7 +1516,7 @@ where
                 Some(ii) => ii,
                 None => {
                     debug_assert!(id.is_empty());
-                    return Err(VcdParseError::VcdEmptyId);
+                    return Err(VcdParseError::VcdEmptyId.into());
                 }
             },
             Some(lookup) => lookup[id].index() as u64,
@@ -1505,9 +1528,13 @@ where
             // As well as hex escapes "\xHH" which pyvcd (used by Amaranth) produces.
             // See https://github.com/SanDisk-Open-Source/pyvcd/blob/0890733e2fd77cc3483ddddac8f44053e902a2ef/vcd/writer.py#L605
             let escaped = unescape_vcd_value(value);
-            self.enc.vcd_value_change(num_id, escaped.as_ref());
+            self.enc
+                .vcd_value_change(num_id, escaped.as_ref())
+                .map_err(VcdOrError::Custom)?;
         } else {
-            self.enc.vcd_value_change(num_id, value);
+            self.enc
+                .vcd_value_change(num_id, value)
+                .map_err(VcdOrError::Custom)?;
         }
         Ok(())
     }
@@ -1720,17 +1747,17 @@ fn expand_special_vector_cases(value: &[u8], len: usize) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
-    impl ParseBodyOutput for Vec<String> {
-        fn time(&mut self, value: u64) -> Result<()> {
+    impl ParseBodyOutput<()> for Vec<String> {
+        fn time(&mut self, value: u64) -> VcdOrResult<(), ()> {
             self.push(format!("Time({value})"));
             Ok(())
         }
 
-        fn value(&mut self, value: &[u8], id: &[u8], _has_escape: bool) -> Result<()> {
+        fn value(&mut self, value: &[u8], id: &[u8], _has_escape: bool) -> VcdOrResult<(), ()> {
             let desc = format!(
                 "{} = {}",
-                std::str::from_utf8(id)?,
-                std::str::from_utf8(value)?
+                std::str::from_utf8(id).map_err(VcdParseError::from)?,
+                std::str::from_utf8(value).map_err(VcdParseError::from)?
             );
             self.push(desc);
             Ok(())

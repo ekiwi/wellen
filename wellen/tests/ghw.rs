@@ -181,12 +181,12 @@ fn test_physical_type_parsing() {
     let var_names = wave
         .hierarchy()
         .all_vars()
-        .map(|v| v.name(wave.hierarchy()).to_string())
+        .map(|v| wave.hierarchy()[v].name(wave.hierarchy()).to_string())
         .collect::<Vec<_>>();
     let signal_refs = wave
         .hierarchy()
         .all_vars()
-        .map(|v| v.signal_ref())
+        .map(|v| wave.hierarchy()[v].signal_ref())
         .collect::<Vec<_>>();
     wave.load_signals(&signal_refs);
     let var_values: Vec<String> = signal_refs
@@ -226,7 +226,7 @@ fn test_issue_53_array_range_ordering() {
     let signal_refs = wave
         .hierarchy()
         .all_vars()
-        .map(|v| v.signal_ref())
+        .map(|v| wave.hierarchy()[v].signal_ref())
         .collect::<Vec<_>>();
     wave.load_signals(&signal_refs);
 
