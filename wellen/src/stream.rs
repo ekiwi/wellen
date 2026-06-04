@@ -733,10 +733,11 @@ where
                     self.derived_input_has_changed.insert(signal);
                 }
             }
-        }
-        if value.is_event() || changed {
+            self.changes.push(signal);
+        } else if value.is_event() {
             self.changes.push(signal);
         }
+
         Ok(())
     }
 
@@ -771,8 +772,16 @@ where
                             .map(|v| SignalValueRef::from(v).as_bit_vec().unwrap())
                     })
                     .collect();
-                let value = t.on_change(&inputs);
-                Arc::make_mut(&mut self.values).insert(signal, value.into());
+                let value: SignalValue = t.on_change(&inputs).into();
+                let changed = self
+                    .values
+                    .get(&signal)
+                    .map(|old| SignalValueRef::from(old) != SignalValueRef::from(&value))
+                    .unwrap_or(true);
+                if changed {
+                    Arc::make_mut(&mut self.values).insert(signal, value);
+                    self.changes.push(signal);
+                }
             }
         }
     }
