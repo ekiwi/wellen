@@ -9,7 +9,7 @@ use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
-use wellen::{Hierarchy, VarRef};
+use wellen::{Hierarchy, SignalRef, VarRef};
 
 pub trait PyErrExt<T> {
     fn toerr(self) -> PyResult<T>;
@@ -597,7 +597,15 @@ impl Waveform {
         callback: &Bound<'_, PyAny>,
         include: Option<Vec<Either<Var, String>>>,
     ) -> PyResult<()> {
-        self.waves.stream_changes(callback, include)
+        self.waves.stream(StreamMode::Changes, callback, include)
+    }
+
+    fn stream_time_steps(
+        &self,
+        callback: &Bound<'_, PyAny>,
+        include: Option<Vec<Either<Var, String>>>,
+    ) -> PyResult<()> {
+        self.waves.stream(StreamMode::TimeSteps, callback, include)
     }
 }
 
@@ -731,15 +739,13 @@ impl SharedWaves {
         }
     }
 
-    fn stream_changes(
+    fn create_filter<'a>(
         &self,
-        callback: &Bound<'_, PyAny>,
+        filter_vec: &'a mut Vec<SignalRef>,
         include: Option<Vec<Either<Var, String>>>,
-    ) -> PyResult<()> {
-        // convert includes to a filter and a lookup for variable names
-        let mut filter_vec = vec![];
-        let filter = if let Some(vars) = include {
-            filter_vec = vars_to_signals(
+    ) -> wellen::stream::Filter<'a> {
+        if let Some(vars) = include {
+            *filter_vec = vars_to_signals(
                 &self.hierarchy,
                 vars.into_iter(),
                 &mut self.signals_to_var.write().unwrap(),
@@ -749,30 +755,56 @@ impl SharedWaves {
             // TODO: add fast check to see if `signals_to_var` has already been populated
             add_all_vars(&self.hierarchy, &mut self.signals_to_var.write().unwrap());
             wellen::stream::Filter::all()
-        };
-
-        self.stream_changes_internal(callback, filter)
+        }
     }
 
-    fn stream_changes_internal(
+    fn stream(
         &self,
+        mode: StreamMode,
+        callback: &Bound<'_, PyAny>,
+        include: Option<Vec<Either<Var, String>>>,
+    ) -> PyResult<()> {
+        // convert includes to a filter and a lookup for variable names
+        let mut filter_vec = vec![];
+        let filter = self.create_filter(&mut filter_vec, include);
+        self.stream_internal(mode, callback, filter)
+    }
+
+    fn stream_internal(
+        &self,
+        mode: StreamMode,
         callback: &Bound<'_, PyAny>,
         filter: wellen::stream::Filter,
     ) -> PyResult<()> {
         if let Some(stream) = self.stream.lock().unwrap().as_mut() {
-            stream
-                .stream_changes(filter, |time, signal, value| {
-                    let args = (time, SignalId(signal), to_py_signal_value(value));
-                    callback.call1(args).map(|_| ())
-                })
-                .toerr()
+            match mode {
+                StreamMode::Changes => stream
+                    .stream_changes(filter, |time, signal, value| {
+                        let args = (time, SignalId(signal), to_py_signal_value(value));
+                        callback.call1(args).map(|_| ())
+                    })
+                    .toerr(),
+                StreamMode::TimeSteps => stream
+                    .stream_time_steps(filter, |time, values| {
+                        //let args = (time, SignalId(signal), to_py_signal_value(value));
+                        //callback.call1(args).map(|_| ())
+                        todo!("stream time steps")
+                    })
+                    .toerr(),
+            }
         } else {
             let body = self.body()?;
             let wave: wellen::stream::StreamingWaveform<_> = (self.hierarchy.clone(), body).into();
             *self.stream.lock().unwrap() = Some(wave);
-            self.stream_changes_internal(callback, filter)
+            self.stream_internal(mode, callback, filter)
         }
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+enum StreamMode {
+    Changes,
+    TimeSteps,
 }
 
 fn add_all_vars(h: &Hierarchy, map: &mut SignalToVarMap) {

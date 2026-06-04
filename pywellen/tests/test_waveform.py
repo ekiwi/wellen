@@ -388,6 +388,6 @@ def test_stream_time_steps():
             for var in wave[signal]:
                 changes[var.full_name].append((time, value))
 
-    wave.stream_changes(on_change, include=wave.all_vars()[0:10])
+    wave.stream_time_steps(on_change, include=wave.all_vars()[0:10])
     check_swerv_changes(changes)
 
