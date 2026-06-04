@@ -785,10 +785,11 @@ impl SharedWaves {
                     })
                     .toerr(),
                 StreamMode::TimeSteps => stream
-                    .stream_time_steps(filter, |time, values| {
-                        //let args = (time, SignalId(signal), to_py_signal_value(value));
-                        //callback.call1(args).map(|_| ())
-                        todo!("stream time steps")
+                    .stream_time_steps(filter, |time, values, changed| {
+                        let changed: Vec<SignalId> =
+                            changed.iter().cloned().map(SignalId).collect();
+                        let args = (time, SignalValues(values), changed);
+                        callback.call1(args).map(|_| ())
                     })
                     .toerr(),
             }
@@ -798,6 +799,16 @@ impl SharedWaves {
             *self.stream.lock().unwrap() = Some(wave);
             self.stream_internal(mode, callback, filter)
         }
+    }
+}
+
+#[pyclass]
+struct SignalValues(wellen::stream::SignalValues);
+
+#[pymethods]
+impl SignalValues {
+    fn __getitem__(&self, key: SignalId) -> Option<PySignalValue> {
+        self.0.get(&key.0).map(to_py_signal_value)
     }
 }
 

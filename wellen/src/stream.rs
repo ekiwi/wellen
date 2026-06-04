@@ -18,6 +18,7 @@ use rustc_hash::FxHashSet;
 use smallvec::{SmallVec, smallvec};
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
+use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StreamError<E> {
@@ -117,6 +118,20 @@ impl<'a> Filter<'a> {
     }
 }
 
+/// Handle to all signal values at a point in time.
+/// Used in `stream_time_steps`.
+pub struct SignalValues {
+    /// Current internal implementation. Might change in the future.
+    /// The use of `Arc` here is a concession to the `pywellen` Python bindings.
+    values: std::sync::Arc<SignalMap<SignalValue>>,
+}
+
+impl SignalValues {
+    pub fn get(&self, signal: &SignalRef) -> Option<SignalValueRef<'_>> {
+        self.values.get(signal).map(|v| v.into())
+    }
+}
+
 impl<R: BufRead + Seek> StreamingWaveform<R> {
     pub fn hierarchy(&self) -> &Hierarchy {
         &self.hierarchy
@@ -149,7 +164,7 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
     pub fn stream_time_steps<E>(
         &mut self,
         filter: Filter,
-        callback: impl FnMut(Time, &SignalMap<SignalValue>) -> std::result::Result<(), E>,
+        callback: impl FnMut(Time, SignalValues, &[SignalRef]) -> std::result::Result<(), E>,
     ) -> StreamResult<E> {
         let (mut dispatcher, maybe_augmented_filter) =
             StreamDispatcherOnTimeStep::new(self.hierarchy(), &filter, callback);
@@ -648,35 +663,35 @@ where
 /// Gets hooked into the [[StreamEncoder]] through a closure.
 struct StreamDispatcherOnTimeStep<C, E>
 where
-    C: FnMut(Time, &SignalMap<SignalValue>) -> std::result::Result<(), E>,
+    C: FnMut(Time, SignalValues, &[SignalRef]) -> std::result::Result<(), E>,
 {
     callback: C,
     /// to track when a time change occurres
     time: Option<Time>,
     /// most recent value of each signal
-    values: SignalMap<SignalValue>,
+    values: Arc<SignalMap<SignalValue>>,
     /// what signals are derived from the key?
     to_derived: SignalMap<SmallVec<[SignalRef; 4]>>,
     transforms: SignalMap<DerivedBitVecSignal>,
     /// keep track of which derived signals had changes this time step
     derived_input_has_changed: FxHashSet<SignalRef>,
-    /// has there been a change since the last dispatch
-    observed_change: bool,
+    /// keeps track of all changes since the last time step
+    changes: Vec<SignalRef>,
 }
 
 impl<C, E> StreamDispatcherOnTimeStep<C, E>
 where
-    C: FnMut(Time, &SignalMap<SignalValue>) -> std::result::Result<(), E>,
+    C: FnMut(Time, SignalValues, &[SignalRef]) -> std::result::Result<(), E>,
 {
     fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> (Self, Option<Vec<SignalRef>>) {
         let info = StreamDerivedSignalInfo::compute(hierarchy, filter);
         let new_filter = info.new_filter;
 
-        let values = if filter.signals.is_none() {
+        let values = std::sync::Arc::new(if filter.signals.is_none() {
             SignalMap::dense()
         } else {
             SignalMap::sparse()
-        };
+        });
 
         let out = Self {
             callback,
@@ -685,7 +700,7 @@ where
             to_derived: info.to_derived,
             transforms: info.transforms,
             derived_input_has_changed: FxHashSet::default(),
-            observed_change: false,
+            changes: vec![],
         };
 
         (out, new_filter)
@@ -698,7 +713,7 @@ where
         signal: SignalRef,
         value: SignalValueRef,
     ) -> std::result::Result<(), E> {
-        // emit derived signal changes at the end of a a timestep
+        // emit derived signal changes at the end of a timestep
         if let Some(prev) = self.time
             && time > prev
         {
@@ -712,34 +727,35 @@ where
             .map(|old| SignalValueRef::from(old) != value)
             .unwrap_or(true);
         if changed {
-            self.values.insert(signal, value.into());
-            self.update_has_changed(signal);
+            Arc::make_mut(&mut self.values).insert(signal, value.into());
+            if let Some(derived) = self.to_derived.get(&signal) {
+                for &signal in derived.iter() {
+                    self.derived_input_has_changed.insert(signal);
+                }
+            }
         }
         if value.is_event() || changed {
-            self.observed_change = true;
+            self.changes.push(signal);
         }
         Ok(())
     }
 
     fn dispatch(&mut self) -> std::result::Result<(), E> {
-        if self.observed_change {
+        if !self.changes.is_empty() {
             self.update_derived_signal_changes();
             let time = self
                 .time
                 .expect("dispatch should only be called when we know the time");
-            (self.callback)(time, &self.values)?;
-            self.observed_change = false;
+            (self.callback)(
+                time,
+                SignalValues {
+                    values: self.values.clone(),
+                },
+                &self.changes,
+            )?;
+            self.changes.clear();
         }
         Ok(())
-    }
-
-    #[inline]
-    fn update_has_changed(&mut self, signal_ref: SignalRef) {
-        if let Some(derived) = self.to_derived.get(&signal_ref) {
-            for &signal in derived.iter() {
-                self.derived_input_has_changed.insert(signal);
-            }
-        }
     }
 
     fn update_derived_signal_changes(&mut self) {
@@ -756,7 +772,7 @@ where
                     })
                     .collect();
                 let value = t.on_change(&inputs);
-                self.values.insert(signal, value.into());
+                Arc::make_mut(&mut self.values).insert(signal, value.into());
             }
         }
     }

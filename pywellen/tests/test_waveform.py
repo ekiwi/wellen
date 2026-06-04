@@ -375,9 +375,9 @@ def test_stream_changes():
     wave.stream_changes(on_change, include=wave.all_vars()[0:10])
     check_swerv_changes(changes)
 
+
 def test_stream_time_steps():
     wave = WaveformStream(path=_git_root_rel("wellen/inputs/verilator/swerv1.vcd"))
-
 
     # record all changes in streaming mode
     changes = defaultdict(list)
@@ -390,4 +390,3 @@ def test_stream_time_steps():
 
     wave.stream_time_steps(on_change, include=wave.all_vars()[0:10])
     check_swerv_changes(changes)
-

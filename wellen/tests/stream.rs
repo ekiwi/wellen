@@ -196,7 +196,8 @@ fn diff_stream_time_change<R: BufRead + Seek>(
         .unwrap_or_else(|| batch.hierarchy().signals().collect());
 
     streamed
-        .stream_time_steps(filter, |time, values| {
+        .stream_time_steps(filter, |time, values, changed_signals| {
+            assert!(!changed_signals.is_empty(), "callback should only be called if there were changes in the time step");
             if let Some(prev_time) = prev_time {
                 assert!(time > prev_time, "time must be incrementing!");
             }
@@ -211,10 +212,12 @@ fn diff_stream_time_change<R: BufRead + Seek>(
             for sig in &signals {
                 // only check if there is a value at this time in the reference
                 if let Some(b_value) = get_maybe_final_value(batch, *sig, idx) {
-                    let maybe_a_value = values.get(sig);
-                    assert!(maybe_a_value.is_some(), "Failed to get value of signal {sig:?} at time {time} from the dispatcher map.,The expected value is: {b_value:?}");
-                    let a_value: SignalValueRef = maybe_a_value.unwrap().into();
-                    diff_signal_value(time, *sig, a_value, b_value, None, batch.hierarchy());
+                    assert!(changed_signals.contains(sig), "Signal should have changed!");
+                    let a_value = values.get(sig);
+                    assert!(a_value.is_some(), "Failed to get value of signal {sig:?} at time {time} from the dispatcher map.,The expected value is: {b_value:?}");
+                    diff_signal_value(time, *sig, a_value.unwrap(), b_value, None, batch.hierarchy());
+                } else {
+                    assert!(!changed_signals.contains(sig), "Signal should not have been marked as changed!");
                 }
             }
 
