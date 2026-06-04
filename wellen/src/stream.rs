@@ -6,18 +6,25 @@
 //! of displaying it in a waveform viewer.
 
 use crate::signal::{DerivedBitVecSignal, SignalMap, States};
-use crate::vcd::{VcdBitVecChange, decode_vcd_bit_vec_change};
+use crate::vcd::{VcdBitVecChange, VcdOrError, decode_vcd_bit_vec_change};
+use crate::viewers::HeaderResult;
 use crate::wavemem::write_n_state_from_ascii;
 use crate::{
-    Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValue,
-    SignalValueRef, Time, viewers,
+    Hierarchy, LoadOptions, Real, Result, SignalEncoding, SignalRef, SignalValue, SignalValueRef,
+    Time, WellenError, viewers,
 };
 use fst_reader::FstSignalValue;
 use rustc_hash::FxHashSet;
 use smallvec::{SmallVec, smallvec};
 use std::fmt::{Debug, Formatter};
 use std::io::{BufRead, Seek};
-use crate::viewers::HeaderResult;
+
+#[derive(Debug, thiserror::Error)]
+pub enum StreamError<E> {
+    Wellen(#[from] WellenError),
+    Callback(E),
+}
+pub type StreamResult<E> = std::result::Result<(), StreamError<E>>;
 
 /// Read a waveform file. Reads only the header.
 pub fn read_from_file<P: AsRef<std::path::Path>>(
@@ -43,13 +50,21 @@ pub struct StreamingWaveform<R: BufRead + Seek> {
 
 impl<R: BufRead + Seek> From<HeaderResult<R>> for StreamingWaveform<R> {
     fn from(value: HeaderResult<R>) -> Self {
-        StreamingWaveform { hierarchy: value.hierarchy, body: value.body.0 }
+        StreamingWaveform {
+            hierarchy: value.hierarchy,
+            body: value.body.0,
+        }
     }
 }
 
-impl<R: BufRead + Seek> From<(Hierarchy, viewers::ReadBodyContinuation<R>)> for StreamingWaveform<R> {
+impl<R: BufRead + Seek> From<(Hierarchy, viewers::ReadBodyContinuation<R>)>
+    for StreamingWaveform<R>
+{
     fn from(value: (Hierarchy, viewers::ReadBodyContinuation<R>)) -> Self {
-        StreamingWaveform { hierarchy: value.0, body: value.1.0 }
+        StreamingWaveform {
+            hierarchy: value.0,
+            body: value.1.0,
+        }
     }
 }
 
@@ -108,11 +123,11 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
     }
 
     /// Calls the callback for each change of a signal.
-    pub fn stream_changes(
+    pub fn stream_changes<E>(
         &mut self,
         filter: Filter,
-        callback: impl FnMut(Time, SignalRef, SignalValueRef<'_>),
-    ) -> Result<()> {
+        callback: impl FnMut(Time, SignalRef, SignalValueRef<'_>) -> std::result::Result<(), E>,
+    ) -> StreamResult<E> {
         let (mut dispatcher, maybe_augmented_filter) =
             StreamDispatcherOnChange::new(self.hierarchy(), &filter, callback);
 
@@ -127,15 +142,15 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
                 dispatcher.on_change(time, signal, value)
             }),
         )?;
-        dispatcher.finish();
+        dispatcher.finish().map_err(StreamError::Callback)?;
         Ok(())
     }
 
-    pub fn stream_time_steps(
+    pub fn stream_time_steps<E>(
         &mut self,
         filter: Filter,
-        callback: impl FnMut(Time, &SignalMap<SignalValue>),
-    ) -> Result<()> {
+        callback: impl FnMut(Time, &SignalMap<SignalValue>) -> std::result::Result<(), E>,
+    ) -> StreamResult<E> {
         let (mut dispatcher, maybe_augmented_filter) =
             StreamDispatcherOnTimeStep::new(self.hierarchy(), &filter, callback);
 
@@ -150,18 +165,23 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
                 dispatcher.on_change(time, signal, value)
             }),
         )?;
-        dispatcher.finish();
+        dispatcher.finish().map_err(StreamError::Callback)?;
         Ok(())
     }
 
-    fn do_stream<C: FnMut(Time, SignalRef, SignalValueRef<'_>)>(
+    fn do_stream<C: FnMut(Time, SignalRef, SignalValueRef<'_>) -> std::result::Result<(), E>, E>(
         &mut self,
         filter: &Filter,
-        enc: StreamEncoder<C>,
-    ) -> Result<()> {
+        enc: StreamEncoder<C, E>,
+    ) -> StreamResult<E> {
         // ensure that none of the signals are slices
         match &mut self.body {
-            viewers::ReadBodyData::Vcd(data) => crate::vcd::stream_body(data, enc)?,
+            viewers::ReadBodyData::Vcd(data) => {
+                crate::vcd::stream_body(data, enc).map_err(|e| match e {
+                    VcdOrError::Vcd(e) => WellenError::from(e).into(),
+                    VcdOrError::Custom(e) => StreamError::Callback(e),
+                })?
+            }
             viewers::ReadBodyData::Fst(data) => crate::fst::stream_body(data, enc, filter)?,
             viewers::ReadBodyData::Ghw(_) => panic!("streaming GHW files is not supported"),
         }
@@ -171,9 +191,9 @@ impl<R: BufRead + Seek> StreamingWaveform<R> {
 
 /// Takes on the role of the [Encoder] when streaming instead of encoding to
 /// a wavemem.
-pub(crate) struct StreamEncoder<C>
+pub(crate) struct StreamEncoder<C, E>
 where
-    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>) -> std::result::Result<(), E>,
 {
     callback: C,
     time: Option<Time>,
@@ -317,9 +337,9 @@ impl<'a> From<&'a SignalValueBuffer> for SignalValueRef<'a> {
     }
 }
 
-impl<C> StreamEncoder<C>
+impl<C, E> StreamEncoder<C, E>
 where
-    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>) -> std::result::Result<(), E>,
 {
     pub(crate) fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> Self {
         // remember encoding information for all included signals
@@ -353,7 +373,12 @@ where
         self.encoding.get_index(id).cloned()
     }
 
-    pub(crate) fn fst_value_change(&mut self, time: u64, id: u64, value: &FstSignalValue) {
+    pub(crate) fn fst_value_change(
+        &mut self,
+        time: u64,
+        id: u64,
+        value: &FstSignalValue,
+    ) -> std::result::Result<(), E> {
         debug_assert!(
             !self.skipping_time_step,
             "fst reader should filter out time steps"
@@ -368,21 +393,23 @@ where
         if let Some(encoding) = self.get_encoding(id) {
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
             self.buf.update_fst(encoding, value);
-            (self.callback)(time, signal_ref, (&self.buf).into())
+            (self.callback)(time, signal_ref, (&self.buf).into())?;
         }
+        Ok(())
     }
 
-    pub(crate) fn vcd_value_change(&mut self, id: u64, value: &[u8]) {
+    pub(crate) fn vcd_value_change(&mut self, id: u64, value: &[u8]) -> std::result::Result<(), E> {
         if self.skipping_time_step {
-            return;
+            return Ok(());
         }
         // check to see if the signal should be included
         if let Some(encoding) = self.get_encoding(id) {
             let signal_ref = SignalRef::from_index(id as usize).unwrap();
             let time = self.time.unwrap();
             self.buf.update_vcd(encoding, value);
-            (self.callback)(time, signal_ref, (&self.buf).into())
+            (self.callback)(time, signal_ref, (&self.buf).into())?;
         }
+        Ok(())
     }
 
     pub(crate) fn time_change(&mut self, time: u64) {
@@ -502,9 +529,9 @@ impl StreamDerivedSignalInfo {
 
 /// Handles derived signals for a callback that is invoked at every change.
 /// Gets hooked into the [[StreamEncoder]] through a closure.
-struct StreamDispatcherOnChange<C>
+struct StreamDispatcherOnChange<C, E>
 where
-    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>) -> std::result::Result<(), E>,
 {
     callback: C,
     /// to track when a time change occures
@@ -520,9 +547,9 @@ where
     transforms: SignalMap<DerivedBitVecSignal>,
 }
 
-impl<C> StreamDispatcherOnChange<C>
+impl<C, E> StreamDispatcherOnChange<C, E>
 where
-    C: FnMut(Time, SignalRef, SignalValueRef<'_>),
+    C: FnMut(Time, SignalRef, SignalValueRef<'_>) -> std::result::Result<(), E>,
 {
     fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> (Self, Option<Vec<SignalRef>>) {
         let info = StreamDerivedSignalInfo::compute(hierarchy, filter);
@@ -541,12 +568,17 @@ where
     }
 
     /// Will be called by the [[StreamEncoder]]
-    fn on_change(&mut self, time: Time, signal: SignalRef, value: SignalValueRef) {
+    fn on_change(
+        &mut self,
+        time: Time,
+        signal: SignalRef,
+        value: SignalValueRef,
+    ) -> std::result::Result<(), E> {
         // emit derived signal changes at the end of a a timestep
         if let Some(prev) = self.time
             && time > prev
         {
-            self.emit_derived_signal_changes();
+            self.emit_derived_signal_changes()?;
         }
         self.time = Some(time);
         self.update_derived(signal, value);
@@ -565,18 +597,25 @@ where
     }
 
     #[inline]
-    fn dispatch_change(&mut self, time: Time, signal_ref: SignalRef, value: SignalValueRef) {
+    fn dispatch_change(
+        &mut self,
+        time: Time,
+        signal_ref: SignalRef,
+        value: SignalValueRef,
+    ) -> std::result::Result<(), E> {
         if self
             .requested
             .as_ref()
             .map(|r| r.contains(&signal_ref))
             .unwrap_or(true)
         {
-            (self.callback)(time, signal_ref, value);
+            (self.callback)(time, signal_ref, value)
+        } else {
+            Ok(())
         }
     }
 
-    fn emit_derived_signal_changes(&mut self) {
+    fn emit_derived_signal_changes(&mut self) -> std::result::Result<(), E> {
         if !self.has_changed.is_empty() {
             let time = self
                 .time
@@ -593,22 +632,23 @@ where
                     })
                     .collect();
                 let value = t.on_change(&inputs);
-                (self.callback)(time, signal, (&value).into());
+                (self.callback)(time, signal, (&value).into())?;
             }
         }
+        Ok(())
     }
 
     /// Must be called at the end of a stream. Dispatches any pending derived signal changes.
-    pub(crate) fn finish(&mut self) {
-        self.emit_derived_signal_changes();
+    pub(crate) fn finish(&mut self) -> std::result::Result<(), E> {
+        self.emit_derived_signal_changes()
     }
 }
 
 /// Buffers signal changes and only invokes the call back once at the end of each time step.
 /// Gets hooked into the [[StreamEncoder]] through a closure.
-struct StreamDispatcherOnTimeStep<C>
+struct StreamDispatcherOnTimeStep<C, E>
 where
-    C: FnMut(Time, &SignalMap<SignalValue>),
+    C: FnMut(Time, &SignalMap<SignalValue>) -> std::result::Result<(), E>,
 {
     callback: C,
     /// to track when a time change occurres
@@ -624,9 +664,9 @@ where
     observed_change: bool,
 }
 
-impl<C> StreamDispatcherOnTimeStep<C>
+impl<C, E> StreamDispatcherOnTimeStep<C, E>
 where
-    C: FnMut(Time, &SignalMap<SignalValue>),
+    C: FnMut(Time, &SignalMap<SignalValue>) -> std::result::Result<(), E>,
 {
     fn new(hierarchy: &Hierarchy, filter: &Filter, callback: C) -> (Self, Option<Vec<SignalRef>>) {
         let info = StreamDerivedSignalInfo::compute(hierarchy, filter);
@@ -652,12 +692,17 @@ where
     }
 
     /// Will be called by the [[StreamEncoder]]
-    fn on_change(&mut self, time: Time, signal: SignalRef, value: SignalValueRef) {
+    fn on_change(
+        &mut self,
+        time: Time,
+        signal: SignalRef,
+        value: SignalValueRef,
+    ) -> std::result::Result<(), E> {
         // emit derived signal changes at the end of a a timestep
         if let Some(prev) = self.time
             && time > prev
         {
-            self.dispatch();
+            self.dispatch()?;
         }
         self.time = Some(time);
 
@@ -673,17 +718,19 @@ where
         if value.is_event() || changed {
             self.observed_change = true;
         }
+        Ok(())
     }
 
-    fn dispatch(&mut self) {
+    fn dispatch(&mut self) -> std::result::Result<(), E> {
         if self.observed_change {
             self.update_derived_signal_changes();
             let time = self
                 .time
                 .expect("dispatch should only be called when we know the time");
-            (self.callback)(time, &self.values);
+            (self.callback)(time, &self.values)?;
             self.observed_change = false;
         }
+        Ok(())
     }
 
     #[inline]
@@ -715,10 +762,11 @@ where
     }
 
     /// Must be called at the end of a stream. Dispatches any pending derived signal changes.
-    pub(crate) fn finish(&mut self) {
+    pub(crate) fn finish(&mut self) -> std::result::Result<(), E> {
         // time can be none if we never observed a single change
         if self.time.is_some() {
-            self.dispatch();
+            self.dispatch()?;
         }
+        Ok(())
     }
 }

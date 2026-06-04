@@ -39,22 +39,12 @@ fn diff_hierarchy(ghw: &Hierarchy, fst: &Hierarchy) -> u64 {
         .find(|s| ghw[*s].name(ghw) == fst_top.name(fst))
         .unwrap();
     let ghw_top = &ghw[ghw_top_ref];
-    diff_hierarchy_item(
-        Item::Scope(ghw_top),
-        ghw,
-        Item::Scope(fst_top),
-        fst,
-    );
+    diff_hierarchy_item(Item::Scope(ghw_top), ghw, Item::Scope(fst_top), fst);
 
     time_factor
 }
 
-fn diff_hierarchy_item(
-    ghw_item: Item,
-    ghw: &Hierarchy,
-    fst_item: Item,
-    fst: &Hierarchy,
-) {
+fn diff_hierarchy_item(ghw_item: Item, ghw: &Hierarchy, fst_item: Item, fst: &Hierarchy) {
     match (ghw_item, fst_item) {
         (Item::Scope(g), Item::Scope(f)) => {
             assert_eq!(g.name(ghw), f.name(fst));

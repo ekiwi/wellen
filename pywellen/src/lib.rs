@@ -754,7 +754,7 @@ impl SharedWaves {
             stream
                 .stream_changes(filter, |time, signal, value| {
                     let args = (time, SignalId(signal), to_py_signal_value(value));
-                    callback.call1(args).unwrap();
+                    callback.call1(args).map(|_| ())
                 })
                 .toerr()
         } else {

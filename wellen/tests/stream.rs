@@ -263,7 +263,7 @@ fn diff_stream_time_change<R: BufRead + Seek>(
 
 fn find_signal_name(h: &Hierarchy, s: SignalRef) -> String {
     for var in h.all_vars() {
-        let var  = &h[var];
+        let var = &h[var];
         if var.signal_ref() == s {
             return var.full_name(h);
         }

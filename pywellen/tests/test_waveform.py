@@ -354,7 +354,7 @@ def test_scope_types():
             )
 
 
-def test_stream():
+def test_stream_changes():
     wave = WaveformStream(path=_git_root_rel("wellen/inputs/verilator/swerv1.vcd"))
 
     # accessing signals directly in stream mode is not allowed
@@ -369,9 +369,25 @@ def test_stream():
     changes = defaultdict(list)
 
     def on_change(time, signal, value):
-        print(f"{time} {signal} {value}")
         for var in wave[signal]:
             changes[var.full_name].append((time, value))
 
     wave.stream_changes(on_change, include=wave.all_vars()[0:10])
     check_swerv_changes(changes)
+
+def test_stream_time_steps():
+    wave = WaveformStream(path=_git_root_rel("wellen/inputs/verilator/swerv1.vcd"))
+
+
+    # record all changes in streaming mode
+    changes = defaultdict(list)
+
+    def on_change(time, values, changed):
+        for signal in changed:
+            value = values[signal]
+            for var in wave[signal]:
+                changes[var.full_name].append((time, value))
+
+    wave.stream_changes(on_change, include=wave.all_vars()[0:10])
+    check_swerv_changes(changes)
+

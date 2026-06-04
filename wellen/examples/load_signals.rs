@@ -30,24 +30,15 @@ struct Args {
 
 fn print_size_of_full_vs_reduced_names(h: &Hierarchy) {
     let total_num_elements = h.all_vars().count() + h.all_scopes().count();
-    let reduced_size = h
-        .all_scopes()
-        .map(|s| h[s].name(h).len())
-        .sum::<usize>()
-        + h
-            .all_vars()
-            .map(|v| h[v].name(h).len())
-            .sum::<usize>();
+    let reduced_size = h.all_scopes().map(|s| h[s].name(h).len()).sum::<usize>()
+        + h.all_vars().map(|v| h[v].name(h).len()).sum::<usize>();
     // to compute full names efficiently, we do need to save a 16-bit parent pointer which takes some space
     let _parent_overhead = std::mem::size_of::<u16>() * total_num_elements;
     let full_size = h
         .all_scopes()
         .map(|s| h[s].full_name(h).len())
         .sum::<usize>()
-        + h
-            .all_vars()
-            .map(|v| h[v].full_name(h).len())
-            .sum::<usize>();
+        + h.all_vars().map(|v| h[v].full_name(h).len()).sum::<usize>();
     let string_overhead = std::mem::size_of::<String>() * total_num_elements;
 
     println!("Full vs. partial strings. (Ignoring interning)");

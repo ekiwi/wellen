@@ -592,7 +592,6 @@ impl TryFrom<ItemRef> for ScopeRef {
     }
 }
 
-
 impl From<VarRef> for ItemRef {
     fn from(value: VarRef) -> Self {
         Self::Var(value)
@@ -609,7 +608,6 @@ impl TryFrom<ItemRef> for VarRef {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Copy)]
 pub enum Item<'a> {
@@ -753,10 +751,7 @@ impl Scope {
         self.instance_source.map(|id| hierarchy.get_source_loc(id))
     }
 
-    pub fn items<'a>(
-        &'a self,
-        hierarchy: &'a Hierarchy,
-    ) -> impl Iterator<Item =ItemRef> + 'a {
+    pub fn items<'a>(&'a self, hierarchy: &'a Hierarchy) -> impl Iterator<Item = ItemRef> + 'a {
         HierarchyItemIdIterator::new(hierarchy, self.child)
     }
 
@@ -768,17 +763,13 @@ impl Scope {
         to_scope_ref_iterator(HierarchyItemIdIterator::new(hierarchy, self.child))
     }
 
-    pub fn all_items<'a>(
-        &'a self,
-        hierarchy: &'a Hierarchy,
-    ) -> impl Iterator<Item =ItemRef> + 'a {
+    pub fn all_items<'a>(&'a self, hierarchy: &'a Hierarchy) -> impl Iterator<Item = ItemRef> + 'a {
         if let Some(child) = self.child {
             let own_id = hierarchy.get_item(child).parent().unwrap();
             HierarchyItemIdRecursiveIterator::new(hierarchy, Some(own_id))
         } else {
             HierarchyItemIdRecursiveIterator::empty(hierarchy)
         }
-
     }
 }
 
@@ -825,22 +816,19 @@ impl Iterator for HierarchyItemIdIterator<'_> {
 }
 
 #[inline]
-fn to_var_ref_iterator(iter: impl Iterator<Item =ItemRef>) -> impl Iterator<Item = VarRef> {
+fn to_var_ref_iterator(iter: impl Iterator<Item = ItemRef>) -> impl Iterator<Item = VarRef> {
     iter.flat_map(|i| match i {
         ItemRef::Scope(_) => None,
         ItemRef::Var(v) => Some(v),
     })
 }
 
-fn to_scope_ref_iterator(
-    iter: impl Iterator<Item =ItemRef>,
-) -> impl Iterator<Item = ScopeRef> {
+fn to_scope_ref_iterator(iter: impl Iterator<Item = ItemRef>) -> impl Iterator<Item = ScopeRef> {
     iter.flat_map(|i| match i {
         ItemRef::Scope(s) => Some(s),
         ItemRef::Var(_) => None,
     })
 }
-
 
 struct HierarchyItemIdRecursiveIterator<'a> {
     hierarchy: &'a Hierarchy,
@@ -890,7 +878,10 @@ impl Iterator for HierarchyItemIdRecursiveIterator<'_> {
             if let Some(pp) = self.parent {
                 self.current = Some(find_leaf(self.hierarchy, pp.into()));
             } else {
-                self.current = self.hierarchy.first_item().map(|i| find_leaf(self.hierarchy, i));
+                self.current = self
+                    .hierarchy
+                    .first_item()
+                    .map(|i| find_leaf(self.hierarchy, i));
             }
             // if the child does not exist, we are done
             self.done = self.current.is_none();
@@ -999,7 +990,7 @@ impl HierarchyMetaData {
 // public implementation
 impl Hierarchy {
     /// Recursively iterates over all scopes and variables in a depth first manner
-    pub fn all_items(&self) -> impl Iterator<Item =ItemRef> + '_ {
+    pub fn all_items(&self) -> impl Iterator<Item = ItemRef> + '_ {
         HierarchyItemIdRecursiveIterator::new(self, None)
     }
 
@@ -1020,7 +1011,7 @@ impl Hierarchy {
     }
 
     /// Returns an iterator over references to all top-level scopes and variables.
-    pub fn items(&self) -> impl Iterator<Item =ItemRef> + '_ {
+    pub fn items(&self) -> impl Iterator<Item = ItemRef> + '_ {
         HierarchyItemIdIterator::new(self, self.first_item())
     }
 
@@ -1119,11 +1110,7 @@ impl Hierarchy {
         lookup_item_by_name(self, self.items(), name)
     }
 
-    pub fn lookup_item_in_scope_by_name(
-        &self,
-        root: ScopeRef,
-        name: &str,
-    ) -> Option<ItemRef> {
+    pub fn lookup_item_in_scope_by_name(&self, root: ScopeRef, name: &str) -> Option<ItemRef> {
         lookup_item_by_name(self, self[root].items(self), name)
     }
 }
@@ -1131,7 +1118,7 @@ impl Hierarchy {
 /// Common implementation of name lookup
 fn lookup_item_by_name(
     h: &Hierarchy,
-    items: impl Iterator<Item =ItemRef>,
+    items: impl Iterator<Item = ItemRef>,
     suffix: &str,
 ) -> Option<ItemRef> {
     find_longest_match(h, items, suffix).and_then(|(remaining_suffix, item)| {
@@ -1157,7 +1144,7 @@ fn lookup_item_by_name(
 
 fn find_longest_match<'a>(
     h: &Hierarchy,
-    items: impl Iterator<Item =ItemRef>,
+    items: impl Iterator<Item = ItemRef>,
     suffix: &'a str,
 ) -> Option<(&'a str, ItemRef)> {
     let mut match_item = None;
@@ -2067,13 +2054,49 @@ mod tests {
         let v1 = b.add_string("v1".into());
         let v2 = b.add_string("v2".into());
         let v3 = b.add_string("v3".into());
-        b.add_var(v1, VarType::Bit, SignalEncoding::BitVector(1), VarDirection::InOut, None, SignalRef::from_index(1).unwrap(), None, None);
+        b.add_var(
+            v1,
+            VarType::Bit,
+            SignalEncoding::BitVector(1),
+            VarDirection::InOut,
+            None,
+            SignalRef::from_index(1).unwrap(),
+            None,
+            None,
+        );
         b.add_scope(s1, None, ScopeType::Struct, None, None, None, false);
-        b.add_var(v1, VarType::Bit, SignalEncoding::BitVector(1), VarDirection::InOut, None, SignalRef::from_index(1).unwrap(), None, None);
+        b.add_var(
+            v1,
+            VarType::Bit,
+            SignalEncoding::BitVector(1),
+            VarDirection::InOut,
+            None,
+            SignalRef::from_index(1).unwrap(),
+            None,
+            None,
+        );
         b.add_scope(s2, None, ScopeType::Struct, None, None, None, false);
-        b.add_var(v2, VarType::Bit, SignalEncoding::BitVector(1), VarDirection::InOut, None, SignalRef::from_index(1).unwrap(), None, None);
+        b.add_var(
+            v2,
+            VarType::Bit,
+            SignalEncoding::BitVector(1),
+            VarDirection::InOut,
+            None,
+            SignalRef::from_index(1).unwrap(),
+            None,
+            None,
+        );
         b.pop_scope();
-        b.add_var(v3, VarType::Bit, SignalEncoding::BitVector(1), VarDirection::InOut, None, SignalRef::from_index(1).unwrap(), None, None);
+        b.add_var(
+            v3,
+            VarType::Bit,
+            SignalEncoding::BitVector(1),
+            VarDirection::InOut,
+            None,
+            SignalRef::from_index(1).unwrap(),
+            None,
+            None,
+        );
         b.pop_scope();
         b.finish()
     }
@@ -2082,11 +2105,17 @@ mod tests {
     fn test_depth_first_iterator() {
         let h = build_test_hierarchy();
 
-        let names: Vec<_> = h.all_items().map(|i| h.get_item(i).name(&h).to_string()).collect();
+        let names: Vec<_> = h
+            .all_items()
+            .map(|i| h.get_item(i).name(&h).to_string())
+            .collect();
         assert_eq!(names, ["v1", "v1", "v2", "s2", "v3", "s1"]);
 
         let s2_ref: ScopeRef = h.lookup_item_by_name("s1.s2").unwrap().try_into().unwrap();
-        let s2_names: Vec<_> = h[s2_ref].all_items(&h).map(|i| h.get_item(i).name(&h).to_string()).collect();
+        let s2_names: Vec<_> = h[s2_ref]
+            .all_items(&h)
+            .map(|i| h.get_item(i).name(&h).to_string())
+            .collect();
         assert_eq!(s2_names, ["v2"]);
     }
 
@@ -2095,7 +2124,11 @@ mod tests {
         let h = build_test_hierarchy();
         assert!(h.lookup_item_by_name("s1.s2").is_some());
         assert!(h.lookup_item_by_name("s1.s2.v2").is_some());
-        let v2: VarRef = h.lookup_item_by_name("s1.s2.v2").unwrap().try_into().unwrap();
+        let v2: VarRef = h
+            .lookup_item_by_name("s1.s2.v2")
+            .unwrap()
+            .try_into()
+            .unwrap();
         assert_eq!(h[v2].full_name(&h), "s1.s2.v2");
         // for variables, we allow partial matches as long as there is not remaining separator
         assert!(h.lookup_item_by_name("s1.s2.v2 [1:1]").is_some());
@@ -2103,5 +2136,4 @@ mod tests {
         // for scopes, partial matches are not allowed
         assert!(h.lookup_item_by_name("s1.s2 [1:1]").is_none());
     }
-
 }
