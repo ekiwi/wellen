@@ -23,10 +23,15 @@ def test_var_and_scope_index_api():
     """
     filename = _git_root_rel("wellen/inputs/verilator/surfer_issue_201.fst")
     wave = Waveform(filename)
+    assert repr(wave).startswith("Waveform(")
+    # absolute path
+    assert repr(wave).endswith("wellen/inputs/verilator/surfer_issue_201.fst)")
     assert wave["TOP"].type == "module"
+    assert repr(wave["TOP"]) == "Scope(TOP)"
     d_ready = wave["TOP.top.pix_port.d_ready"]
     assert d_ready.type == "Logic"
     assert d_ready.name == "d_ready"
+    assert repr(d_ready) == "Var(TOP.top.pix_port.d_ready)"
     assert d_ready.full_name == "TOP.top.pix_port.d_ready"
     d_ready_by_another_way = wave["TOP"]["top"]["pix_port"]["d_ready"]
     assert d_ready == d_ready_by_another_way

@@ -136,6 +136,10 @@ impl Scope {
         self.id.hash(&mut hasher);
         hasher.finish()
     }
+
+    pub fn __repr__(&self) -> String {
+        format!("Scope({})", self.full_name())
+    }
 }
 
 impl Scope {
@@ -320,6 +324,10 @@ impl Var {
             Err(PyIndexError::new_err(format!("No change yet at {time}")))
         }
     }
+
+    pub fn __repr__(&self) -> String {
+        format!("Var({})", self.full_name())
+    }
 }
 
 impl Var {
@@ -411,6 +419,11 @@ impl TimeTable {
             .get(idx)
             .cloned()
             .map(|val| val.into_pyobject(py).unwrap()))
+    }
+
+    pub fn __repr__(&self) -> String {
+        let elements: Vec<_> = self.0.iter().map(|i| format!("{i}")).collect();
+        format!("TimeTable([{}])", elements.join(", "))
     }
 }
 
@@ -606,6 +619,14 @@ impl Waveform {
         include: Option<Vec<Either<Var, String>>>,
     ) -> PyResult<()> {
         self.waves.stream(StreamMode::TimeSteps, callback, include)
+    }
+
+    pub fn __repr__(&self) -> String {
+        if self.waves.stream_only {
+            format!("WaveformStream({})", self.waves.filename)
+        } else {
+            format!("Waveform({})", self.waves.filename)
+        }
     }
 }
 
@@ -809,6 +830,10 @@ struct SignalValues(wellen::stream::SignalValues);
 impl SignalValues {
     fn __getitem__(&self, key: SignalId) -> Option<PySignalValue> {
         self.0.get(&key.0).map(to_py_signal_value)
+    }
+
+    pub fn __repr__(&self) -> String {
+        "SignalValues(...)".to_string()
     }
 }
 
