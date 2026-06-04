@@ -143,6 +143,7 @@ fn diff_stream_changes<R: BufRead + Seek>(
             }
             let value: SignalValue = a_value.into();
             prev_value.insert(sig, value);
+            Ok::<(),()>(())
         })
         .unwrap();
 
@@ -216,6 +217,8 @@ fn diff_stream_time_change<R: BufRead + Seek>(
                     diff_signal_value(time, *sig, a_value, b_value, None, batch.hierarchy());
                 }
             }
+
+            Ok::<(),()>(())
         })
         .expect("failed to stream!");
 

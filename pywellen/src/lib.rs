@@ -21,6 +21,15 @@ impl<T> PyErrExt<T> for wellen::Result<T> {
     }
 }
 
+impl PyErrExt<()> for wellen::stream::StreamResult<PyErr> {
+    fn toerr(self) -> PyResult<()> {
+        self.map_err(|err| match err {
+            wellen::stream::StreamError::Wellen(w) => PyRuntimeError::new_err(w.to_string()),
+            wellen::stream::StreamError::Callback(e) => e,
+        })
+    }
+}
+
 #[pymodule]
 fn pywellen(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Var>()?;
