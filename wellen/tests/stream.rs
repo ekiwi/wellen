@@ -211,7 +211,7 @@ fn diff_stream_time_change<R: BufRead + Seek>(
             // compare all signals at this time step
             for sig in &signals {
                 // only check if there is a value at this time in the reference
-                if let Some(b_value) = get_maybe_final_value(batch, *sig, idx) {
+                if let Some(b_value) = get_maybe_value_change_at(batch, *sig, idx) {
                     assert!(changed_signals.contains(sig), "Signal should have changed!");
                     let a_value = values.get(sig);
                     assert!(a_value.is_some(), "Failed to get value of signal {sig:?} at time {time} from the dispatcher map.,The expected value is: {b_value:?}");
