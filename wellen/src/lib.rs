@@ -65,3 +65,4 @@ pub use signal::{
     Time, TimeTableIdx,
 };
 pub use signal::{CompressedSignal, CompressedTimeTable, Compression};
+pub use wavemem::PublicEncoder as Encoder;
