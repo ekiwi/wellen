@@ -771,6 +771,16 @@ impl Scope {
             HierarchyItemIdRecursiveIterator::empty(hierarchy)
         }
     }
+
+    /// Recursively iterates over all variables (at all levels below this scope).
+    pub fn all_vars<'a>(&'a self, hierarchy: &'a Hierarchy) -> impl Iterator<Item = VarRef> + 'a {
+        to_var_ref_iterator(self.all_items(hierarchy))
+    }
+
+    /// Recursively iterates over all scopes (at all levels below this scope).
+    pub fn all_scopes<'a>(&'a self, hierarchy: &'a Hierarchy) -> impl Iterator<Item = ScopeRef> + 'a {
+        to_scope_ref_iterator(self.all_items(hierarchy))
+    }
 }
 
 struct HierarchyItemIdIterator<'a> {

@@ -99,10 +99,32 @@ impl Scope {
         self.scope_type()
     }
 
+    /// All scopes below this scope.
+    fn all_vars(&self) -> Vec<Var> {
+        self.h()[self.id]
+            .all_vars(self.h())
+            .map(|val| Var {
+                waves: self.waves.clone(),
+                id: val,
+            })
+            .collect()
+    }
+
     pub fn vars(&self) -> Vec<Var> {
         self.h()[self.id]
             .vars(self.h())
             .map(|val| Var {
+                waves: self.waves.clone(),
+                id: val,
+            })
+            .collect()
+    }
+
+    /// All scopes below this scope.
+    fn all_scopes(&self) -> Vec<Scope> {
+        self.h()[self.id]
+            .all_scopes(self.h())
+            .map(|val| Scope {
                 waves: self.waves.clone(),
                 id: val,
             })
