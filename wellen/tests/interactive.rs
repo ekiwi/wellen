@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use wellen::{
-    Encoder, FileFormat, Hierarchy, HierarchyBuilder, ScopeType, Signal, SignalEncoding, SignalRef,
+    Encoder, Hierarchy, HierarchyBuilder, ScopeType, Signal, SignalEncoding, SignalRef,
     SignalSource, VarDirection, VarType,
 };
 
@@ -62,38 +62,16 @@ fn test_snapshot_allows_continued_encoding() {
 }
 
 fn build_hierarchy() -> (Hierarchy, SignalRef, SignalRef) {
-    let mut builder = HierarchyBuilder::new(FileFormat::Memory);
+    let mut builder = HierarchyBuilder::new();
 
-    let top = builder.add_string("top".into());
-    builder.add_scope(top, None, ScopeType::Module, None, None, None, false);
-    let dut = builder.add_string("dut".into());
-    builder.add_scope(dut, None, ScopeType::Module, None, None, None, false);
+    builder.push_scope("top", ScopeType::Module);
+    builder.push_scope("dut", ScopeType::Module);
 
-    let clk = SignalRef::from_index(0).unwrap();
-    let clk_name = builder.add_string("clk".into());
-    builder.add_var(
-        clk_name,
-        VarType::Wire,
-        SignalEncoding::BitVector(1),
-        VarDirection::Unknown,
-        None,
-        clk,
-        None,
-        None,
-    );
+    let clk = builder.new_signal(SignalEncoding::BitVector(1));
+    builder.add_var("clk", VarType::Wire, VarDirection::Unknown, clk);
 
-    let data = SignalRef::from_index(1).unwrap();
-    let data_name = builder.add_string("data".into());
-    builder.add_var(
-        data_name,
-        VarType::Reg,
-        SignalEncoding::BitVector(4),
-        VarDirection::Unknown,
-        None,
-        data,
-        None,
-        None,
-    );
+    let data = builder.new_signal(SignalEncoding::BitVector(4));
+    builder.add_var("data", VarType::Reg, VarDirection::Unknown, data);
 
     builder.pop_scope();
     builder.pop_scope();

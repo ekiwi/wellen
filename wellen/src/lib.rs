@@ -56,6 +56,7 @@ pub enum WellenError {
 
 pub type Result<T> = std::result::Result<T, WellenError>;
 
+pub use hierarchy::PublicHierarchyBuilder as HierarchyBuilder;
 pub use hierarchy::{
     Hierarchy, Item, ItemRef, Scope, ScopeRef, ScopeType, SignalEncoding, SignalRef, Timescale,
     TimescaleUnit, Var, VarDirection, VarIndex, VarRef, VarType,

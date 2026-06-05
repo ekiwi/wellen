@@ -1989,6 +1989,52 @@ fn find_parent_scope(scope_stack: &[ScopeStackEntry]) -> usize {
     }
 }
 
+/// Allows construction of a [[Hierarchy]]
+/// Note: this struct wraps a more powerful internal version in order to provide a simpler API.
+pub struct PublicHierarchyBuilder {
+    b: HierarchyBuilder,
+}
+
+impl Default for PublicHierarchyBuilder {
+    fn default() -> Self {
+        let b = HierarchyBuilder::new(FileFormat::Unknown);
+        Self { b }
+    }
+}
+
+impl PublicHierarchyBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn push_scope(&mut self, name: &str, tpe: ScopeType) {
+        let name_id = self.b.add_string(name.into());
+        self.b
+            .add_scope(name_id, None, tpe, None, None, None, false);
+    }
+
+    pub fn pop_scope(&mut self) {
+        self.b.pop_scope();
+    }
+
+    pub fn new_signal(&mut self, enc: SignalEncoding) -> SignalRef {
+        let signal = SignalRef::from_index(self.b.signals.len()).unwrap();
+        self.b.set_encoding_for_ground_signal(signal, enc);
+        signal
+    }
+
+    pub fn add_var(&mut self, name: &str, tpe: VarType, dir: VarDirection, signal: SignalRef) {
+        let name_id = self.b.add_string(name.into());
+        let enc: SignalEncoding = self.b.signals[signal.index()].into();
+        self.b
+            .add_var(name_id, tpe, enc, dir, None, signal, None, None);
+    }
+
+    pub fn finish(self) -> Hierarchy {
+        self.b.finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
