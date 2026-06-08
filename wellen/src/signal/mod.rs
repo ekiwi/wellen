@@ -12,6 +12,7 @@ mod compressed;
 pub use compressed::{CompressedSignal, CompressedTimeTable, Compression};
 mod value;
 pub use value::{Bit, BitVecRef, Real, SignalValue, SignalValueRef, States, bit_char_to_num};
+pub(crate) use value::BitVecValue;
 mod map;
 mod source;
 mod transform;

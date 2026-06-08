@@ -5,7 +5,7 @@
 //
 // Fast and compact wave-form representation inspired by the FST on disk format.
 
-use crate::Compression;
+use crate::{Compression, SignalValue};
 use crate::fst::{get_bytes_per_entry, get_len_and_meta, push_zeros};
 use crate::hierarchy::{Hierarchy, SignalRef};
 use crate::signal::{
@@ -535,6 +535,23 @@ impl Encoder {
         }
     }
 
+
+    /// Register a value change. The caller must ensure that the value format matches the signal encoding.
+    pub fn value_change(&mut self, id: SignalRef, value: SignalValueRef) {
+        debug_assert!(
+            !self.time_table.is_empty(),
+            "We need a call to time_change first!"
+        );
+        if !self.skipping_time_step {
+            let time_idx = (self.time_table.len() - 1) as TimeTableIdx;
+            self.signals[id.index()]
+                .as_mut()
+                .unwrap()
+                .add_value_change(time_idx, value);
+            self.has_new_data = true;
+        }
+    }
+
     /// Call with a value that is already encoded in our internal format.
     /// This is mostly used by the GHW backend.
     pub fn raw_value_change(&mut self, id: SignalRef, value: &[u8], states: States) {
@@ -1019,6 +1036,49 @@ pub struct PublicEncoder {
     e: Encoder,
 }
 
+
+/// A value that represents an owned/borrowed change. Similar to Cow.
+#[derive(Debug, Clone)]
+pub struct ChangeValue<'a>(ChangeValueE<'a>);
+
+#[derive(Debug, Clone)]
+enum ChangeValueE<'a> {
+    Owned(SignalValue),
+    Borrowed(SignalValueRef<'a>)
+}
+
+impl<'a> ChangeValue<'a> {
+    fn as_ref(&'a self) -> SignalValueRef<'a> {
+        match &self.0 {
+            ChangeValueE::Owned(o) => o.into(),
+            ChangeValueE::Borrowed(b) => *b,
+        }
+    }
+}
+
+impl<'a> From<bool> for ChangeValue<'a> {
+    fn from(value: bool) -> Self {
+        let value = crate::signal::BitVecValue::from_u64(value as u64, 1);
+        Self(ChangeValueE::Owned(value.into()))
+    }
+}
+
+impl <'a> From<&'a [u8]> for ChangeValue<'a> {
+    fn from(value: &'a [u8]) -> Self {
+        if let Ok(value) = crate::signal::BitVecValue::try_from_ascii_chars(value) {
+            Self(ChangeValueE::Owned(value.into()))
+        } else {
+            Self(ChangeValueE::Borrowed(std::str::from_utf8(value).unwrap().into()))
+        }
+    }
+}
+
+impl <'a, const N: usize> From<&'a [u8; N]> for ChangeValue<'a> {
+    fn from(value: &'a [u8; N]) -> Self {
+        value.as_slice().into()
+    }
+}
+
 impl PublicEncoder {
     pub fn new(h: &Hierarchy) -> Self {
         let e = Encoder::new(h);
@@ -1029,8 +1089,10 @@ impl PublicEncoder {
         self.e.time_change(time);
     }
 
-    pub fn vcd_value_change(&mut self, signal: SignalRef, value: &[u8]) {
-        self.e.vcd_value_change(signal.index() as u64, value);
+    /// An ASCII encoded bit-vector change. The number of characters must exactly match the length
+    /// of the bit-vector. Allowed characters are 0, 1, x, z, h, u, w, l, -
+    pub fn value_change<'a>(&mut self, signal: SignalRef, value: impl Into<ChangeValue<'a>>) {
+        self.e.value_change(signal, value.into().as_ref())
     }
 
     pub fn snapshot(&self) -> (SignalSource, TimeTable) {

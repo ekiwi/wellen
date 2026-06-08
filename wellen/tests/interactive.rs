@@ -17,11 +17,11 @@ fn test_snapshot_allows_continued_encoding() {
 
     // Initial data, used for the first snapshot.
     encoder.time_change(0);
-    encoder.vcd_value_change(clk, b"0");
-    encoder.vcd_value_change(data, b"b0000");
+    encoder.value_change(clk, false);
+    encoder.value_change(data, b"0000");
     encoder.time_change(5);
-    encoder.vcd_value_change(clk, b"1");
-    encoder.vcd_value_change(data, b"b0011");
+    encoder.value_change(clk, true);
+    encoder.value_change(data, b"0011");
 
     let (mut source1, time_table1) = encoder.snapshot();
     assert_eq!(time_table1, vec![0, 5]);
@@ -37,10 +37,10 @@ fn test_snapshot_allows_continued_encoding() {
 
     // More data after the first snapshot, then snapshot again.
     encoder.time_change(9);
-    encoder.vcd_value_change(data, b"b1010");
+    encoder.value_change(data, b"b1010");
     encoder.time_change(12);
-    encoder.vcd_value_change(clk, b"0");
-    encoder.vcd_value_change(data, b"b1111");
+    encoder.value_change(clk, false);
+    encoder.value_change(data, b"b1111");
 
     let (mut source2, time_table2) = encoder.snapshot();
     assert_eq!(time_table2, vec![0, 5, 9, 12]);

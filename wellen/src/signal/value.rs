@@ -317,13 +317,8 @@ impl BitVecValue {
     pub fn set_bit(&mut self, bit: u32, value: Bit) {
         self.states.set_bit(&mut self.data, bit, value);
     }
-}
 
-impl FromStr for BitVecValue {
-    type Err = ();
-
-    fn from_str(value_bits: &str) -> Result<Self, Self::Err> {
-        let value_bits = value_bits.as_bytes();
+    pub fn try_from_ascii_chars(value_bits: &[u8]) -> Result<Self, ()> {
         let states = States::from_ascii(value_bits).ok_or(())?;
         let width = value_bits.len() as u32;
         let mut data = smallvec![];
@@ -333,6 +328,14 @@ impl FromStr for BitVecValue {
             states,
             data,
         })
+    }
+}
+
+impl FromStr for BitVecValue {
+    type Err = ();
+
+    fn from_str(value_bits: &str) -> Result<Self, Self::Err> {
+        Self::try_from_ascii_chars(value_bits.as_bytes())
     }
 }
 
