@@ -660,10 +660,6 @@ impl SignalToVarMap {
     const NO_NEXT: NonZeroU32 = NonZeroU32::MAX;
 
     fn new(h: &Hierarchy) -> Self {
-        // `index()` is the 0-based max signal index, so the backing array
-        // needs max+1 slots; sizing it to the index alone leaves the
-        // highest-id signal one short, so insert/contains/get index past
-        // the end (an empty Vec for a single-signal file). See issue #133.
         let num_signals = h.signals().last().map(|s| s.index() + 1).unwrap_or(0);
         let entries = vec![None; num_signals];
         Self { entries }
