@@ -660,7 +660,7 @@ impl SignalToVarMap {
     const NO_NEXT: NonZeroU32 = NonZeroU32::MAX;
 
     fn new(h: &Hierarchy) -> Self {
-        let num_signals = h.signals().last().map(|s| s.index()).unwrap_or(0);
+        let num_signals = h.signals().last().map(|s| s.index() + 1).unwrap_or(0);
         let entries = vec![None; num_signals];
         Self { entries }
     }

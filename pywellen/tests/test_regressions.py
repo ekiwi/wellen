@@ -25,3 +25,21 @@ def test_issue_95():
     clk_in_genblk1_a_topology = waves[signal_name]
     assert clk_in_genblk1_a_topology.name == "clk"
     assert clk_in_genblk1_a_topology.full_name == signal_name
+
+
+# https://github.com/ekiwi/wellen/issues/133
+def test_issue_133():
+    # stream_changes / stream_time_steps panicked on the highest-id signal:
+    # SignalToVarMap sized its backing array to the max signal index instead
+    # of max+1, so populating it for that signal indexed past the end (an
+    # empty array for a single-signal file). Streaming all signals of a
+    # single-signal VCD must deliver the changes instead of panicking.
+    waves = Waveform(path=_git_root_rel("wellen/inputs/github_issues/issue133.vcd"))
+
+    changes = []
+    waves.stream_changes(lambda t, _sig, val: changes.append((t, val)), None)
+    assert changes == [(0, 0), (10, 1), (20, 0)]
+
+    steps = []
+    waves.stream_time_steps(lambda t, _vals, _changed: steps.append(t), None)
+    assert steps == [0, 10, 20]
