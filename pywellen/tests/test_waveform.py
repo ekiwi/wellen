@@ -90,9 +90,9 @@ def test_vcd_not_starting_at_zero():
     cpu = waves["gameroy.cpu"]
     assert cpu.name == "cpu"
 
-    pc = next(v for v in cpu.vars() if v.name == "pc")
+    pc = cpu["pc"]
     assert pc.full_name == "gameroy.cpu.pc"
-    sp = next(v for v in cpu.vars() if v.name == "sp")
+    sp = cpu["sp"]
     assert sp.full_name == "gameroy.cpu.sp"
 
     ## querying a signal before it has a value should return none
@@ -233,12 +233,7 @@ def test_fst_enum_signals():
     waves, bb = load_verilator_many_sv_datatypes()
 
     # Find the abc_r variable
-    abc_r = None
-    for var in bb.vars():
-        if var.name == "abc_r":
-            abc_r = var
-            break
-
+    abc_r = bb["abc_r"]
     assert abc_r is not None, "failed to find abc_r"
 
     # Test enum type
@@ -395,3 +390,26 @@ def test_stream_time_steps():
 
     wave.stream_time_steps(on_change, include=wave.all_vars()[0:10])
     check_swerv_changes(changes)
+
+
+def test_signal_slice():
+    filename = _git_root_rel("wellen/inputs/gameroy/trace_prefix.vcd")
+    waves = Waveform(path=filename)
+    pc = waves["gameroy.cpu"]["pc"]
+    values = pc.signal
+    assert len(values) == 4269
+
+    # we check that indexing the signal directly works the same as indexing into the list
+    values_list = list(values)
+    assert values[0] == values_list[0]
+    # negative index
+    assert values[-1] == values_list[-1]
+    assert values[100] == values_list[100]
+    assert values[1:] == values_list[1:]
+    assert values[:] == values_list[:]
+    assert values[::] == values_list[::]
+    assert values[:3] == values_list[:3]
+    assert values[:-3] == values_list[:-3]
+    assert values[-4:-3] == values_list[-4:-3]
+    # step size > 1
+    assert values[2:-3:2] == values_list[2:-3:2]

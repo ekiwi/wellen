@@ -906,16 +906,16 @@ struct Signal {
     time_table: Arc<wellen::TimeTable>,
 }
 
+type SignalChangOrChanges =
+    Either<(wellen::Time, PySignalValue), Vec<(wellen::Time, PySignalValue)>>;
+
 #[pymethods]
 impl Signal {
     fn __len__(&self) -> usize {
         self.signal.time_indices().len()
     }
 
-    fn __getitem__(
-        &self,
-        key: &Bound<'_, PyAny>,
-    ) -> PyResult<Either<(wellen::Time, PySignalValue), Vec<(wellen::Time, PySignalValue)>>> {
+    fn __getitem__(&self, key: &Bound<'_, PyAny>) -> PyResult<SignalChangOrChanges> {
         if let Ok(offset) = key.extract::<isize>() {
             self.get_offset(offset).map(Either::Left)
         } else if let Ok(slice) = key.cast::<PySlice>() {
@@ -940,7 +940,15 @@ impl Signal {
 
 impl Signal {
     fn get_offset(&self, offset: isize) -> PyResult<(wellen::Time, PySignalValue)> {
-        if let Some(time_idx) = self.signal.time_indices().get(offset as usize) {
+        let len = self.signal.time_indices().len();
+        let offset = if offset >= 0 {
+            offset
+        } else {
+            len as isize + offset
+        };
+        if offset >= 0
+            && let Some(time_idx) = self.signal.time_indices().get(offset as usize)
+        {
             let data = self.signal.data().get_value_at(offset as usize);
             let time = self.time_table[*time_idx as usize];
             Ok((time, to_py_signal_value(data)))
@@ -950,10 +958,15 @@ impl Signal {
     }
 
     fn get_slice(&self, slice: PySliceIndices) -> PyResult<Vec<(wellen::Time, PySignalValue)>> {
-        if slice.start >= 0 && slice.stop > slice.start && slice.step == 1 {
-            let range = (slice.start as usize)..(slice.stop as usize);
-            let mut out = Vec::with_capacity(range.len());
-            for offset in range {
+        if slice.start >= 0 && slice.stop > slice.start && slice.step > 0 {
+            let (start, stop, step) = (
+                slice.start as usize,
+                slice.stop as usize,
+                slice.step as usize,
+            );
+            let range = start..stop;
+            let mut out = Vec::with_capacity(range.len().div_ceil(step));
+            for offset in range.step_by(step) {
                 if let Some(time_idx) = self.signal.time_indices().get(offset) {
                     let data = self.signal.data().get_value_at(offset);
                     let time = self.time_table[*time_idx as usize];
