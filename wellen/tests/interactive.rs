@@ -4,12 +4,15 @@
 use std::collections::HashMap;
 use wellen::{
     Encoder, Hierarchy, HierarchyBuilder, ScopeType, Signal, SignalEncoding, SignalRef,
-    SignalSource, VarDirection, VarType,
+    SignalSource, Timescale, TimescaleUnit, VarDirection, VarIndex, VarType,
 };
 
 #[test]
 fn test_snapshot_allows_continued_encoding() {
     let (hierarchy, clk, data) = build_hierarchy();
+    assert!(hierarchy.version().contains("wellen"));
+    assert_eq!(hierarchy.timescale().unwrap().unit, TimescaleUnit::Seconds);
+    assert_eq!(hierarchy.timescale().unwrap().factor, 100);
     let mut encoder = Encoder::new(&hierarchy);
 
     // Initial data, used for the first snapshot.
@@ -62,16 +65,49 @@ fn test_snapshot_allows_continued_encoding() {
 }
 
 fn build_hierarchy() -> (Hierarchy, SignalRef, SignalRef) {
-    let mut builder = HierarchyBuilder::new();
+    let timescale = Timescale::new(100, TimescaleUnit::Seconds);
+    let mut builder = HierarchyBuilder::new(timescale, None, None);
 
-    builder.push_scope("top", ScopeType::Module);
-    builder.push_scope("dut", ScopeType::Module);
+    builder.push_scope("top", ScopeType::Module, Some("Top"));
+    builder.push_scope("dut", ScopeType::Module, Some("MyCoolDesign"));
 
     let clk = builder.new_signal(SignalEncoding::BitVector(1));
-    builder.add_var("clk", VarType::Wire, VarDirection::Unknown, clk);
+    builder.add_var(
+        "clk",
+        VarType::Wire,
+        VarDirection::Unknown,
+        Some("clock_t"),
+        None,
+        None,
+        clk,
+    );
 
     let data = builder.new_signal(SignalEncoding::BitVector(4));
-    builder.add_var("data", VarType::Reg, VarDirection::Unknown, data);
+    let data_index = VarIndex::new(-1, -4);
+    builder.add_var(
+        "data",
+        VarType::Reg,
+        VarDirection::Unknown,
+        Some("data_t"),
+        Some(data_index),
+        None,
+        data,
+    );
+
+    let enum_data = builder.new_signal(SignalEncoding::BitVector(2));
+    let four_state_t = builder.declare_enum(
+        "four_state_t",
+        [("00", "0"), ("01", "1"), ("10", "x"), ("11", "z")].into_iter(),
+    );
+    builder.add_var(
+        "enum_data",
+        VarType::Logic,
+        VarDirection::Input,
+        Some("four_state_t"),
+        None,
+        Some(four_state_t),
+        enum_data,
+    );
 
     builder.pop_scope();
     builder.pop_scope();
@@ -79,6 +115,11 @@ fn build_hierarchy() -> (Hierarchy, SignalRef, SignalRef) {
 
     assert!(hierarchy.lookup_scope(&["top"]).is_some());
     assert!(hierarchy.lookup_scope(&["top", "dut"]).is_some());
+    let dut = hierarchy.lookup_scope(&["top", "dut"]).unwrap();
+    assert_eq!(
+        hierarchy[dut].component(&hierarchy).unwrap(),
+        "MyCoolDesign"
+    );
     assert!(hierarchy.lookup_var(&["top", "dut"], "clk").is_some());
     assert!(hierarchy.lookup_var(&["top", "dut"], "data").is_some());
 
