@@ -3,9 +3,11 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
+use crate::wavemem::write_n_state_from_ascii;
 use num_enum::TryFromPrimitive;
 use smallvec::{SmallVec, ToSmallVec, smallvec};
 use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 
 pub type Real = f64;
 
@@ -265,12 +267,36 @@ pub struct BitVecValue {
 }
 
 impl BitVecValue {
+    #[inline]
     pub fn zero(states: States, width: u32) -> Self {
         Self {
             width,
             states,
             data: smallvec![0; states.bytes_required(width)],
         }
+    }
+
+    pub fn from_u64(value: u64, width: u32) -> Self {
+        if width < u64::BITS {
+            let mask = (1u64 << width) - 1;
+            assert_eq!(
+                value,
+                value & mask,
+                "Cannot represent {value:x} in {width} bits"
+            );
+        }
+        let mut out = Self::zero(States::Two, width);
+        let be_bytes = value.to_be_bytes();
+        let iter_len = std::cmp::min(out.data.len(), be_bytes.len());
+        let data_range = out.data.len() - iter_len..out.data.len();
+        let value_range = be_bytes.len() - iter_len..be_bytes.len();
+        for (oo, vv) in out.data[data_range]
+            .iter_mut()
+            .zip(be_bytes[value_range].iter())
+        {
+            *oo = *vv;
+        }
+        out
     }
 
     pub fn repeat(states: States, width: u32, bit: Bit) -> Self {
@@ -290,6 +316,31 @@ impl BitVecValue {
     /// Sets the numeric (not ASCII!) value of a bit.
     pub fn set_bit(&mut self, bit: u32, value: Bit) {
         self.states.set_bit(&mut self.data, bit, value);
+    }
+}
+
+impl FromStr for BitVecValue {
+    type Err = ();
+
+    fn from_str(value_bits: &str) -> Result<Self, Self::Err> {
+        let value_bits = value_bits.as_bytes();
+        let states = States::from_ascii(value_bits).ok_or(())?;
+        let width = value_bits.len() as u32;
+        let mut data = smallvec![];
+        write_n_state_from_ascii(states, value_bits, |v| data.push(v), None);
+        Ok(Self {
+            width,
+            states,
+            data,
+        })
+    }
+}
+
+impl FromStr for SignalValue {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        BitVecValue::from_str(s).map(|v| v.into())
     }
 }
 
@@ -499,6 +550,123 @@ pub fn bit_char_to_num(value: u8) -> Option<Bit> {
     }
 }
 
+impl From<Real> for SignalValue {
+    fn from(value: Real) -> Self {
+        Self(SignalValueE::Real(value))
+    }
+}
+
+impl From<Real> for SignalValueRef<'_> {
+    fn from(value: Real) -> Self {
+        Self::Real(value)
+    }
+}
+
+impl TryFrom<SignalValueRef<'_>> for Real {
+    type Error = ();
+
+    fn try_from(value: SignalValueRef<'_>) -> Result<Self, Self::Error> {
+        match value {
+            SignalValueRef::Event => Err(()),
+            SignalValueRef::BitVec(b) => {
+                let uint: u64 = b.try_into()?;
+                let candidate = uint as f64;
+                if (candidate as u64) == uint {
+                    Ok(candidate)
+                } else {
+                    Err(())
+                }
+            }
+            SignalValueRef::String(s) => s.parse::<Real>().map_err(|_| ()),
+            SignalValueRef::Real(v) => Ok(v),
+        }
+    }
+}
+
+impl From<String> for SignalValue {
+    fn from(value: String) -> Self {
+        Self(SignalValueE::String(value))
+    }
+}
+
+impl<'a> From<&'a str> for SignalValueRef<'a> {
+    fn from(value: &'a str) -> Self {
+        SignalValueRef::String(value)
+    }
+}
+
+impl TryFrom<BitVecRef<'_>> for u64 {
+    type Error = ();
+
+    fn try_from(value: BitVecRef) -> Result<Self, Self::Error> {
+        let mut out = 0;
+        for (idx, bit) in value.iter_lsb_to_msb().enumerate() {
+            if bit.0 > 1 {
+                // not a 2-state value
+                return Err(());
+            } else if idx < u64::BITS as usize {
+                out |= (bit.0 as u64) << idx;
+            }
+        }
+        Ok(out)
+    }
+}
+
+impl TryFrom<BitVecRef<'_>> for bool {
+    type Error = ();
+
+    fn try_from(value: BitVecRef<'_>) -> Result<Self, Self::Error> {
+        if value.width == 1 {
+            match value.get_bit(0).0 {
+                0 => Ok(false),
+                1 => Ok(true),
+                _ => Err(()),
+            }
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl TryFrom<SignalValueRef<'_>> for u64 {
+    type Error = ();
+
+    fn try_from(value: SignalValueRef<'_>) -> Result<Self, Self::Error> {
+        match value {
+            SignalValueRef::Event => Err(()),
+            SignalValueRef::BitVec(b) => b.try_into(),
+            SignalValueRef::String(s) => s.parse::<u64>().map_err(|_| ()),
+            SignalValueRef::Real(v) => {
+                let candidate = v as u64;
+                if candidate as Real == v {
+                    Ok(candidate)
+                } else {
+                    Err(())
+                }
+            }
+        }
+    }
+}
+
+impl TryFrom<SignalValueRef<'_>> for bool {
+    type Error = ();
+
+    fn try_from(value: SignalValueRef<'_>) -> Result<Self, Self::Error> {
+        match value {
+            SignalValueRef::Event => Err(()),
+            SignalValueRef::BitVec(b) => b.try_into(),
+            SignalValueRef::String(s) => s.parse::<bool>().map_err(|_| ()),
+            SignalValueRef::Real(_) => Err(()),
+        }
+    }
+}
+
+impl From<SignalValueRef<'_>> for String {
+    fn from(value: SignalValueRef<'_>) -> Self {
+        format!("{}", value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -585,5 +753,66 @@ mod tests {
         .bit_string();
         let expected = "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100010000001110110011";
         assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn test_conversions_real() {
+        let inp: Real = 0.345;
+        // f64 -> SignalValue
+        let value: SignalValue = inp.into();
+        // &SignalValue -> SignalValueRef
+        let value_ref: SignalValueRef = (&value).into();
+        // f64 -> SignalValueRef
+        let direct_value_ref: SignalValueRef = inp.into();
+        // SignalValueRef -> f64
+        assert_eq!(inp, value_ref.try_into().unwrap());
+        assert_eq!(inp, direct_value_ref.try_into().unwrap());
+
+        // string value
+        let str_value: SignalValueRef = "0.123".into();
+        assert_eq!(Real::from(0.123), str_value.try_into().unwrap());
+        let str_value_2: SignalValueRef = "bla".into();
+        let maybe_real: Result<Real, _> = str_value_2.try_into();
+        assert!(maybe_real.is_err());
+
+        // bit vec value
+        let value: SignalValue = BitVecValue::from_u64(12345, 32).into();
+        let value_ref: SignalValueRef = (&value).into();
+        assert_eq!(Real::from(12345), value_ref.try_into().unwrap());
+    }
+
+    #[test]
+    fn test_string_conversions() {
+        let real_value: SignalValueRef = 0.345.into();
+        let str_value: SignalValueRef = "1234".into();
+        let bit_vec_value: SignalValue = BitVecValue::from_u64(12345, 32).into();
+        assert_eq!(String::from(real_value), "0.345");
+        assert_eq!(String::from(str_value), "1234");
+        assert_eq!(
+            String::from(SignalValueRef::from(&bit_vec_value)),
+            "00000000000000000011000000111001"
+        );
+    }
+
+    #[test]
+    fn test_bv_conversions() {
+        let state_2: SignalValue = "00010101010".parse().unwrap();
+        assert_eq!(u64::try_from(SignalValueRef::from(&state_2)).unwrap(), 170);
+        let state_2_true: SignalValue = "1".parse().unwrap();
+        assert_eq!(
+            u64::try_from(SignalValueRef::from(&state_2_true)).unwrap(),
+            1
+        );
+        assert!(bool::try_from(SignalValueRef::from(&state_2_true)).unwrap());
+        let state_2_false: SignalValue = "0".parse().unwrap();
+        assert_eq!(
+            u64::try_from(SignalValueRef::from(&state_2_false)).unwrap(),
+            0
+        );
+        assert!(!bool::try_from(SignalValueRef::from(&state_2_false)).unwrap());
+        let state_4: SignalValue = "0zz1010101x".parse().unwrap();
+        assert!(u64::try_from(SignalValueRef::from(&state_4)).is_err());
+        let state_9: SignalValue = "0--1010101x".parse().unwrap();
+        assert!(u64::try_from(SignalValueRef::from(&state_9)).is_err());
     }
 }

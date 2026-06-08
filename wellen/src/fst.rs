@@ -230,14 +230,14 @@ impl SignalWriter {
                             write_n_state_from_ascii(
                                 local_encoding,
                                 value,
-                                &mut self.data_bytes,
+                                |data| self.data_bytes.push(data),
                                 None,
                             );
                         } else {
                             write_n_state_from_ascii(
                                 local_encoding,
                                 value,
-                                &mut self.data_bytes,
+                                |data| self.data_bytes.push(data),
                                 Some(meta_data),
                             );
                         }
@@ -249,7 +249,12 @@ impl SignalWriter {
                         } else {
                             push_zeros(&mut self.data_bytes, len - local_len - 1);
                         }
-                        write_n_state_from_ascii(local_encoding, value, &mut self.data_bytes, None);
+                        write_n_state_from_ascii(
+                            local_encoding,
+                            value,
+                            |data| self.data_bytes.push(data),
+                            None,
+                        );
                     }
 
                     let bytes_per_entry = get_bytes_per_entry(len, has_meta);

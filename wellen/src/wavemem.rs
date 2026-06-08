@@ -872,7 +872,12 @@ impl SignalEncoder {
                         // write time delta + num-states meta-data
                         let time_and_meta = u64::from(time_idx_delta) << 2 | (states as u64);
                         leb128::write::unsigned(&mut self.data, time_and_meta).unwrap();
-                        write_n_state_from_ascii(states, &data_to_write, &mut self.data, None);
+                        write_n_state_from_ascii(
+                            states,
+                            &data_to_write,
+                            |data| self.data.push(data),
+                            None,
+                        );
                     }
                 }
             }
@@ -976,7 +981,7 @@ fn compress_state_representation(value: BitVecRef, out_states: States, out: &mut
 pub fn write_n_state_from_ascii(
     states: States,
     value: &[u8],
-    data: &mut Vec<u8>,
+    mut data_push: impl FnMut(u8),
     meta_data: Option<u8>,
 ) {
     let states_bits = states.bits();
@@ -1000,7 +1005,7 @@ pub fn write_n_state_from_ascii(
                     working_byte |= meta_data;
                 }
             }
-            data.push(working_byte);
+            data_push(working_byte);
             working_byte = 0;
         }
     }
@@ -1085,7 +1090,7 @@ mod tests {
         if is_two_state {
             assert_eq!(identified_state, States::Two);
         }
-        write_n_state_from_ascii(States::Four, value, &mut out, None);
+        write_n_state_from_ascii(States::Four, value, |data| out.push(data), None);
         match expected {
             None => {}
             Some(expect) => {
@@ -1098,7 +1103,7 @@ mod tests {
 
     fn convert_to_bits(states: States, chars: &str) -> Vec<u8> {
         let mut out = Vec::new();
-        write_n_state_from_ascii(states, chars.as_bytes(), &mut out, None);
+        write_n_state_from_ascii(states, chars.as_bytes(), |data| out.push(data), None);
         out
     }
 

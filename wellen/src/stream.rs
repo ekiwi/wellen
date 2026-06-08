@@ -269,7 +269,7 @@ impl SignalValueBuffer {
 
                     // convert from ASCII characters to packed encoding
                     debug_assert!(self.data.is_empty());
-                    write_n_state_from_ascii(states, value, &mut self.data, None);
+                    write_n_state_from_ascii(states, value, |data| self.data.push(data), None);
                     SignalKind::BitVec(states, width)
                 }
                 SignalEncoding::Real => panic!(
@@ -305,7 +305,12 @@ impl SignalValueBuffer {
                         self.data.push(bit_value.into());
                     }
                     VcdBitVecChange::MultiBit(data_to_write) => {
-                        write_n_state_from_ascii(states, &data_to_write, &mut self.data, None);
+                        write_n_state_from_ascii(
+                            states,
+                            &data_to_write,
+                            |data| self.data.push(data),
+                            None,
+                        );
                     }
                 }
                 SignalKind::BitVec(states, width)
