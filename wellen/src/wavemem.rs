@@ -403,6 +403,7 @@ fn load_signal_strings(
 /// A block that contains all value changes in a certain time segment.
 /// Note that while in FST blocks can be skipped, here we only use blocks
 /// in order to combine data from different threads and to compress partial data.
+#[derive(Clone)]
 struct Block {
     start_time: Time,
     time_table: Vec<Time>,
@@ -455,6 +456,7 @@ impl SignalDataOffset {
 }
 
 /// Encodes value and time changes into a compressed in-memory representation.
+#[derive(Clone)]
 pub struct Encoder {
     /// Time table under construction
     time_table: Vec<Time>,
@@ -1008,6 +1010,36 @@ pub fn write_n_state_from_ascii(
             data_push(working_byte);
             working_byte = 0;
         }
+    }
+}
+
+/// Allows construction of a [[SignalSource]]
+/// Note: this struct wraps a more powerful internal version in order to provide a simpler API.
+pub struct PublicEncoder {
+    e: Encoder,
+}
+
+impl PublicEncoder {
+    pub fn new(h: &Hierarchy) -> Self {
+        let e = Encoder::new(h);
+        Self { e }
+    }
+
+    pub fn time_change(&mut self, time: u64) {
+        self.e.time_change(time);
+    }
+
+    pub fn vcd_value_change(&mut self, signal: SignalRef, value: &[u8]) {
+        self.e.vcd_value_change(signal.index() as u64, value);
+    }
+
+    pub fn snapshot(&self) -> (SignalSource, TimeTable) {
+        let snapshot = self.e.clone();
+        snapshot.finish()
+    }
+
+    pub fn finish(self) -> (SignalSource, TimeTable) {
+        self.e.finish()
     }
 }
 

@@ -3,10 +3,10 @@
 // released under BSD 3-Clause License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
-use crate::FileFormat;
 use crate::fst::{Attribute, parse_var_attributes};
 use crate::signal::DerivedBitVecSignal;
 use crate::vcd::{ScopeNames, parse_name};
+use crate::{FileFormat, States, VERSION};
 use indexmap::IndexSet;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::fmt::{Debug, Formatter};
@@ -941,7 +941,7 @@ struct SourceLoc {
     is_instantiation: bool,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Eq, Hash)]
 #[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct EnumTypeId(NonZeroU16);
 
@@ -1986,6 +1986,158 @@ fn find_parent_scope(scope_stack: &[ScopeStackEntry]) -> usize {
         } else {
             return index;
         }
+    }
+}
+
+/// Allows construction of a [[Hierarchy]]
+/// Note: this struct wraps a more powerful internal version in order to provide a simpler API.
+pub struct PublicHierarchyBuilder {
+    b: HierarchyBuilder,
+    enum_info: FxHashMap<EnumTypeId, EnumInfo>,
+}
+
+#[derive(Debug, Clone)]
+struct EnumInfo {
+    from_len: Option<u32>,
+    from_states: Option<States>,
+}
+
+impl Default for PublicHierarchyBuilder {
+    fn default() -> Self {
+        let b = HierarchyBuilder::new(FileFormat::Unknown);
+        Self {
+            b,
+            enum_info: FxHashMap::default(),
+        }
+    }
+}
+
+impl PublicHierarchyBuilder {
+    pub fn new(timescale: Timescale, version: Option<&str>, date: Option<&str>) -> Self {
+        let mut out = Self::default();
+        out.b.set_timescale(timescale);
+        let version = version
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("wellen {}", VERSION));
+        out.b.set_version(version);
+        if let Some(date) = date {
+            out.b.set_date(date.into());
+        }
+        out
+    }
+
+    pub fn push_scope(&mut self, name: &str, tpe: ScopeType, tpe_name: Option<&str>) {
+        let name_id = self.b.add_string(name.into());
+        let component = tpe_name.map(|n| self.b.add_string(n.into()));
+        self.b
+            .add_scope(name_id, component, tpe, None, None, None, false);
+    }
+
+    pub fn pop_scope(&mut self) {
+        self.b.pop_scope();
+    }
+
+    pub fn new_signal(&mut self, enc: SignalEncoding) -> SignalRef {
+        let signal = SignalRef::from_index(self.b.signals.len()).unwrap();
+        self.b.set_encoding_for_ground_signal(signal, enc);
+        signal
+    }
+
+    pub fn declare_enum<'a>(
+        &'a mut self,
+        name: &'a str,
+        map: impl Iterator<Item = (&'a str, &'a str)>,
+    ) -> EnumTypeId {
+        let name_id = self.b.add_string(name.into());
+        let mut from_len = None;
+        let mut from_states = None;
+        let map = map
+            .enumerate()
+            .map(|(ii, (from, to))| {
+                if ii == 0 {
+                    from_len = Some(from.len() as u32);
+                    from_states = States::from_ascii(from.as_bytes());
+                } else {
+                    if let Some(fl) = from_len
+                        && fl as usize != from.len()
+                    {
+                        from_len = None;
+                    }
+                    if let Some(st) = from_states
+                        && Some(st) != States::from_ascii(from.as_bytes())
+                    {
+                        from_states = None;
+                    }
+                }
+
+                (self.b.add_string(from.into()), self.b.add_string(to.into()))
+            })
+            .collect();
+        let enum_id = self.b.add_enum_type(name_id, map);
+        self.enum_info.insert(
+            enum_id,
+            EnumInfo {
+                from_len,
+                from_states,
+            },
+        );
+        enum_id
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_var(
+        &mut self,
+        name: &str,
+        tpe: VarType,
+        dir: VarDirection,
+        tpe_name: Option<&str>,
+        index: Option<VarIndex>,
+        enum_tpe: Option<EnumTypeId>,
+        signal: SignalRef,
+    ) {
+        let name_id = self.b.add_string(name.into());
+        let enc: SignalEncoding = self.b.signals[signal.index()].into();
+        if let Some(index) = index {
+            assert_eq!(
+                index.width(),
+                enc.length()
+                    .expect("only bit-vector values should have an index"),
+                "index width does not match the width of the underlying data"
+            )
+        }
+        let vhdl_type_name = tpe_name.map(|n| self.b.add_string(n.into()));
+
+        // validate enum
+        if let Some(enum_t) = enum_tpe {
+            let info = &self.enum_info.get(&enum_t).expect("unknown enum type id!");
+            match enc {
+                SignalEncoding::String => {} // string is always ok
+                SignalEncoding::Real => {
+                    panic!("The signal is a real (float!). Cannot match with an enum.")
+                }
+                SignalEncoding::BitVector(len) => {
+                    let expected_len = info.from_len.expect(
+                        "enums that translate bit vectors need to have fixed-length `from` values",
+                    );
+                    let _ = info.from_states.expect("enums that translate bit vectors may only use any of the 9-state characters in their from values");
+                    assert_eq!(expected_len, len);
+                }
+            }
+        }
+        self.b.add_var(
+            name_id,
+            tpe,
+            enc,
+            dir,
+            index,
+            signal,
+            enum_tpe,
+            vhdl_type_name,
+        );
+    }
+
+    pub fn finish(self) -> Hierarchy {
+        self.b.finish()
     }
 }
 
