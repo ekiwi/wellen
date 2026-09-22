@@ -97,7 +97,10 @@ pub fn read_header_from_file<P: AsRef<std::path::Path>>(
         multi_thread: options.multi_thread,
         header_len,
         lookup,
-        input: Input::Mmap(mmap),
+        input: Input::Mmap {
+            mmap,
+            file: input_file,
+        },
     };
     Ok((hierarchy, cont, body_len))
 }
@@ -134,7 +137,10 @@ pub struct ReadBodyContinuation<R: BufRead + Seek> {
 
 enum Input<R: BufRead + Seek> {
     Reader(R),
-    Mmap(memmap2::Mmap),
+    Mmap {
+        mmap: memmap2::Mmap,
+        file: std::fs::File,
+    },
 }
 
 pub fn read_body<R: BufRead + Seek>(
@@ -158,8 +164,10 @@ pub fn read_body<R: BufRead + Seek>(
             )?;
             encoder.finish()
         }
-        Input::Mmap(mmap) => read_values(
-            &mmap[data.header_len..],
+        Input::Mmap { mmap, file } => read_values(
+            mmap,
+            &file,
+            data.header_len,
             data.multi_thread,
             hierarchy,
             &data.lookup,
@@ -1078,6 +1086,9 @@ enum HeaderCmd<'a> {
 
 /// The minimum number of bytes we want to read per thread.
 const MIN_CHUNK_SIZE: usize = 8 * 1024;
+/// Limit how much input each job touches before releasing its mapping. Parsing may
+/// read beyond this limit to finish a timestep.
+const MAX_CHUNK_SIZE: usize = 8 * 1024 * 1024;
 
 /// Returns starting byte and read length for every thread. Note that read-length is just an
 /// approximation and the thread might have to read beyond or might also run out of data before
@@ -1087,48 +1098,64 @@ fn determine_thread_chunks(body_len: usize) -> Vec<(usize, usize)> {
     let max_threads = rayon::current_num_threads();
     let number_of_threads_for_min_chunk_size = body_len.div_ceil(MIN_CHUNK_SIZE);
     let num_threads = std::cmp::min(max_threads, number_of_threads_for_min_chunk_size);
-    let chunk_size = body_len.div_ceil(num_threads);
-    // TODO: for large file it might make sense to have more chunks than threads
-    (0..num_threads)
+    let chunk_size = body_len.div_ceil(num_threads).min(MAX_CHUNK_SIZE);
+    (0..body_len.div_ceil(chunk_size))
         .map(|ii| (ii * chunk_size, chunk_size))
         .collect()
 }
 
 /// Reads the body of a VCD with multiple threads
 fn read_values(
-    input: &[u8],
+    mmap: memmap2::Mmap,
+    file: &std::fs::File,
+    header_len: usize,
     multi_thread: bool,
     hierarchy: &Hierarchy,
     lookup: &IdLookup,
     progress: Option<ProgressCount>,
 ) -> crate::Result<(SignalSource, TimeTable)> {
     if multi_thread {
-        let chunks = determine_thread_chunks(input.len());
-        let encoders: crate::Result<Vec<crate::wavemem::Encoder>> = chunks
-            .par_iter()
-            .map(|(start, len)| {
-                let is_first = *start == 0;
-                let mut inp = std::io::Cursor::new(&input[*start..]);
-                read_single_stream_of_values(
-                    &mut inp,
-                    *len - 1,
-                    is_first,
-                    hierarchy,
-                    lookup,
-                    progress.clone(),
-                )
-            })
-            .collect();
-        let encoders = encoders?;
-
-        // combine encoders
-        let mut encoder_iter = encoders.into_iter();
-        let mut encoder = encoder_iter.next().unwrap();
-        for other in encoder_iter {
-            encoder.append(other);
+        let body_len = mmap.len() - header_len;
+        // The header mapping must not keep input pages resident after a parsing job finishes.
+        drop(mmap);
+        let chunks = determine_thread_chunks(body_len);
+        // Merge each batch before parsing more input so unfinished signal buffers
+        // and per-signal encoder metadata are bounded by the worker count.
+        let mut combined: Option<crate::wavemem::Encoder> = None;
+        for batch in chunks.chunks(rayon::current_num_threads()) {
+            let encoders: crate::Result<Vec<crate::wavemem::Encoder>> = batch
+                .par_iter()
+                .map(|(start, len)| {
+                    let is_first = *start == 0;
+                    let mmap = unsafe {
+                        memmap2::MmapOptions::new()
+                            .offset((header_len + start) as u64)
+                            .len(body_len - start)
+                            .map(file)?
+                    };
+                    let mut inp = std::io::Cursor::new(&mmap[..]);
+                    read_single_stream_of_values(
+                        &mut inp,
+                        *len - 1,
+                        is_first,
+                        hierarchy,
+                        lookup,
+                        progress.clone(),
+                    )
+                })
+                .collect();
+            for encoder in encoders? {
+                match &mut combined {
+                    Some(combined) => combined.append(encoder),
+                    None => combined = Some(encoder),
+                }
+            }
         }
-        Ok(encoder.finish())
+        Ok(combined
+            .expect("VCD body must contain a parsing job")
+            .finish())
     } else {
+        let input = &mmap[header_len..];
         let mut inp = std::io::Cursor::new(input);
         let encoder = read_single_stream_of_values(
             &mut inp,
@@ -1470,7 +1497,7 @@ pub fn stream_body<
             disp.enc.finish();
             Ok(())
         }
-        Input::Mmap(mmap) => {
+        Input::Mmap { mmap, .. } => {
             let data = &mmap[data.header_len..];
             let mut input = std::io::Cursor::new(data);
             let stop_pos = data.len() - 1;
