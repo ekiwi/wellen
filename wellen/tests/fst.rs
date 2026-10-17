@@ -294,3 +294,35 @@ fn fst_character_encoding() {
         SignalValueRef::String("3±0.3°C and ½×¾ cup of sugar                      ")
     );
 }
+
+/// Some writers declare `real` parameters as 64-bit bit-vectors, but then store the raw `f64`
+/// bytes instead of an ASCII bit string. We used to panic on these values.
+/// Malformed values are now loaded as all `x`, without affecting any other signal.
+#[test]
+fn fst_malformed_bit_vector_value() {
+    let mut waves = read("inputs/wellen/malformed_bitvec_value.fst").unwrap();
+    let h = waves.hierarchy();
+    let signals: Vec<_> = ["clk", "WINDOW", "WIDTH"]
+        .into_iter()
+        .map(|name| h[h.lookup_var(&["top"], name).unwrap()].signal_ref())
+        .collect();
+    waves.load_signals(&signals);
+    let tt = waves.time_table().to_vec();
+    let trace = |signal_ref| {
+        waves
+            .get_signal(signal_ref)
+            .unwrap()
+            .iter_changes()
+            .map(|(time_idx, value)| {
+                format!(
+                    "@{}={}",
+                    tt[time_idx as usize],
+                    value.to_bit_string().unwrap()
+                )
+            })
+            .join(", ")
+    };
+    assert_eq!(trace(signals[0]), "@0=0, @5=1, @10=0");
+    assert_eq!(trace(signals[1]), format!("@0={}", "x".repeat(64)));
+    assert_eq!(trace(signals[2]), "@0=00001000");
+}
