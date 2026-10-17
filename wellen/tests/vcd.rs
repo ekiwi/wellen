@@ -356,6 +356,44 @@ fn vcd_questa_sim_undo_bit_split() {
     assert_eq!(values, ["0: 0000000000010100"]);
 }
 
+/// Reassembled bits can start after other signals have already changed.
+#[test]
+fn vcd_undo_bit_split_with_late_start() {
+    let mut waves = read_from_reader(std::io::Cursor::new(SPLIT_VECTOR_LATE_VCD.to_string()))
+        .expect("failed to parse");
+    let bus = waves.hierarchy().lookup_var(&["top"], "bus").unwrap();
+    let bus_signal_ref = waves.hierarchy()[bus].signal_ref();
+    waves.load_signals(&[bus_signal_ref]);
+    let bus_signal = waves.get_signal(bus_signal_ref).unwrap();
+    let changes = bus_signal
+        .iter_changes()
+        .map(|(time_idx, value)| format!("{}: {value}", waves.time_table()[time_idx as usize]))
+        .collect::<Vec<_>>();
+    assert_eq!(changes, ["1: 00", "2: 11", "3: 00"]);
+}
+
+const SPLIT_VECTOR_LATE_VCD: &str = "\
+$timescale 1 ns $end
+$scope module top $end
+$var wire 1 ! bus [1] $end
+$var wire 1 \" bus [0] $end
+$var wire 1 # clk $end
+$upscope $end
+$enddefinitions $end
+#0
+0#
+#1
+0!
+0\"
+#2
+1!
+1\"
+#3
+0!
+0\"
+#4
+";
+
 /// Issue reported by @neveltyc:
 /// https://github.com/ekiwi/wellen/issues/124
 #[test]
