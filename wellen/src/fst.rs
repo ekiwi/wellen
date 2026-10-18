@@ -186,18 +186,17 @@ impl SignalWriter {
                     self.time_indices.push(time_idx);
                 }
                 SignalEncoding::BitVector(bits) => {
-                    debug_assert_eq!(
-                        value.len(),
-                        bits as usize,
-                        "{}",
-                        String::from_utf8_lossy(value)
-                    );
-                    let local_encoding = States::from_ascii(value).unwrap_or_else(|| {
-                        panic!(
-                            "Unexpected signal value: {}",
-                            String::from_utf8_lossy(value)
-                        )
-                    });
+                    // Some writers store values that are not a bit string of the declared width,
+                    // e.g., the raw bytes of an f64 for a `real` parameter declared as 64 bits.
+                    // We treat these as unknown (all `x`) instead of panicking.
+                    let unknown;
+                    let (value, local_encoding): (&[u8], States) = match States::from_ascii(value) {
+                        Some(states) if value.len() == bits as usize => (value, states),
+                        _ => {
+                            unknown = vec![b'x'; bits as usize];
+                            (&unknown, States::Four)
+                        }
+                    };
 
                     let signal_states = States::join(self.max_states, local_encoding);
                     if signal_states != self.max_states {
