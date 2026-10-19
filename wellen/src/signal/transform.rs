@@ -43,7 +43,7 @@ fn transform_bv_signal(
             for (ii, i_time) in i.time_indices.iter().enumerate() {
                 if *i_time > time {
                     return if ii > 0 {
-                        Some(i.time_indices[ii - 1])
+                        Some((ii - 1) as u32)
                     } else {
                         None
                     };
