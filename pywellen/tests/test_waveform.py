@@ -41,6 +41,17 @@ def test_var_and_scope_index_api():
     assert len(dd) == 1
 
 
+def test_var_index():
+    """
+    The declared bit range of a variable, as (msb, lsb), or None when the file records none.
+    """
+    filename = _git_root_rel("wellen/inputs/xilinx_isim/test.vcd")
+    wave = Waveform(filename)
+    assert wave["simulation.x"].index == (15, 0)
+    assert wave["simulation.dut.m1.x"].index == (0, 15)
+    assert wave["simulation.clock_iht"].index is None
+
+
 def test_var_change_access():
     """
     We automagically load signals if needed in order to provide an interface similar to vcdvcd

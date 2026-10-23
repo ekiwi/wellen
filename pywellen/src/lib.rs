@@ -231,6 +231,12 @@ impl Var {
         self.h()[self.id].full_name(&self.h()).to_string()
     }
 
+    /// Declared `(msb, lsb)` bit range, or `None` when the file recorded no range.
+    #[getter]
+    pub fn index(&self) -> Option<(i64, i64)> {
+        self.h()[self.id].index().map(|i| (i.msb(), i.lsb()))
+    }
+
     #[getter]
     pub fn bitwidth(&self) -> Option<u32> {
         self.h()[self.id].length(&self.h())
