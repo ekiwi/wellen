@@ -34,6 +34,37 @@ fn test_new_verilator_fst_attributes() {
     check_arru_arrp_t_scope(h, v_arru_arrp);
 }
 
+/// A 2-D unpacked array: `logic [3:0] grid [0:1][0:1];`
+/// Verilator nests a scope per dimension but still names every variable in full, even when
+/// both indices of an element are equal (issue #153).
+#[test]
+fn test_verilator_2d_unpacked_array() {
+    let filename = "inputs/verilator/verilator_2d_unpacked_array.fst";
+    let waves = read(filename).expect("failed to parse");
+    let h = waves.hierarchy();
+
+    let mut names: Vec<String> = h.all_vars().map(|v| h[v].full_name(h)).collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "top.grid.[0].[0]",
+            "top.grid.[0].[1]",
+            "top.grid.[1].[0]",
+            "top.grid.[1].[1]"
+        ]
+    );
+
+    let grid = &h[h.lookup_scope(&["top", "grid"]).unwrap()];
+    let dimensions = child_scopes(h, grid);
+    assert_eq!(dimensions.len(), 2);
+    for (ii, dimension) in dimensions.iter().enumerate() {
+        assert_eq!(dimension.name(h), format!("[{ii}]"));
+        assert_no_scopes(h, dimension);
+        assert_eq!(child_vars(h, dimension).len(), 2);
+    }
+}
+
 /// A packed array of bits: `typedef bit [2:1] arrp_t;`
 fn check_arrp_t_var(_h: &Hierarchy, var: &Var) {
     let index = var.index().expect("should have an index");
