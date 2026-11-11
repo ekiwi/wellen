@@ -1763,10 +1763,13 @@ impl HierarchyBuilder {
             if parent.is_array() {
                 let name = &self.strings[name_id.index()];
                 let parent_name = &self.strings[parent.name.index()];
-                let n1 = if let Some(suffix) = name.strip_prefix(parent_name) {
-                    suffix
-                } else {
-                    name
+                // An empty suffix names a 1-bit element (`v_arru[2]` below `v_arru`), but not an
+                // inner index that equals its parent's (`[0]` below `[0]`, issue #153).
+                let is_element =
+                    parent.is_unpacked_array() && index.is_some_and(|ii| ii.width() == 1);
+                let n1 = match name.strip_prefix(parent_name) {
+                    Some(suffix) if !suffix.is_empty() || is_element => suffix,
+                    _ => name,
                 };
 
                 // remove array scopes if they already exist
@@ -1789,10 +1792,7 @@ impl HierarchyBuilder {
                 }
 
                 // for unpacked array elements, the "index" is most likely the actual array index instead of a bit index
-                if parent.is_unpacked_array()
-                    && let Some(index) = index
-                    && index.width() == 1
-                {
+                if is_element && let Some(index) = index {
                     let new_name = format!("{n1}[{}]", index.lsb());
                     let new_name_id = self.add_string(new_name.into());
                     return (new_name_id, None);
